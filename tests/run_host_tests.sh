@@ -426,8 +426,15 @@ for mode in jit interp; do
     grep -q "finished with code 3" $T/wasi_$mode.txt || { echo "WASI ($mode): proc_exit code"; cat $T/wasi_$mode.txt; exit 1; }
     grep -v "^wasm: " $T/wasi_$mode.txt | cmp -s - tests/wasi_expected.txt || { echo "WASI ($mode): output differs"; cat $T/wasi_$mode.txt; exit 1; }
 done
+echo "== wasm: WASI files (flat sandbox: create, read, append, seek, readdir, rename, unlink, limits), stdin, args, poll =="
+for mode in jit interp; do
+    if [ $mode = interp ]; then export WASM_NOJIT=1; else unset WASM_NOJIT; fi
+    WASM_STDIN=$'hello\nworld\n' WASM_ARGS="one two" UBSAN_OPTIONS=halt_on_error=1 ASAN_OPTIONS=detect_leaks=0 $T/wasmh build-wasm/wasifs.wasm > $T/wasifs_$mode.txt 2>&1 || true
+    grep -q "finished with code 0" $T/wasifs_$mode.txt || { echo "WASI files ($mode): exit code"; cat $T/wasifs_$mode.txt; exit 1; }
+    grep -v "^wasm: " $T/wasifs_$mode.txt | cmp -s - tests/wasifs_expected.txt || { echo "WASI files ($mode): output differs"; diff <(grep -v "^wasm: " $T/wasifs_$mode.txt) tests/wasifs_expected.txt; exit 1; }
+done
 unset WASM_NOJIT
-echo "wasm: WASI subset passed (JIT and interpreter)"
+echo "wasm: WASI subset and files passed (JIT and interpreter)"
 clang -O2 -DKW_NATIVE -w -Iuserland/wasm -o $T/ftest_native userland/wasm/ftest.c -lm
 $T/ftest_native > $T/f_native.txt
 UBSAN_OPTIONS=halt_on_error=1 ASAN_OPTIONS=detect_leaks=0 $T/wasmh build-wasm/ftest.wasm | grep -v "^wasm: " > $T/f_body.txt

@@ -713,6 +713,65 @@ static spinlock_t req_lock = SPINLOCK_INIT;
 static char req_q[REQ_N][REQ_LEN];
 static unsigned req_head, req_tail;
 
+/* ---- стандартный ввод программы ---- */
+#define IN_LINES 4
+static spinlock_t in_lock = SPINLOCK_INIT;
+static uint32_t in_owner, in_intr_pid;
+static char in_q[IN_LINES][LINE_MAX + 2];
+static unsigned in_qlen[IN_LINES], in_head, in_tail, in_off;
+static int in_eof;
+
+int console_stdin_begin(uint32_t pid) {
+    uint64_t f = spin_lock_irqsave(&in_lock);
+    int r = 0;
+    if (in_owner && in_owner != pid) r = -16;
+    else if (!in_owner) { in_owner = pid; in_head = in_tail = in_off = 0; in_eof = 0; }
+    spin_unlock_irqrestore(&in_lock, f);
+    return r;
+}
+int64_t console_stdin_poll(uint32_t pid, char* out, uint64_t cap) {
+    uint64_t f = spin_lock_irqsave(&in_lock);
+    int64_t r = -11;
+    if (in_intr_pid == pid) { in_intr_pid = 0; r = -4; }
+    else if (in_owner != pid) r = -4;
+    else if (in_tail != in_head) {
+        unsigned i = in_tail % IN_LINES, left = in_qlen[i] - in_off, n = cap < left ? (unsigned)cap : left;
+        for (unsigned k = 0; k < n; k++) out[k] = in_q[i][in_off + k];
+        in_off += n;
+        if (in_off == in_qlen[i]) { in_off = 0; in_tail++; }
+        r = n;
+    } else if (in_eof) { in_eof = 0; r = 0; }
+    spin_unlock_irqrestore(&in_lock, f);
+    return r;
+}
+void console_stdin_release(uint32_t pid) {
+    uint64_t f = spin_lock_irqsave(&in_lock);
+    if (in_owner == pid) in_owner = 0;
+    if (in_intr_pid == pid) in_intr_pid = 0;
+    spin_unlock_irqrestore(&in_lock, f);
+}
+/* 1 - строка принята программой (оболочка её не видит). */
+static int stdin_take_line(void) {
+    uint64_t f = spin_lock_irqsave(&in_lock);
+    int taken = 0;
+    if (in_owner) {
+        taken = 1;
+        if (in_head - in_tail < IN_LINES) {
+            char* q = in_q[in_head % IN_LINES]; unsigned n = line_len;
+            for (unsigned k = 0; k < n; k++) q[k] = line[k];
+            q[n++] = '\n'; in_qlen[in_head % IN_LINES] = n; in_head++;
+        }                                                          /* очередь полна: строку теряем, как терминал без места */
+    }
+    spin_unlock_irqrestore(&in_lock, f);
+    return taken;
+}
+static int stdin_owned(void) { uint64_t f = spin_lock_irqsave(&in_lock); int r = in_owner != 0; spin_unlock_irqrestore(&in_lock, f); return r; }
+static void stdin_signal(int ctrl_c) {                            /* Ctrl+C: ввод возвращается оболочке; Ctrl+D: конец ввода */
+    uint64_t f = spin_lock_irqsave(&in_lock);
+    if (ctrl_c) { in_intr_pid = in_owner; in_owner = 0; } else in_eof = 1;
+    spin_unlock_irqrestore(&in_lock, f);
+}
+
 int console_request(const char* l) {
     if (!l) return -1;
     unsigned len = 0;
@@ -763,7 +822,13 @@ void console_poll(void) {
         input_note_event();
         if (c == '\n' && last_cr) { last_cr = 0; continue; }       // пара CR LF от терминала - одна команда
         last_cr = (c == '\r');
-        if (c == '\r' || c == '\n') {
+        if ((c == '\r' || c == '\n') && stdin_owned()) {           // программа читает ввод: строка ей, не оболочке
+            uart_putchar('\n');
+            stdin_take_line();
+            line_len = 0;
+        } else if (c == 4 && line_len == 0 && stdin_owned()) {      // Ctrl+D на пустой строке: конец ввода программы
+            stdin_signal(0);
+        } else if (c == '\r' || c == '\n') {
             uart_putchar('\n');
             line[line_len] = 0;
             history_add(line);
@@ -779,6 +844,7 @@ void console_poll(void) {
         } else if (c == 21) {                                         // Ctrl+U
             erase_echo();
         } else if (c == 3) {                                          // Ctrl+C
+            if (stdin_owned()) stdin_signal(1);                       // программа теряет ввод, оболочка возвращается
             uart_print("^C\n"); line_len = 0; hist_pos = hist_n; show_prompt();
         } else if (c == 12) {                                         // Ctrl+L: очистить, строку оставить
             cmd_clear(0);

@@ -183,6 +183,9 @@ static inline i64 k_udp_sendto(i64 s, const ksockaddr_t* to, const void* p, u64 
 static inline i64 k_udp_recvfrom(i64 s, void* buf, u32 cap, u32 timeout_ms) { return ksys(K_UDP_RECVFROM, (u64)s, (u64)buf, (u64)cap | (u64)timeout_ms << 32); }
 /* Строка аргументов запуска (run имя аргументы): длина или < 0. */
 static inline i64 k_args(char* buf, u64 cap) { return ksys(K_ARGS, (u64)buf, cap, 0); }
+/* Строка консоли (с \n), право CAP_STDIN. Пока программа читает, консоль отдаёт ей набранное, оболочке - нет. 0 - конец ввода (Ctrl+D), -4 - прервано (Ctrl+C), -16 - ввод у другой программы. */
+enum { K_STDIN = 58 };
+static inline i64 k_stdin(void* buf, u64 cap) { return ksys(K_STDIN, (u64)buf, cap, 0); }
 
 /* Точка входа: выравнивает стек, вызывает umain, затем exit. */
 #if defined(__KIRA__) && defined(__x86_64__)

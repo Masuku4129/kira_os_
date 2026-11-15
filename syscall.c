@@ -75,6 +75,7 @@ static userlog_t ulog;
 #define SYS_NET_PEER      47 // (h, адрес сокета) -> семейство собеседника соединения
 #define SYS_TIME          37 // -> секунды UTC от 1970 (часы реального времени) или -1, если часов нет
 #define SYS_JIT           56 // (операция JIT_ALLOC/JIT_SEAL, a, b) -> адрес окна кода / 0 или отрицательный код; право CAP_JIT
+#define SYS_STDIN         58 // (буфер, ёмкость <= 4096) -> байт строки консоли (с \n); 0 - конец ввода; < 0 - ошибка, -4 прервано, -16 ввод у другой программы; право CAP_STDIN
 #define SYS_RANDOM        36 // (буф, байт <= 256) -> 1 аппаратный источник, 0 - только время событий
 
 #define SYS_MAX_WRITE 4096
@@ -134,6 +135,7 @@ static uint32_t cap_needed(uint64_t nr) {
     case SYS_PORT_OPEN: case SYS_PORT_SEND: case SYS_PORT_RECV: case SYS_SHM_OPEN: case SYS_SHM_MAP: return CAP_IPC;
     case SYS_THREAD_CREATE: return CAP_THREAD;
     case SYS_JIT: return CAP_JIT;
+    case SYS_STDIN: return CAP_STDIN;
     /* Драйверы Ring 3 (kdrv.c): права выдаёт только менеджер драйверов, процессу обычной программы они недоступны; устройство - привязка процесса. */
     case KDRV_SYS_INFO: return CAP_DRIVER_;                         /* свои устройство и права: любое из прав драйвера */
     case KDRV_SYS_CFG_READ: case KDRV_SYS_CFG_WRITE: return CAP_PCIDEV;
@@ -310,6 +312,18 @@ static uint64_t dispatch(uint64_t nr, uint64_t a1, uint64_t a2, uint64_t a3) {
         int bad = a2 && copy_to_user(a1, rb, a2) != 0;
         crypto_wipe(rb, sizeof rb);
         return bad ? (uint64_t)-10 : (uint64_t)q;
+    }
+    case SYS_STDIN: {
+        if (!a2 || a2 > 4096) return (uint64_t)-2;
+        char kb[512]; uint64_t cap = a2 < sizeof kb ? a2 : sizeof kb;
+        uint32_t pid = (uint32_t)proc_current_pid();
+        if (svc.stdin_begin(pid) < 0) return (uint64_t)-16;
+        for (;;) {
+            int64_t r = svc.stdin_poll(pid, kb, cap);
+            if (r != -11) return r > 0 && copy_to_user(a1, kb, (uint64_t)r) != 0 ? (uint64_t)-10 : (uint64_t)r;
+            if (proc_dying()) return (uint64_t)-4;
+            sched_sleep_ticks(TIMER_PER_10MS);                    // строки ещё нет: ждать, не занимая ядро
+        }
     }
     case SYS_ARGS: {
         const char* s = proc_current_args();

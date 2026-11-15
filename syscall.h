@@ -21,6 +21,8 @@ typedef struct {
     int64_t (*net)(unsigned op, uint64_t a1, uint64_t a2, uint64_t a3);
     int64_t (*udp)(unsigned op, uint64_t a1, uint64_t a2, uint64_t a3);
     int64_t (*kdrv)(unsigned nr, uint64_t a1, uint64_t a2, uint64_t a3);
+    int     (*stdin_begin)(uint32_t pid);                           /* стандартный ввод (console.h): begin/poll */
+    int64_t (*stdin_poll)(uint32_t pid, char* out, uint64_t cap);
 } syscall_services_t;
 void syscall_set_services(const syscall_services_t* s);   /* до запуска первой программы (wire_init) */
 

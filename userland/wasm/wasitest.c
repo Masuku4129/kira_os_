@@ -33,8 +33,9 @@ int _start(void) {
     long long t0 = 0, t1 = 0;
     num("clock monotonic rc ", clock_time_get(1, 1, &t0)); clock_time_get(1, 1, &t1);
     num("clock monotonic non-decreasing ", t1 >= t0);
-    num("clock realtime rc ", clock_time_get(0, 1, &t0));            /* 52 (NOSYS): настенные часы не отдаются */
-    int argc = -1, asz = -1; num("args rc ", args_sizes_get(&argc, &asz)); num("argc ", argc); num("argv size ", asz);
+    num("clock realtime rc ", clock_time_get(0, 1, &t0)); num("clock realtime plausible ", t0 > 1000000000ll * 1000000000ll);   /* RTC, секунды */
+    num("clock unknown id rc ", clock_time_get(5, 1, &t0));          /* 52 (NOSYS) */
+    int argc = -1, asz = -1; num("args rc ", args_sizes_get(&argc, &asz)); num("argc ", argc); num("argv size positive ", asz > 0);
     int ne = -1, esz = -1; num("environ rc ", environ_sizes_get(&ne, &esz)); num("environ n ", ne);
     unsigned char st[24]; num("fdstat rc ", fd_fdstat_get(1, st)); num("fdstat filetype ", st[0]);
     long long pos; num("seek stdout rc ", fd_seek(1, 0, 0, &pos));    /* 70 (SPIPE) */

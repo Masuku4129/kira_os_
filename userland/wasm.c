@@ -6,9 +6,8 @@
    расширение знака (0xC0-0xC4), memory.copy/fill.
    Импорт модуля "kira": write(ptr,len), sleep(ticks), ticks()->i64, exit(code), gfx_create(w,h)->i32,
    gfx_present(ptr) (пиксели 0x00RRGGBB из памяти модуля), gfx_event(ptr)->i32 (16 байт: type,a,b,c).
-   Импорт модуля "wasi_snapshot_preview1" (подмножество WASI 0.1, чтобы модули из C/Rust/Zig для wasm32-wasi запускались без своего ABI):
-   fd_write (fd 1, 2 - консоль), fd_close/fd_seek/fd_fdstat_get (только fd 0-2), proc_exit, clock_time_get (только монотонные часы), random_get (ядерный RNG),
-   args и environ (пусты). Остальное WASI (файлы, сокеты) не поддержано: такой импорт отвергается при загрузке.
+   Импорт модуля "wasi_snapshot_preview1": WASI 0.1 целиком (wasi_host.h) - аргументы, стандартный ввод, файлы в песочнице /data/wasm, часы,
+   случайные байты, ожидание по часам; что не поддержано, отвечает ENOSYS/ENOTSUP, а не ложным успехом (границы описаны в wasi_host.h).
    Запуск: wasm /путь/к/модулю.wasm (или двойной щелчок по .wasm в Проводнике). */
 #include "kira.h"
 KIRA_ENTRY()
@@ -109,11 +108,8 @@ static u32 entry = ~0u;
 static const u8* mod; static u32 modlen;
 
 enum { IMP_WRITE, IMP_SLEEP, IMP_TICKS, IMP_EXIT, IMP_GFX_CREATE, IMP_GFX_PRESENT, IMP_GFX_EVENT,
-       IMP_WASI_FIRST,                                                        /* с этого номера - модуль wasi_snapshot_preview1 */
-       IMP_W_FD_WRITE = IMP_WASI_FIRST, IMP_W_PROC_EXIT, IMP_W_CLOCK_TIME_GET, IMP_W_ARGS_SIZES_GET, IMP_W_ARGS_GET,
-       IMP_W_ENVIRON_SIZES_GET, IMP_W_ENVIRON_GET, IMP_W_FD_CLOSE, IMP_W_FD_SEEK, IMP_W_FD_FDSTAT_GET, IMP_W_RANDOM_GET, IMP_N };
-static const char* const imp_names[IMP_N] = { "write", "sleep", "ticks", "exit", "gfx_create", "gfx_present", "gfx_event",
-    "fd_write", "proc_exit", "clock_time_get", "args_sizes_get", "args_get", "environ_sizes_get", "environ_get", "fd_close", "fd_seek", "fd_fdstat_get", "random_get" };
+       IMP_WASI_FIRST };                                                      /* с этого номера - wasi_snapshot_preview1: IMP_WASI_FIRST + IW_* (wasi_host.h) */
+static const char* const imp_names[IMP_WASI_FIRST] = { "write", "sleep", "ticks", "exit", "gfx_create", "gfx_present", "gfx_event" };
 
 static u32 leb_u(const u8** p, const u8* end) {
     u32 r = 0;
@@ -150,8 +146,12 @@ static i64 leb_s(const u8** p, const u8* end, int bits) {
     }
     trap("unterminated signed LEB128"); return 0;
 }
+#define WASI_PART 1
+#include "wasi_host.h"
+#undef WASI_PART
 static int import_signature_valid(u32 id, const ftype_t* t) {
     static const u8 i32t = 0x7F, i64t = 0x7E;
+    if (id >= IMP_WASI_FIRST) return wasi_sig_ok(id - IMP_WASI_FIRST, t);
     switch (id) {
     case IMP_WRITE: return t->np == 2 && t->nr == 1 && t->p[0] == i32t && t->p[1] == i32t;
     case IMP_SLEEP: return t->np == 1 && t->nr == 0 && (t->p[0] == i32t || t->p[0] == i64t);     /* kw_sleep(int): модули собраны с i32 */
@@ -160,13 +160,6 @@ static int import_signature_valid(u32 id, const ftype_t* t) {
     case IMP_GFX_CREATE: return t->np == 2 && t->nr == 1 && t->p[0] == i32t && t->p[1] == i32t;
     case IMP_GFX_PRESENT: return t->np == 1 && t->nr <= 1 && t->p[0] == i32t;                 /* kw_gfx_present возвращает int (0) */
     case IMP_GFX_EVENT: return t->np == 1 && t->nr == 1 && t->p[0] == i32t;
-    case IMP_W_FD_WRITE: return t->np == 4 && t->nr == 1 && t->p[0] == i32t && t->p[1] == i32t && t->p[2] == i32t && t->p[3] == i32t;
-    case IMP_W_PROC_EXIT: return t->np == 1 && t->nr == 0 && t->p[0] == i32t;
-    case IMP_W_CLOCK_TIME_GET: return t->np == 3 && t->nr == 1 && t->p[0] == i32t && t->p[1] == i64t && t->p[2] == i32t;
-    case IMP_W_ARGS_SIZES_GET: case IMP_W_ARGS_GET: case IMP_W_ENVIRON_SIZES_GET: case IMP_W_ENVIRON_GET: case IMP_W_FD_FDSTAT_GET: case IMP_W_RANDOM_GET:
-        return t->np == 2 && t->nr == 1 && t->p[0] == i32t && t->p[1] == i32t;
-    case IMP_W_FD_CLOSE: return t->np == 1 && t->nr == 1 && t->p[0] == i32t;
-    case IMP_W_FD_SEEK: return t->np == 4 && t->nr == 1 && t->p[0] == i32t && t->p[1] == i64t && t->p[2] == i32t && t->p[3] == i32t;
     default: return 0;
     }
 }
@@ -623,11 +616,12 @@ static int load(void) {
                 if (kind == 0) {
                     u32 ti = leb_u(&s, se);
                     int found = -1;
-                    for (int k = 0; k < IMP_N; k++) {
-                        int mod_ok = k < IMP_WASI_FIRST ? (name_is(mn, ml, "kira") || name_is(mn, ml, "env")) : name_is(mn, ml, "wasi_snapshot_preview1");
-                        if (mod_ok && name_is(nn, nl, imp_names[k])) found = k;
+                    if (name_is(mn, ml, "kira") || name_is(mn, ml, "env")) {
+                        for (int k = 0; k < (int)IMP_WASI_FIRST; k++) if (name_is(nn, nl, imp_names[k])) found = k;
+                    } else if (name_is(mn, ml, "wasi_snapshot_preview1")) {
+                        for (int k = 0; k < IW_COUNT; k++) if (name_is(nn, nl, wasi_names[k])) found = (int)IMP_WASI_FIRST + k;
                     }
-                    if (found < 0) { trap("unknown import (module kira: write, sleep, ticks, exit, gfx_create, gfx_present, gfx_event; wasi_snapshot_preview1: fd_write, proc_exit, clock_time_get, args_*, environ_*, fd_close, fd_seek, fd_fdstat_get, random_get)"); return -1; }
+                    if (found < 0) { trap("unknown import (module kira: write, sleep, ticks, exit, gfx_create, gfx_present, gfx_event; wasi_snapshot_preview1: the WASI 0.1 function list)"); return -1; }
                     if (ti >= ntypes) { trap("import function type index out of range"); return -1; }
                     if (!import_signature_valid((u32)found, &types[ti])) { trap("import has an incompatible KIRA host ABI signature"); return -1; }
                     if (nfuncs == MAXF) { trap("too many functions"); return -1; }
@@ -738,68 +732,14 @@ static u64 clz64(u64 x) { u64 n = 0; if (!x) return 64; while (!(x >> 63)) { x <
 static u64 ctz64(u64 x) { u64 n = 0; if (!x) return 64; while (!(x & 1)) { x >>= 1; n++; } return n; }
 static u64 pop64(u64 x) { u64 n = 0; while (x) { n += x & 1; x >>= 1; } return n; }
 
-/* WASI 0.1, подмножество. Коды ошибок WASI: BADF 8, INVAL 28, NOSYS 52, SPIPE 70, FAULT 21. Результат - i32 errno (0 - успех). */
-enum { W_OK = 0, W_BADF = 8, W_FAULT = 21, W_INVAL = 28, W_NOSYS = 52, W_SPIPE = 70 };
-static int wasi_put32(u32 p, u32 v, u64 lim) { if ((u64)p + 4 > lim) return 0; st32(mem + p, v); return 1; }
-static u64 wasi_call(u32 id, const u64* a, u64 lim) {
-    switch (id) {
-    case IMP_W_FD_WRITE: {
-        u32 fd = (u32)a[0], iov = (u32)a[1], n = (u32)a[2], out = (u32)a[3];
-        if (fd != 1 && fd != 2) return W_BADF;
-        if (n > 1024 || (u64)iov + (u64)n * 8 > lim || (u64)out + 4 > lim) return W_FAULT;
-        u64 total = 0;
-        for (u32 i = 0; i < n; i++) {                               /* сначала проверить все записи: частичный вывод при ошибке не допускается */
-            u32 bp = ld32(mem + iov + 8 * i), bl = ld32(mem + iov + 8 * i + 4);
-            if ((u64)bp + bl > lim) return W_FAULT;
-            total += bl;
-        }
-        if (total > 0xFFFFFFFFull) return W_INVAL;
-        for (u32 i = 0; i < n; i++) {
-            u32 bp = ld32(mem + iov + 8 * i), bl = ld32(mem + iov + 8 * i + 4);
-            if (bl) k_write((const char*)mem + bp, bl);
-        }
-        st32(mem + out, (u32)total);
-        return W_OK;
-    }
-    case IMP_W_PROC_EXIT: exit_req = 1; exit_code = (int)a[0]; return 0;
-    case IMP_W_CLOCK_TIME_GET: {
-        if ((u32)a[0] != 1) return W_NOSYS;                         /* CLOCK_MONOTONIC; настенные часы модулю не отдаём */
-        if ((u64)(u32)a[2] + 8 > lim) return W_FAULT;
-        st64(mem + (u32)a[2], k_clock_ns());
-        return W_OK;
-    }
-    case IMP_W_ARGS_SIZES_GET: case IMP_W_ENVIRON_SIZES_GET:
-        return (wasi_put32((u32)a[0], 0, lim) && wasi_put32((u32)a[1], 0, lim)) ? W_OK : W_FAULT;
-    case IMP_W_ARGS_GET: case IMP_W_ENVIRON_GET: return W_OK;       /* списки пусты: писать нечего */
-    case IMP_W_RANDOM_GET: {                                        /* случайные байты из ядерного RNG (настоящий источник, не таймер модуля) */
-        u32 p = (u32)a[0], n = (u32)a[1];
-        if ((u64)p + n > lim) return W_FAULT;
-        for (u32 off = 0; off < n; ) {
-            u32 c = n - off > 256 ? 256 : n - off;
-            if (k_random(mem + p + off, c) < 0) return W_NOSYS;      /* RNG недоступен: честный отказ, а не предсказуемые байты */
-            off += c;
-        }
-        return W_OK;
-    }
-    case IMP_W_FD_CLOSE: return (u32)a[0] <= 2 ? W_OK : W_BADF;
-    case IMP_W_FD_SEEK: return (u32)a[0] <= 2 ? W_SPIPE : W_BADF;
-    case IMP_W_FD_FDSTAT_GET: {
-        u32 fd = (u32)a[0], p = (u32)a[1];
-        if (fd > 2) return W_BADF;
-        if ((u64)p + 24 > lim) return W_FAULT;
-        for (u32 i = 0; i < 24; i++) mem[p + i] = 0;
-        mem[p] = 2;                                                 /* filetype: символьное устройство */
-        st64(mem + p + 8, fd == 0 ? (1ull << 1) : (1ull << 6));     /* права: fd_read для 0, fd_write для 1 и 2 */
-        return W_OK;
-    }
-    default: return W_NOSYS;
-    }
-}
+#define WASI_PART 2
+#include "wasi_host.h"
+#undef WASI_PART
 
 /* Импорт модуля "kira": аргументы снимаются со стека s, результат кладётся; возвращает новую вершину. */
 static u64* host_call(u32 id, const ftype_t* t, u64* s) {
-    u64 a[4] = { 0, 0, 0, 0 };
-    for (int i = t->np - 1; i >= 0; i--) { u64 v = *--s; if (i < 4) a[i] = v; }
+    u64 a[10] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+    for (int i = t->np - 1; i >= 0; i--) { u64 v = *--s; if (i < 10) a[i] = v; }
     u64 r = 0, lim = (u64)mem_pages * 65536;
     if (id == IMP_WRITE) {
         u32 p = (u32)a[0], n = (u32)a[1];
@@ -828,8 +768,8 @@ static u64* host_call(u32 id, const ftype_t* t, u64* s) {
         if (got > 0) { st32(mem + p, e.type); st32(mem + p + 4, e.a); st32(mem + p + 8, e.b); st32(mem + p + 12, e.c); }
         r = (u64)(i64)got;
     }
-    else if (id >= IMP_WASI_FIRST) r = wasi_call(id, a, lim);
-    if (id == IMP_W_PROC_EXIT && exit_req) return s;
+    else if (id >= IMP_WASI_FIRST) r = wasi_call(id - IMP_WASI_FIRST, a, lim);
+    if (id == IMP_WASI_FIRST + IW_proc_exit && exit_req) return s;
     if (t->nr) *s++ = r;
     return s;
 }
@@ -1131,6 +1071,7 @@ int umain(void) {
     u64 got = 0;
     while (got < (u64)sz) { i64 r = k_grant_read(buf + got, (u64)sz - got > 65536 ? 65536 : (u64)sz - got, got); if (r <= 0) break; got += (u64)r; }
     mod = buf; modlen = (u32)got;
+    wasi_args_init(path);                                       /* argv[0] - путь модуля, дальше слова строки запуска */
     if (load() == 0) {
         say("wasm: "); say(path); say(" - "); say_u(nfuncs - nimports); say(" functions, "); say_u(nimports); say(" imports, memory ");
         say_u(mem_pages * 64); say(" KB\n");

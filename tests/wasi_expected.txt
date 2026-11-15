@@ -5,10 +5,12 @@ bad fd rc 8
 fault rc 21
 clock monotonic rc 0
 clock monotonic non-decreasing 1
-clock realtime rc 52
+clock realtime rc 0
+clock realtime plausible 1
+clock unknown id rc 52
 args rc 0
-argc 0
-argv size 0
+argc 1
+argv size positive 1
 environ rc 0
 environ n 0
 fdstat rc 0

@@ -26,6 +26,7 @@ static void wire_gone_early(uint32_t pid, uint32_t drv) {
     (void)drv;
     gfx_proc_gone(pid);                    /* окно приложения снимет поток дисплея */
     net_proc_gone(pid);                    /* соединения TCP программы закрываются */
+    console_stdin_release(pid);            /* ввод консоли возвращается оболочке */
 }
 
 static void wire_gone_late(uint32_t pid, uint32_t drv) {
@@ -53,7 +54,8 @@ void wire_init(void) {
     hw_set_describe_extra(uheap_describe_limits);
 #endif
     static const syscall_services_t services = {
-        gfx_sys_create, gfx_sys_present, gfx_sys_event, fsrv_syscall, net_sys, net_udp_sys, kdrv_sys };
+        gfx_sys_create, gfx_sys_present, gfx_sys_event, fsrv_syscall, net_sys, net_udp_sys, kdrv_sys,
+        console_stdin_begin, console_stdin_poll };
     syscall_set_services(&services);
     proc_add_gone_hook(wire_gone_early, 0);
     proc_add_gone_hook(wire_gone_late, 1);

@@ -7,7 +7,7 @@ static const struct { const char* name; uint32_t caps; } table[] = {
     { "paint",    CAP_GFX | CAP_FS },
     { "edit",     CAP_GFX | CAP_FS },
     { "view",     CAP_GFX | CAP_GRANT },
-    { "wasm",     CAP_GFX | CAP_GRANT | CAP_JIT },
+    { "wasm",     CAP_GFX | CAP_GRANT | CAP_JIT | CAP_FS | CAP_STDIN },   /* модуль WASM: окно, один выданный файл, JIT, своя песочница /data/wasm (файловый WASI) и ввод строк консоли */
     { "fetch",    CAP_NET | CAP_FS | CAP_SYSFILES },
     { "serve",    CAP_NET_SERVE },
     { "udpecho",  CAP_UDP },
@@ -59,7 +59,7 @@ const char* caps_bit_name(uint32_t bit) {
     case CAP_MMIO: return "CAP_MMIO";         case CAP_IRQ: return "CAP_IRQ";
     case CAP_DMA: return "CAP_DMA";           case CAP_PCIDEV: return "CAP_PCIDEV";
     case CAP_NETDEV: return "CAP_NETDEV";     case CAP_PCILIST: return "CAP_PCILIST";
-    case CAP_JIT: return "CAP_JIT";           default: return "CAP_?";
+    case CAP_JIT: return "CAP_JIT";           case CAP_STDIN: return "CAP_STDIN";           default: return "CAP_?";
     }
 }
 
@@ -71,7 +71,7 @@ static const struct { const char* name; uint32_t caps_max; unsigned procs; uint3
     [DOM_DRIVER]    = { "driver",    CAP_DRIVER_, 16, 1u << DOM_DRIVER },
     [DOM_MEDIA]     = { "media",     CAP_GFX | CAP_FS | CAP_GRANT | CAP_SND | CAP_REC | CAP_IPC, 16, 1u << DOM_MEDIA },
     [DOM_NET]       = { "net",       CAP_NET | CAP_NET_SERVE | CAP_UDP | CAP_FS | CAP_SYSFILES, 8, 1u << DOM_NET },
-    [DOM_TOOLS]     = { "tools",     CAP_GFX | CAP_FS | CAP_GRANT | CAP_JIT | CAP_IPC | CAP_THREAD, 16, 1u << DOM_TOOLS },
+    [DOM_TOOLS]     = { "tools",     CAP_GFX | CAP_FS | CAP_GRANT | CAP_JIT | CAP_IPC | CAP_THREAD | CAP_STDIN, 16, 1u << DOM_TOOLS },
     [DOM_UNTRUSTED] = { "untrusted", 0, 16, 1u << DOM_UNTRUSTED },
 };
 

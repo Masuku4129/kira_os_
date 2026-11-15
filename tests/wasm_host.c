@@ -22,6 +22,26 @@ static void k_sleep(u64 t) { (void)t; }
 static u64 k_ticks(void) { return 0; }
 static u64 k_clock_ns(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return (u64)t.tv_sec * 1000000000ull + (u64)t.tv_nsec; }
 static i64 k_random(void* b, u64 n) { FILE* f = fopen("/dev/urandom", "rb"); if (!f) return -1; size_t r = fread(b, 1, n, f); fclose(f); return r == n ? (i64)n : -1; }
+/* Файловая служба Киры на хосте: плоская песочница в памяти (имена, коды ответов и замена файла целиком - как fsrv.c). WASM_FSDIR не нужен. */
+typedef struct { char name[44]; u8* d; u64 n; int used; } hfile_t;
+static hfile_t g_files[64];
+static hfile_t* hf_find(const char* nm) { for (int i = 0; i < 64; i++) if (g_files[i].used && !strcmp(g_files[i].name, nm)) return &g_files[i]; return 0; }
+static i64 k_file_size(const char* nm) { hfile_t* f = hf_find(nm); return f ? (i64)f->n : -2; }
+static i64 k_file_read(const char* nm, void* b, u64 cap, u64 off) { hfile_t* f = hf_find(nm); if (!f) return -2; if (!cap) return -101; if (off >= f->n) return 0; if (cap > f->n - off) cap = f->n - off; memcpy(b, f->d + off, cap); return (i64)cap; }
+static i64 k_file_write(const char* nm, const void* b, u64 len) {
+    if (len > (8u << 20)) return -101;
+    hfile_t* f = hf_find(nm);
+    if (!f) { int i = 0; while (i < 64 && g_files[i].used) i++; if (i == 64) return -102; f = &g_files[i]; f->used = 1; snprintf(f->name, sizeof f->name, "%s", nm); f->d = 0; f->n = 0; }
+    free(f->d); f->d = malloc(len ? len : 1); memcpy(f->d, b, len); f->n = len; return 0;
+}
+static i64 k_file_remove(const char* nm) { hfile_t* f = hf_find(nm); if (!f) return -2; free(f->d); f->d = 0; f->used = 0; return 0; }
+static i64 k_file_list(char* b, u64 cap) { u64 o = 0; for (int i = 0; i < 64; i++) if (g_files[i].used) { u64 l = strlen(g_files[i].name); if (o + l + 1 > cap) break; memcpy(b + o, g_files[i].name, l); o += l; b[o++] = '\n'; } return (i64)o; }
+static void hf_reset(void) { for (int i = 0; i < 64; i++) { free(g_files[i].d); g_files[i].d = 0; g_files[i].used = 0; } }
+/* Ввод и аргументы: строки из WASM_STDIN (с \n), аргументы из WASM_ARGS. */
+static const char* g_stdin_text; static size_t g_stdin_off;
+static i64 k_stdin(void* b, u64 cap) { if (!g_stdin_text) g_stdin_text = getenv("WASM_STDIN") ? getenv("WASM_STDIN") : ""; size_t n = strlen(g_stdin_text + g_stdin_off); if (!n) return 0; const char* nl = strchr(g_stdin_text + g_stdin_off, '\n'); size_t ln = nl ? (size_t)(nl - (g_stdin_text + g_stdin_off)) + 1 : n; if (ln > cap) ln = cap; memcpy(b, g_stdin_text + g_stdin_off, ln); g_stdin_off += ln; return (i64)ln; }
+static i64 k_args(char* b, u64 cap) { const char* a = getenv("WASM_ARGS"); if (!a) a = ""; size_t n = strlen(a); if (n + 1 > cap) return -10; memcpy(b, a, n + 1); return (i64)n; }
+static i64 k_time(void) { return 1700000000; }
 static u32 g_px[1024 * 768];
 static u32* k_gfx_create(u32 w, u32 h) { (void)w; (void)h; return g_px; }
 static void k_gfx_present(void) {}
