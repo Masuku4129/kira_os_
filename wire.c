@@ -5,6 +5,8 @@
 #include "kdrv.h"
 #include "life.h"
 #include "klog.h"
+#include "e1000.h"
+#include "virtio_net.h"
 #include "display.h"
 #include "syscall.h"
 #include "fsrv.h"
@@ -30,4 +32,10 @@ void wire_init(void) {
     proc_add_gone_hook(wire_gone_late, 1);
     proc_set_note_hook(life_note);
     klog_set_panic_flush(display_panic_flush);
+}
+
+/* Сетевая карта: Intel e1000, иначе virtio-net; найденную регистрирует стек (драйверы ур.2 стек не включают). */
+void wire_net_probe(void) {
+    if (e1000_probe() == 0) net_register(e1000_netdev());
+    else if (virtio_net_probe() == 0) net_register(virtio_net_netdev());
 }

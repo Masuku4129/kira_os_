@@ -244,7 +244,7 @@ void kernel_main(unsigned long magic, unsigned long addr) {
     rng_init();            // генератор случайных чисел: RDSEED/RDRAND, virtio-rng, времена прерываний
     usb_init();
     virtio_input_init();
-    if (e1000_probe() != 0) virtio_net_probe();   /* сетевая карта: Intel e1000 или virtio-net */         // сетевая карта Intel e1000 (Limbo, QEMU, многие ПК)
+    wire_net_probe();   /* сетевая карта: Intel e1000 или virtio-net */         // сетевая карта Intel e1000 (Limbo, QEMU, многие ПК)
     net_start();
     if (hda_probe() != 0 && ac97_probe() != 0) sb16_probe();   // звук: Intel HDA, иначе AC'97 (Limbo: Sound ac97), иначе Sound Blaster 16 (ISA)           // стек: ARP, IPv4, ICMP, UDP, DHCP - свой поток   // клавиатура/мышь/планшет virtio (если машина их даёт)     // USB: клавиатуры, мыши, планшеты, хабы, флешки (UHCI, xHCI): свой поток, работает рядом с PS/2
     if (timer_init(TIMER_HZ) != 0)  kernel_panic("Timer initialization failed");

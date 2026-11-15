@@ -1428,7 +1428,7 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     if (display_init(0) != 0) kprintf("[KIRA DISPLAY] No screen (no virtio-gpu, ramfb or simple-framebuffer): serial console only.\n");
     virtio_input_init();
     usb_init();              /* USB: xHCI (клавиатура, мышь, планшет, хабы, флешки) - тот же стек, что у x86-64 */
-    if (e1000_probe() != 0) virtio_net_probe();   /* сетевая карта: Intel e1000 или virtio-net */
+    wire_net_probe();   /* сетевая карта: Intel e1000 или virtio-net */
     net_start();
     hda_probe();
     kprintf("[KIRA ARM64] Ready. Type a command (help: any unknown word).\n");

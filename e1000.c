@@ -3,7 +3,7 @@
    поток «net»; у 82540EM (e1000 QEMU и Limbo) MSI нет, а маршрут INTx на x86 описан только в AML (_PRT) - там опрос
    каждый тик. */
 #include "e1000.h"
-#include "net.h"
+#include "netdev.h"
 #include "pci.h"
 #include "virtio.h"          /* virtio_dma_alloc (непрерывная память для устройства), MMIO_R32/W32 */
 #include "uart.h"
@@ -159,6 +159,7 @@ int e1000_probe(void) {
     uart_print("[KIRA NET] e1000 (8086:"); uart_print(id); uart_print("): MAC "); uart_print(m);
     uart_print(link(&e.nd) ? ", link up" : ", no link yet");
     uart_print(e.nd.iw ? ", receive by MSI interrupt\n" : has_msi ? ", MSI refused - polled\n" : ", no MSI on this card - polled every tick\n");
-    net_register(&e.nd);
     return 0;
 }
+
+netdev_t* e1000_netdev(void) { return &e.nd; }

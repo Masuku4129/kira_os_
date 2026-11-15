@@ -97,6 +97,7 @@ kapi kstack.h
 2 nvme.*
 2 blk.*
 2 part.*
+2 netdev.*   # интерфейс сетевой карты для драйверов
 2 e1000.*
 2 ac97.*
 2 hda.*

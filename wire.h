@@ -4,4 +4,5 @@
    зарегистрированные обратные вызовы (proc_add_gone_hook, proc_set_note_hook и т.п.), а здесь эти вызовы соединяются со службами.
    wire_init() зовётся один раз при старте, после proc_init, до запуска первой программы. */
 void wire_init(void);
+void wire_net_probe(void);   /* поиск сетевой карты (e1000, затем virtio-net) и её регистрация в стеке */
 #endif
