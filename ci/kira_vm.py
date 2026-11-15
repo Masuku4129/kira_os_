@@ -441,13 +441,19 @@ def run(sc, args):
                 time.sleep(1.0)
                 mark = len(vm.log)
                 result["checks"].append({"relaunch": True, "ok": True})
-            elif "pointer" in st:                     # поставить указатель в точку экрана (x, y в точках; экран wxh) абсолютным движением
-                px, py, sw, sh = st["pointer"]
-                for _ in range(2):
+            elif "pointer" in st:                     # поставить указатель в точку экрана: PS/2-мышь отдаёт только смещения, поэтому идём шагами
+                px, py = st["pointer"][0], st["pointer"][1]
+                cur = getattr(vm, "ptr", (640, 360))
+                dx, dy = px - cur[0], py - cur[1]
+                n = max(abs(dx), abs(dy)) // 40 + 1
+                for k in range(n):
+                    sx = dx * (k + 1) // n - dx * k // n
+                    sy = dy * (k + 1) // n - dy * k // n
                     vm.qmp_cmd({"execute": "input-send-event", "arguments": {"events": [
-                        {"type": "abs", "data": {"axis": "x", "value": int(px * 32767 / sw)}},
-                        {"type": "abs", "data": {"axis": "y", "value": int(py * 32767 / sh)}}]}})
-                    vm.pump(0.4)
+                        {"type": "rel", "data": {"axis": "x", "value": sx}}, {"type": "rel", "data": {"axis": "y", "value": sy}}]}})
+                    time.sleep(0.02)
+                vm.ptr = (px, py)
+                vm.pump(0.6)
             elif "mouse" in st:                       # поток движения мыши через QMP: кружит по экрану; hz - событий в секунду, step - пикселей за событие
                 m = st["mouse"]
                 hz, secs, step = m.get("hz", 125), m.get("seconds", 10), m.get("step", 8)
