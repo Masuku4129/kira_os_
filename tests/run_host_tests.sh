@@ -380,7 +380,7 @@ echo "wasm: interpreter output equals native ($(cat $T/w_native.txt | cut -c1-60
 echo "== wasm: WASI 0.1 subset (fd_write, clock, args, errors) in interpreter and JIT, exit code from proc_exit =="
 for mode in jit interp; do
     if [ $mode = interp ]; then export WASM_NOJIT=1; else unset WASM_NOJIT; fi
-    UBSAN_OPTIONS=halt_on_error=1 ASAN_OPTIONS=detect_leaks=0 $T/wasmh build-wasm/wasitest.wasm > $T/wasi_$mode.txt 2>&1
+    UBSAN_OPTIONS=halt_on_error=1 ASAN_OPTIONS=detect_leaks=0 $T/wasmh build-wasm/wasitest.wasm > $T/wasi_$mode.txt 2>&1 || true
     grep -q "finished with code 3" $T/wasi_$mode.txt || { echo "WASI ($mode): proc_exit code"; cat $T/wasi_$mode.txt; exit 1; }
     grep -v "^wasm: " $T/wasi_$mode.txt | cmp -s - tests/wasi_expected.txt || { echo "WASI ($mode): output differs"; cat $T/wasi_$mode.txt; exit 1; }
 done
