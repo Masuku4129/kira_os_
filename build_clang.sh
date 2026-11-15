@@ -34,11 +34,17 @@ echo "[*] Userland (Ring 3): программы собираются в ELF и �
 UCFLAGS="-ffreestanding -fPIE -fvisibility=hidden -mno-red-zone -mno-sse -mno-mmx -fno-stack-protector -fno-asynchronous-unwind-tables -O2 -Wall -Wextra"
 ULINK="-T userland/user.ld -z max-page-size=4096 -z noseparate-code -z norelro"
 UELF=""
-for app in plasma paint burn mt ipc serve melody udpecho rec atk-cap; do
+for app in plasma paint burn mt serve melody udpecho rec atk-cap; do
     $CC $UCFLAGS -c userland/$app.c -o userland/$app.o
     ld.lld $ULINK -o userland/$app.elf userland/$app.o
     UELF="$UELF userland/$app.elf"
 done
+# ipc: сообщения портов - CBOR (cbor.c - тот же файл, что у ядра)
+$CC $UCFLAGS -I. -c userland/ipc.c -o userland/ipc.o
+$CC $UCFLAGS -I. -c cbor.c -o userland/u_cbor.o
+$CC $UCFLAGS -c userland/libc_min.c -o userland/u_libc_min.o
+ld.lld $ULINK -o userland/ipc.elf userland/ipc.o userland/u_cbor.o userland/u_libc_min.o
+UELF="$UELF userland/ipc.elf"
 # fetch: HTTP и HTTPS - TLS 1.3 и криптография (crypto.c, sha256.c - те же файлы, что у ядра) внутри программы
 $CC $UCFLAGS -I. -Iuserland -c userland/fetch.c -o userland/fetch.o
 $CC $UCFLAGS -I. -Iuserland -c userland/tls.c -o userland/u_tls.o

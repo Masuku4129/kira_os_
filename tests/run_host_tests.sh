@@ -269,6 +269,10 @@ $T/cas
 echo "== zstd (RFC 8878: эталонные кадры уровней 1-19, контрольные суммы, порча, усечение) =="
 $CC $FLAGS -Werror -Wextra -fsanitize=address,undefined -o $T/zstdt tests/zstd_test.c zstd.c sha256.c
 $T/zstdt
+echo "== kmsg (сообщения портов: CBOR, строгий разбор, мусор) =="
+$CC $FLAGS -Werror -Wextra -fsanitize=address,undefined -Iuserland -o $T/kmsg tests/kmsg_test.c cbor.c
+$T/kmsg
+
 echo "== sysseal (печать системы: CBOR-манифест, корень Меркла, подмена и пропажа файлов) =="
 $CC $FLAGS -Werror -Wextra -fsanitize=address,undefined -o $T/sysseal tests/sysseal_test.c sysseal.c cbor.c cas.c sha256.c
 $T/sysseal

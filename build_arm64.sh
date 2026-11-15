@@ -13,11 +13,17 @@ HOSTCC="${HOSTCC:-clang}"
 [ -x tools/kfstool ] || $HOSTCC -O1 -Wall -DKFS_NO_THREADS -I. -Iarch/x86_64 -o tools/kfstool tools/kfstool.c kfs.c store.c sha256.c sysseal.c cbor.c cas.c
 UCFLAGS="-ffreestanding -fno-builtin -fno-math-errno -fPIE -fvisibility=hidden -fno-stack-protector -fno-asynchronous-unwind-tables -O2 -Wall -Wextra"
 UELF=""
-for app in mt ipc burn plasma cube3d paint fpu demo atk-mem atk-priv atk-sys atk-jmp atk-cap serve melody wasm udpecho rec; do   # fpu проверяет x87 (long double): на ARM64 - отдельная проверка позже
+for app in mt burn plasma cube3d paint fpu demo atk-mem atk-priv atk-sys atk-jmp atk-cap serve melody wasm udpecho rec; do   # fpu проверяет x87 (long double): на ARM64 - отдельная проверка позже
     $CC $UCFLAGS -c userland/$app.c -o build-arm64/u_$app.o
     ld.lld -T userland/user_arm64.ld -z max-page-size=4096 -z noseparate-code -z norelro -o build-arm64/$app.elf build-arm64/u_$app.o
     UELF="$UELF build-arm64/$app.elf"
 done
+# ipc: сообщения портов - CBOR (cbor.c - тот же файл, что у ядра)
+for f in userland/ipc.c cbor.c userland/libc_min.c; do
+    $CC $UCFLAGS -I. -Iuserland -c $f -o build-arm64/ui_$(basename $f .c).o
+done
+ld.lld -T userland/user_arm64.ld -z max-page-size=4096 -z noseparate-code -z norelro -o build-arm64/ipc.elf build-arm64/ui_*.o
+UELF="$UELF build-arm64/ipc.elf"
 # fetch: HTTP и HTTPS (TLS 1.3 и криптография внутри программы)
 for f in userland/fetch.c userland/tls.c userland/x509.c pk.c crypto.c sha256.c userland/libc_min.c; do
     $CC $UCFLAGS -I. -Iuserland -c $f -o build-arm64/uf_$(basename $f .c).o
