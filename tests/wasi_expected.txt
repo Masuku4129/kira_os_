@@ -16,4 +16,8 @@ fdstat filetype 2
 seek stdout rc 70
 close stdout rc 0
 close fd 9 rc 8
+random rc 0
+random bytes differ between calls 1
+random not all zero 1
+random fault rc 21
 wasi: done

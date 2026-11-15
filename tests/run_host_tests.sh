@@ -275,6 +275,10 @@ echo "== cbor (RFC 8949: векторы, детерминированность,
 $CC $FLAGS -Werror -Wextra -fsanitize=address,undefined -o $T/cbor tests/cbor_test.c cbor.c
 $T/cbor
 
+echo "== json (RFC 8259: строгий разбор, путь, глубина, фаззинг) =="
+$CC $FLAGS -Werror -Wextra -fsanitize=address,undefined -o $T/json tests/json_test.c json.c
+$T/json
+
 echo "== cas (RFC 6962 дерево Меркла, пути включения, CAS, файлы кусками) =="
 $CC $FLAGS -Werror -Wextra -fsanitize=address,undefined -o $T/cas tests/cas_test.c cas.c sha256.c
 $T/cas
@@ -415,7 +419,7 @@ UBSAN_OPTIONS=halt_on_error=1 ASAN_OPTIONS=detect_leaks=0 $T/wasmh build-wasm/wt
 grep -v "^wasm: " $T/w_interp.txt > $T/w_body.txt
 cmp -s $T/w_native.txt $T/w_body.txt || { echo "WASM OUTPUT DIFFERS"; cat $T/w_native.txt $T/w_interp.txt; exit 1; }
 echo "wasm: interpreter output equals native ($(cat $T/w_native.txt | cut -c1-60)...)"
-echo "== wasm: WASI 0.1 subset (fd_write, clock, args, errors) in interpreter and JIT, exit code from proc_exit =="
+echo "== wasm: WASI 0.1 subset (fd_write, clock, random_get, args, errors) in interpreter and JIT, exit code from proc_exit =="
 for mode in jit interp; do
     if [ $mode = interp ]; then export WASM_NOJIT=1; else unset WASM_NOJIT; fi
     UBSAN_OPTIONS=halt_on_error=1 ASAN_OPTIONS=detect_leaks=0 $T/wasmh build-wasm/wasitest.wasm > $T/wasi_$mode.txt 2>&1 || true

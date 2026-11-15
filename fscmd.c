@@ -6,6 +6,7 @@
 #include "heap.h"
 #include "experience.h"
 #include "sysseal.h"
+#include "json.h"
 #include "sha256.h"
 #include "kdrv.h"
 #include "kdrv_sig.h"
@@ -251,6 +252,52 @@ void fscmd_verify(const char* arg) {
     if (r < 0) uart_print("печати нет: /etc/system.cbor пишет kfstool seal при сборке образа\n");
     else if (r == 0) uart_print("образ цел: все файлы /bin и /etc совпали с печатью\n");
     else uart_print("ВНИМАНИЕ: образ отличается от печати (порча носителя или подмена файлов)\n");
+}
+
+/* json файл [путь]: проверка JSON-файла и выборка значения по пути (a.b[2].c). Файл читается целиком (до 64 КБ), разбор без выделения памяти. */
+void fscmd_json(const char* arg) {
+    if (!need_fs()) return;
+    arg = skip_sp(arg);
+    unsigned a = word_len(arg);
+    if (!a) { uart_print("использование: json файл [путь]   (например: json /data/настройки.json окна[0].ширина)\n"); return; }
+    const char* pa = skip_sp(arg + a);
+    unsigned pl = word_len(pa);
+    static char jpath[KFS_NAME_MAX * 4 + 4], jsel[64];
+    const char* fp = mkpath(arg, a);
+    unsigned k = 0; while (fp[k] && k < sizeof jpath - 1) { jpath[k] = fp[k]; k++; } jpath[k] = 0;
+    if (pl >= sizeof jsel) { uart_print("json: путь внутри документа слишком длинный\n"); return; }
+    for (k = 0; k < pl; k++) jsel[k] = pa[k];
+    jsel[pl] = 0;
+    kfs_stat_t st;
+    int r = vfs_stat(jpath, &st);
+    if (r) { fail(jpath, r); return; }
+    if (st.type != KFS_FILE) { fail(jpath, KFS_ERR_ISDIR); return; }
+    if (st.size > 65536) { uart_print("json: файл больше 64 КБ\n"); return; }
+    char* buf = (char*)kmalloc(st.size ? (size_t)st.size : 1);
+    if (!buf) { uart_print("json: не хватает памяти\n"); return; }
+    int64_t got = vfs_read(jpath, 0, buf, (size_t)st.size);
+    if (got != (int64_t)st.size) { fail(jpath, got < 0 ? (int)got : KFS_ERR_IO); kfree(buf); return; }
+    json_val v;
+    r = json_get(buf, (size_t)st.size, jsel, &v);
+    if (r == JSON_ERR_NOTFOUND) uart_print("json: по этому пути ничего нет\n");
+    else if (r == JSON_ERR_PATH) uart_print("json: путь записан неверно (нужно вида a.b[2].c)\n");
+    else if (r == JSON_ERR_DEPTH) uart_print("json: слишком глубокая вложенность (больше 16)\n");
+    else if (r) uart_print("json: документ не является правильным JSON\n");
+    else {
+        static const char* const names[] = { "", "null", "bool", "число", "строка", "массив", "объект" };
+        uart_print(names[v.type]); uart_print(": ");
+        char tmp[161];
+        if (v.type == JSON_STR) {
+            long n = json_string(&v, tmp, sizeof tmp);
+            if (n >= 0) uart_print(tmp); else uart_print("(строка длиннее 160 байт)");
+        } else {
+            size_t n = v.n > 160 ? 160 : v.n;
+            for (size_t i = 0; i < n; i++) tmp[i] = v.p[i];
+            tmp[n] = 0; uart_print(tmp); if (v.n > 160) uart_print("...");
+        }
+        uart_print("\n");
+    }
+    kfree(buf);
 }
 
 /* cp откуда куда: копирование между любыми томами (флешка <-> системный диск). Файл читается целиком в память. */

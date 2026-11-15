@@ -149,6 +149,7 @@ kapi kstack.h
 3 ramext.*
 3 kpar.*
 3 cbor.*
+3 json.*
 3 cas.*
 3 sysseal.*
 3 zstd.*

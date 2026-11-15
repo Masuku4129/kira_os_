@@ -7,8 +7,8 @@
    Импорт модуля "kira": write(ptr,len), sleep(ticks), ticks()->i64, exit(code), gfx_create(w,h)->i32,
    gfx_present(ptr) (пиксели 0x00RRGGBB из памяти модуля), gfx_event(ptr)->i32 (16 байт: type,a,b,c).
    Импорт модуля "wasi_snapshot_preview1" (подмножество WASI 0.1, чтобы модули из C/Rust/Zig для wasm32-wasi запускались без своего ABI):
-   fd_write (fd 1, 2 - консоль), fd_close/fd_seek/fd_fdstat_get (только fd 0-2), proc_exit, clock_time_get (только монотонные часы),
-   args и environ (пусты). Остальное WASI (файлы, сокеты, random_get) не поддержано: такой импорт отвергается при загрузке.
+   fd_write (fd 1, 2 - консоль), fd_close/fd_seek/fd_fdstat_get (только fd 0-2), proc_exit, clock_time_get (только монотонные часы), random_get (ядерный RNG),
+   args и environ (пусты). Остальное WASI (файлы, сокеты) не поддержано: такой импорт отвергается при загрузке.
    Запуск: wasm /путь/к/модулю.wasm (или двойной щелчок по .wasm в Проводнике). */
 #include "kira.h"
 KIRA_ENTRY()
@@ -111,9 +111,9 @@ static const u8* mod; static u32 modlen;
 enum { IMP_WRITE, IMP_SLEEP, IMP_TICKS, IMP_EXIT, IMP_GFX_CREATE, IMP_GFX_PRESENT, IMP_GFX_EVENT,
        IMP_WASI_FIRST,                                                        /* с этого номера - модуль wasi_snapshot_preview1 */
        IMP_W_FD_WRITE = IMP_WASI_FIRST, IMP_W_PROC_EXIT, IMP_W_CLOCK_TIME_GET, IMP_W_ARGS_SIZES_GET, IMP_W_ARGS_GET,
-       IMP_W_ENVIRON_SIZES_GET, IMP_W_ENVIRON_GET, IMP_W_FD_CLOSE, IMP_W_FD_SEEK, IMP_W_FD_FDSTAT_GET, IMP_N };
+       IMP_W_ENVIRON_SIZES_GET, IMP_W_ENVIRON_GET, IMP_W_FD_CLOSE, IMP_W_FD_SEEK, IMP_W_FD_FDSTAT_GET, IMP_W_RANDOM_GET, IMP_N };
 static const char* const imp_names[IMP_N] = { "write", "sleep", "ticks", "exit", "gfx_create", "gfx_present", "gfx_event",
-    "fd_write", "proc_exit", "clock_time_get", "args_sizes_get", "args_get", "environ_sizes_get", "environ_get", "fd_close", "fd_seek", "fd_fdstat_get" };
+    "fd_write", "proc_exit", "clock_time_get", "args_sizes_get", "args_get", "environ_sizes_get", "environ_get", "fd_close", "fd_seek", "fd_fdstat_get", "random_get" };
 
 static u32 leb_u(const u8** p, const u8* end) {
     u32 r = 0;
@@ -163,7 +163,7 @@ static int import_signature_valid(u32 id, const ftype_t* t) {
     case IMP_W_FD_WRITE: return t->np == 4 && t->nr == 1 && t->p[0] == i32t && t->p[1] == i32t && t->p[2] == i32t && t->p[3] == i32t;
     case IMP_W_PROC_EXIT: return t->np == 1 && t->nr == 0 && t->p[0] == i32t;
     case IMP_W_CLOCK_TIME_GET: return t->np == 3 && t->nr == 1 && t->p[0] == i32t && t->p[1] == i64t && t->p[2] == i32t;
-    case IMP_W_ARGS_SIZES_GET: case IMP_W_ARGS_GET: case IMP_W_ENVIRON_SIZES_GET: case IMP_W_ENVIRON_GET: case IMP_W_FD_FDSTAT_GET:
+    case IMP_W_ARGS_SIZES_GET: case IMP_W_ARGS_GET: case IMP_W_ENVIRON_SIZES_GET: case IMP_W_ENVIRON_GET: case IMP_W_FD_FDSTAT_GET: case IMP_W_RANDOM_GET:
         return t->np == 2 && t->nr == 1 && t->p[0] == i32t && t->p[1] == i32t;
     case IMP_W_FD_CLOSE: return t->np == 1 && t->nr == 1 && t->p[0] == i32t;
     case IMP_W_FD_SEEK: return t->np == 4 && t->nr == 1 && t->p[0] == i32t && t->p[1] == i64t && t->p[2] == i32t && t->p[3] == i32t;
@@ -627,7 +627,7 @@ static int load(void) {
                         int mod_ok = k < IMP_WASI_FIRST ? (name_is(mn, ml, "kira") || name_is(mn, ml, "env")) : name_is(mn, ml, "wasi_snapshot_preview1");
                         if (mod_ok && name_is(nn, nl, imp_names[k])) found = k;
                     }
-                    if (found < 0) { trap("unknown import (module kira: write, sleep, ticks, exit, gfx_create, gfx_present, gfx_event; wasi_snapshot_preview1: fd_write, proc_exit, clock_time_get, args_*, environ_*, fd_close, fd_seek, fd_fdstat_get)"); return -1; }
+                    if (found < 0) { trap("unknown import (module kira: write, sleep, ticks, exit, gfx_create, gfx_present, gfx_event; wasi_snapshot_preview1: fd_write, proc_exit, clock_time_get, args_*, environ_*, fd_close, fd_seek, fd_fdstat_get, random_get)"); return -1; }
                     if (ti >= ntypes) { trap("import function type index out of range"); return -1; }
                     if (!import_signature_valid((u32)found, &types[ti])) { trap("import has an incompatible KIRA host ABI signature"); return -1; }
                     if (nfuncs == MAXF) { trap("too many functions"); return -1; }
@@ -771,6 +771,16 @@ static u64 wasi_call(u32 id, const u64* a, u64 lim) {
     case IMP_W_ARGS_SIZES_GET: case IMP_W_ENVIRON_SIZES_GET:
         return (wasi_put32((u32)a[0], 0, lim) && wasi_put32((u32)a[1], 0, lim)) ? W_OK : W_FAULT;
     case IMP_W_ARGS_GET: case IMP_W_ENVIRON_GET: return W_OK;       /* списки пусты: писать нечего */
+    case IMP_W_RANDOM_GET: {                                        /* случайные байты из ядерного RNG (настоящий источник, не таймер модуля) */
+        u32 p = (u32)a[0], n = (u32)a[1];
+        if ((u64)p + n > lim) return W_FAULT;
+        for (u32 off = 0; off < n; ) {
+            u32 c = n - off > 256 ? 256 : n - off;
+            if (k_random(mem + p + off, c) < 0) return W_NOSYS;      /* RNG недоступен: честный отказ, а не предсказуемые байты */
+            off += c;
+        }
+        return W_OK;
+    }
     case IMP_W_FD_CLOSE: return (u32)a[0] <= 2 ? W_OK : W_BADF;
     case IMP_W_FD_SEEK: return (u32)a[0] <= 2 ? W_SPIPE : W_BADF;
     case IMP_W_FD_FDSTAT_GET: {

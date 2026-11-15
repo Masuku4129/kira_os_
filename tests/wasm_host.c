@@ -21,6 +21,7 @@ static void k_write(const char* s, u64 n) { if (!g_quiet) fwrite(s, 1, n, stdout
 static void k_sleep(u64 t) { (void)t; }
 static u64 k_ticks(void) { return 0; }
 static u64 k_clock_ns(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return (u64)t.tv_sec * 1000000000ull + (u64)t.tv_nsec; }
+static i64 k_random(void* b, u64 n) { FILE* f = fopen("/dev/urandom", "rb"); if (!f) return -1; size_t r = fread(b, 1, n, f); fclose(f); return r == n ? (i64)n : -1; }
 static u32 g_px[1024 * 768];
 static u32* k_gfx_create(u32 w, u32 h) { (void)w; (void)h; return g_px; }
 static void k_gfx_present(void) {}
