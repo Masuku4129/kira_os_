@@ -163,7 +163,7 @@ kapi kstack.h
 6 buildcmd.*
 
 6 gfxsrv.*
-6 display.*
+8 display.*   # главный цикл рабочего стола: собирает оболочку из окон, панелей и Проводника (это и есть уровень оболочки)
 6 framegov.*
 6 fbcon.*
 6 console.*

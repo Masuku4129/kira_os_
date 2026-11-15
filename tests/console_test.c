@@ -40,7 +40,7 @@ void blk_print(void) { emit("[DISKS]\n"); }
 static char fsarg[96]; static const char* fscall;
 #define fsclr() (fsarg[0] = 0)
 #define FSSTUB(n) void n(const char* a) { fscall = #n; fsarg[0] = 0; strncpy(fsarg, a, sizeof fsarg - 1); }
-FSSTUB(fscmd_ls) FSSTUB(fscmd_cat) FSSTUB(fscmd_write) FSSTUB(fscmd_rm) FSSTUB(fscmd_mkdir) FSSTUB(fscmd_df) FSSTUB(fscmd_format) FSSTUB(fscmd_cp) FSSTUB(fscmd_umount) FSSTUB(fscmd_remount)
+FSSTUB(fscmd_ls) FSSTUB(fscmd_cat) FSSTUB(fscmd_write) FSSTUB(fscmd_rm) FSSTUB(fscmd_mkdir) FSSTUB(fscmd_df) FSSTUB(fscmd_verify) FSSTUB(fscmd_format) FSSTUB(fscmd_cp) FSSTUB(fscmd_umount) FSSTUB(fscmd_remount)
 void uart_print(const char* s) { emit(s); }
 void uart_putchar(char c) { char b[2] = { c, 0 }; emit(b); }
 void uart_print_serial(const char* s) { size_t n = strlen(s); memcpy(serial + sern, s, n); sern += n; }
@@ -90,6 +90,7 @@ static char rf_l[160], rf_r[160]; static int rf_n;
 void display_request_files(const char* l, const char* r) { snprintf(rf_l, sizeof rf_l, "%s", l); snprintf(rf_r, sizeof rf_r, "%s", r); rf_n++; }
 static int kbd_owner;                                   /* 1 - клавиатуру читает Проводник */
 int display_kbd_owner(void) { return kbd_owner; }
+static const console_shell_t test_shell = { display_print_info, display_request_files, display_kbd_owner };   /* как wire_init в ядре */
 int experience_save_now(void) { saved++; return 0; }
 void experience_print(void) { emit("[EXP]\n"); }
 void sched_dump(void) { emit("[PS]\n"); }
@@ -130,6 +131,7 @@ static int has(const char* s) { return strstr(out, s) != 0; }
 static void reset(void) { outn = 0; out[0] = 0; sern = 0; serial[0] = 0; }
 
 int main(void) {
+    console_set_shell(&test_shell);
     hw_set_describe_extra(uheap_describe_limits);   /* как wire_init в ядре */
     feed("");                                           /* первый вызов показывает приглашение */
     CHECK(has("кира> "));

@@ -20,7 +20,6 @@
 #include "watchdog.h"
 #include "sched.h"
 #include "clock.h"
-#include "display.h"
 #define FM_PATH_MAX 128
 #include "fscmd.h"
 #include "buildcmd.h"
@@ -286,7 +285,9 @@ static void cmd_burnall(const char* a) {
 }
 static void cmd_starve(const char* a) { (void)a; uart_print("[TEST] realtime burner for 8 s: 'core' will starve, watchdog must fire (~5 s)...\n"); spawn_burners(1, 8, PRIO_REALTIME); }
 static void cmd_3d(const char* a) { (void)a; prog_start("cube3d"); }
-static void cmd_fb(const char* a) { (void)a; display_print_info(); }
+static const console_shell_t* shell;
+void console_set_shell(const console_shell_t* sh) { shell = sh; }
+static void cmd_fb(const char* a) { (void)a; if (shell && shell->print_info) shell->print_info(); else uart_print("экрана нет\n"); }
 static void cmd_hw(const char* a) { (void)a; platform_hw(uart_print); }
 static void cmd_fpu(const char* a) { (void)a; uart_print("[FPU TEST] 3 fpu processes compute x87 + SSE + double in parallel; each reports its own verdict\n"); prog_start("fpu"); prog_start("fpu"); prog_start("fpu"); }
 static void cmd_keys(const char* a) {
@@ -369,7 +370,7 @@ static void cmd_files(const char* a) {
         while (*a && *a != ' ') a++;
         if (k) n++;
     }
-    display_request_files(w[0], w[1]);
+    if (shell && shell->request_files) shell->request_files(w[0], w[1]);
     uart_print("[KIRA FILES] explorer: "); uart_print(w[0][0] ? w[0] : "(as before)"); uart_print(" | "); uart_print(w[1][0] ? w[1] : "(as before)"); uart_print("\n");
 }
 /* Выключение и перезагрузка: сначала опыт и кэши дисков, потом - машина. */
@@ -693,7 +694,7 @@ static void history_add(const char* l) {
 static int console_next_char(void) {
     int c = uart_getchar();
     if (c >= 0) return c;
-    if (gfx_focus_pid() || display_kbd_owner()) return -1;      // клавиатура принадлежит окну приложения Ring 3 или Проводнику
+    if (gfx_focus_pid() || (shell && shell->kbd_owner && shell->kbd_owner())) return -1;      // клавиатура принадлежит окну приложения Ring 3 или Проводнику
     input_event_t ev;
     while (input_pop(&ev)) {
         if (ev.type != INPUT_KEY_DOWN) continue;
