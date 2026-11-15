@@ -221,7 +221,7 @@ void input_push_scancode_from(int src, uint8_t byte) {
              ((ev.key == KEY_LALT || ev.key == KEY_RALT) && (ev.mods & INPUT_MOD_SHIFT))))
             layout_ru = !layout_ru;
         if (layout_ru) ev.ch = input_cyr(ev.key, ev.ch, ev.mods);
-        if (ev.key == KEY_F10 || ev.key == KEY_F11) {     /* горячие клавиши оболочки: в очередь не кладём */
+        if (ev.key == KEY_F9 || ev.key == KEY_F10 || ev.key == KEY_F11) {     /* горячие клавиши оболочки: в очередь не кладём */
             if (ev.type == INPUT_KEY_DOWN) __atomic_store_n(&hotkey_pending, (int)ev.key, __ATOMIC_RELEASE);
         } else {
             uint32_t h = head;

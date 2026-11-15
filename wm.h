@@ -94,6 +94,12 @@ enum { WM_NOTIFY_INFO, WM_NOTIFY_SUCCESS, WM_NOTIFY_WARNING, WM_NOTIFY_ERROR };
 /* Toast notification, fixed queue; call only from the display thread. Visible for 5 seconds. */
 void wm_notify(const char* title, const char* message, unsigned level);
 void wm_notify_clear(void);
+/* Launcher (поиск и запуск по имени): F9 или клик на логотип; клавиши передаёт оболочка, пока он открыт. */
+void wm_launcher_toggle(void);
+int  wm_launcher_active(void);
+int  wm_launcher_count(void);                       /* сколько программ подошло под запрос */
+void wm_launcher_key(int key, int ch);
+int  wm_home_open(void);                            /* обзор системы открыт (клик по системной зоне) */
 void wm_anim(uint32_t now_ms, unsigned activity);
 void wm_mouse(int dx, int dy, unsigned buttons);
 void wm_mouse_abs(uint16_t ax, uint16_t ay, unsigned buttons); /* планшет/сенсор: абсолютные координаты 0..32767 */   /* относительное движение, бит0 = левая кнопка */
