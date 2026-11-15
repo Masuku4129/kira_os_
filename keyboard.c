@@ -2,7 +2,6 @@
 #include "spinlock.h"
 #include "pic.h"
 #include "uart.h"
-#include "console.h"
 #include "input.h"
 
 #define PS2_DATA   0x60
@@ -48,7 +47,7 @@ static void ps2_irq(void) {
         else input_push_scancode(b);
     }
     spin_unlock_irqrestore(&ps2_lock, f);
-    console_note_event();
+    input_note_event();
     // EOI отправляет irq_dispatch
 }
 

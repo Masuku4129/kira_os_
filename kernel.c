@@ -12,6 +12,7 @@
 #include "mind_sys.h"
 #include "watchdog.h"
 #include "keyboard.h"
+#include "input.h"
 #include "console.h"
 #include "sched.h"
 #include "timer.h"
@@ -300,7 +301,7 @@ void kernel_main(unsigned long magic, unsigned long addr) {
     uint64_t apic_rate = 0;
     if (have_apic) {
         apic_rate = apic_calibrate_timer_tsc(tsc_khz_val);
-        console_set_apic_rate(apic_rate);
+        irqmode_set_apic_rate(apic_rate);
         if (apic_rate) {
             uart_print("[KIRA APIC] Timer calibrated against TSC: ");
             uart_print_dec(apic_rate / 1000);
@@ -347,7 +348,7 @@ void kernel_main(unsigned long magic, unsigned long addr) {
             /* Раз в секунду - шаг Разума: замеры всей системы, нормы, решения (если секунд накопилось несколько -
                основной поток был занят, - шаг один: замеры всё равно за весь промежуток). */
             seconds += pending;
-            (void)console_take_events();
+            (void)input_take_events();
             mind_sys_tick(seconds);
             experience_tick(seconds);
             sched_reap();

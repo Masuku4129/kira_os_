@@ -32,18 +32,6 @@
 #include "spinlock.h"
 #include "usb.h"
 
-static volatile uint32_t event_count;
-
-void console_note_event(void) {
-    event_count++;
-}
-
-uint32_t console_take_events(void) {
-    uint32_t n = event_count;
-    event_count = 0;
-    return n;
-}
-
 void console_init(void) {
     uart_print("[KIRA CONSOLE] Command line ready: type 'help' and press Enter.\n");
 }
@@ -769,7 +757,7 @@ void console_poll(void) {
     run_requests();
     int c, budget = 512;                       /* за один вызов - не больше 512 знаков: основной поток всегда идёт дальше */
     while (budget-- > 0 && (c = console_next_char()) >= 0) {
-        event_count++;
+        input_note_event();
         if (c == '\n' && last_cr) { last_cr = 0; continue; }       // пара CR LF от терминала - одна команда
         last_cr = (c == '\r');
         if (c == '\r' || c == '\n') {

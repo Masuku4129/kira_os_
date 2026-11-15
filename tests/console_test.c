@@ -49,6 +49,7 @@ int uart_getchar(void) { if (flood) { flood++; return 0xFF; } return script && s
 static input_event_t evq[16]; static int evh, evt;
 int input_pop(input_event_t* ev) { if (evt == evh) return 0; *ev = evq[evt++ % 16]; return 1; }
 unsigned input_raw_take(uint8_t* out, unsigned max) { (void)out; (void)max; return 0; }
+void input_note_event(void) { }
 static void key(int k, int ch) { evq[evh++ % 16] = (input_event_t){ INPUT_KEY_DOWN, (uint16_t)k, (uint16_t)ch, 0 }; }
 int gfx_focus_pid(void) { return 0; }
 const char* spawned_name;

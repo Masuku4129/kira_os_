@@ -152,9 +152,8 @@ unsigned platform_cpus(void) { return hw_get()->cpus; }
 
 /* ---- консоль (platform.h) ---- */
 #include "apic.h"
-#include "console.h"
 static uint64_t apic_timer_rate;       /* калибровка таймера LAPIC (0 - нет) */
-void console_set_apic_rate(uint64_t rate) { apic_timer_rate = rate; }
+void irqmode_set_apic_rate(uint64_t rate) { apic_timer_rate = rate; }
 
 void platform_status(void (*out)(const char*)) {
     char b[24]; int i;
