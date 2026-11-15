@@ -360,7 +360,7 @@ else
 fi
 
 echo "== display thread end-to-end with apps (preview: /tmp/kira_gfx/*.ppm) =="
-$CC $FLAGS -fsanitize=address,undefined -o $T/disp tests/display_preview.c display.c framegov.c kpar.c wm.c gfxui.c icons.c brainfx.c wallpaper.c apps.c fm.c dock.c mind.c mindnet.c rtc.c input.c gfx2d.c font8x16.c klog.c fbcon.c -lm
+$CC $FLAGS -fsanitize=address,undefined -o $T/disp tests/display_preview.c display.c framegov.c kpar.c wm.c gfxui.c icons.c brainfx.c wallpaper.c zstd.c apps.c fm.c dock.c mind.c mindnet.c rtc.c input.c gfx2d.c font8x16.c klog.c fbcon.c -lm
 # код возврата превью - не через tail (раньше сбой терялся в конвейере)
 for r in "" "1280 720" "1920 1080"; do
     ASAN_OPTIONS=detect_leaks=0 $T/disp $r > $T/disp.out 2>&1; rc=$?

@@ -10,10 +10,18 @@
 #include <string.h>
 #include <setjmp.h>
 #include <sys/stat.h>
-/* Файловая система ядра на хосте: обои /etc/wallpaper.kwp берутся из data/, остальное - нет файла */
+#include "kfs.h"
+/* Файловая система ядра на хосте: обои /etc/wallpaper.kwp.zst берутся из data/, остальное - нет файла */
+int kfs_stat(const char* path, kfs_stat_t* st) {
+    if (strcmp(path, "/etc/wallpaper.kwp.zst")) return -1;
+    struct stat sb;
+    if (stat("data/wallpaper.kwp.zst", &sb)) return -1;
+    st->type = 0; st->ino = 1; st->size = (uint64_t)sb.st_size;
+    return 0;
+}
 int64_t kfs_read(const char* path, uint64_t off, void* buf, size_t len) {
-    if (strcmp(path, "/etc/wallpaper.kwp")) return -1;
-    FILE* f = fopen("data/wallpaper.kwp", "rb");
+    if (strcmp(path, "/etc/wallpaper.kwp.zst")) return -1;
+    FILE* f = fopen("data/wallpaper.kwp.zst", "rb");
     if (!f) return -1;
     fseek(f, (long)off, SEEK_SET);
     size_t n = fread(buf, 1, len, f);

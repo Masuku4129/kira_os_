@@ -29,6 +29,7 @@
 #include "dock.h"
 #include "vfs.h"
 #include "kfs.h"
+#include "zstd.h"
 #include "spinlock.h"
 #include "cpu.h"
 
@@ -675,21 +676,43 @@ static void display_main(void* arg) {
 }
 
 /* Обои: /etc/wallpaper.kwp (формат KWP1, см. wallpaper.h). Нет файла или он испорчен - остаётся заставка. */
-static void load_wallpaper(void) {
-    uint8_t hd[12];
-    if (kfs_read("/etc/wallpaper.kwp", 0, hd, sizeof hd) != (int64_t)sizeof hd) return;
-    uint64_t w = hd[4] | hd[5] << 8 | hd[6] << 16 | (uint64_t)hd[7] << 24, h = hd[8] | hd[9] << 8 | hd[10] << 16 | (uint64_t)hd[11] << 24;
-    if (hd[0] != 'K' || hd[1] != 'W' || hd[2] != 'P' || hd[3] != '1' || w < 2 || h < 2 || w > 4096 || h > 4096) return;
-    uint64_t n = 12 + w * h * 3;
-    uint8_t* buf = (uint8_t*)gfx_alloc_pages(n);
-    if (!buf) return;
-    for (uint64_t off = 0; off < n;) {
-        uint64_t part = n - off > (1u << 20) ? (1u << 20) : n - off;
-        int64_t got = kfs_read("/etc/wallpaper.kwp", off, buf + off, part);
-        if (got <= 0) return;
+static void wm_release(void* ptr, uint64_t bytes);
+
+/* Читает файл целиком в выделенные страницы; 0 - нет файла или не хватило памяти. */
+static uint8_t* read_whole(const char* path, uint64_t* len) {
+    kfs_stat_t st;
+    if (kfs_stat(path, &st) != 0 || st.size < 12 || st.size > (64u << 20)) return 0;
+    uint8_t* buf = (uint8_t*)gfx_alloc_pages(st.size);
+    if (!buf) return 0;
+    for (uint64_t off = 0; off < st.size;) {
+        uint64_t part = st.size - off > (1u << 20) ? (1u << 20) : st.size - off;
+        int64_t got = kfs_read(path, off, buf + off, part);
+        if (got <= 0) { wm_release(buf, st.size); return 0; }
         off += (uint64_t)got;
     }
-    wm_wallpaper_set(buf, n);
+    *len = st.size;
+    return buf;
+}
+
+/* Обои: /etc/wallpaper.kwp.zst (KWP1, сжатый Zstandard) или несжатый /etc/wallpaper.kwp. Буфер живёт всё время работы. */
+static void load_wallpaper(void) {
+    uint64_t zn = 0;
+    uint8_t* z = read_whole("/etc/wallpaper.kwp.zst", &zn);
+    if (z) {
+        int64_t raw = zstd_frame_content_size(z, zn);
+        zstd_work* work = raw > 12 && raw <= (int64_t)(12 + 4096ull * 4096 * 3) ? (zstd_work*)gfx_alloc_pages(zstd_work_size()) : 0;
+        uint8_t* out = work ? (uint8_t*)gfx_alloc_pages((uint64_t)raw) : 0;
+        size_t got = 0;
+        int rc = out ? zstd_decompress(z, zn, out, (size_t)raw, &got, work) : -1;
+        if (work) wm_release(work, zstd_work_size());
+        wm_release(z, zn);
+        if (rc == ZSTD_OK && wm_wallpaper_set(out, got) == 0) return;
+        if (out) wm_release(out, (uint64_t)raw);
+        uart_print("[KIRA DISPLAY] wallpaper.kwp.zst: bad file, falling back\n");
+    }
+    uint64_t n = 0;
+    uint8_t* buf = read_whole("/etc/wallpaper.kwp", &n);
+    if (buf && wm_wallpaper_set(buf, n) != 0) wm_release(buf, n);
 }
 
 static void* wm_alloc(uint64_t bytes) { return gfx_alloc_pages(bytes); }
