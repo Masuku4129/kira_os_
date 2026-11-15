@@ -392,6 +392,12 @@ int m_defrag(struct mbuf* m, int how) {
     if (m->m_pkthdr.len < len) m->m_pkthdr.len = len;
     return 0;
 }
+/* копия len байт цепочки, начиная со смещения off, в плоский буфер (при выходе за конец цепочки копируется сколько есть) */
+void m_copydata(struct mbuf* m, int off, int len, void* cp) {
+    char* d = cp;
+    while (m && off >= m->m_len) { off -= m->m_len; m = m->m_next; }
+    while (m && len > 0) { int n = m->m_len - off; if (n > len) n = len; memcpy(d, m->m_data + off, (size_t)n); d += n; len -= n; off = 0; m = m->m_next; }
+}
 int ether_ioctl(struct ifnet* ifp, struct arpcom* ac, u_long cmd, caddr_t data) { (void)ifp; (void)ac; (void)cmd; (void)data; return ENOTTY; }
 
 static struct ifnet* g_ifp;
@@ -399,6 +405,7 @@ void if_attach(struct ifnet* ifp) { ifp->if_index = 1; ifp->if_snd.ifq_maxlen = 
 void if_detach(struct ifnet* ifp) { if (g_ifp == ifp) g_ifp = NULL; }
 void ether_ifattach(struct ifnet* ifp) {
     struct arpcom* ac = (struct arpcom*)ifp;                    /* ac_if - первый член */
+    if (!ifp->if_mtu) ifp->if_mtu = ETHERMTU;                   /* как ether_ifattach OpenBSD */
     ifp->if_sadl = (struct sockaddr_dl*)ifp->if_sadl_buf; for (int i = 0; i < 6; i++) ifp->if_sadl_buf[i] = ac->ac_enaddr[i];
     ac->ac_multirangecnt = 1;                                   /* список групп ядра не передаётся: принимать все групповые (нужно IPv6) */
     ifp->if_ctl = kdrv_net_register(ac->ac_enaddr);

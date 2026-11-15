@@ -26,8 +26,12 @@ typedef char* caddr_t; typedef long ssize_t_bsd;
 #define KASSERT(x) do { if (!(x)) panic("assertion failed: %s", #x); } while (0)
 #define ALIGN(x) (((unsigned long)(x) + 7ul) & ~7ul)
 #define ALIGNED_POINTER(p, t) ((((unsigned long)(p)) & (sizeof(t) - 1)) == 0)
-#define swap16(x) ((u_int16_t)__builtin_bswap16(x))
-#define swap32(x) ((u_int32_t)__builtin_bswap32(x))
+/* перестановка байт функциями: встроенный kcc не знает __builtin_bswap* */
+static inline u_int16_t kd_bswap16(u_int16_t v) { return (u_int16_t)((v << 8) | (v >> 8)); }
+static inline u_int32_t kd_bswap32(u_int32_t v) { return (v << 24) | ((v & 0xff00u) << 8) | ((v >> 8) & 0xff00u) | (v >> 24); }
+static inline u_int64_t kd_bswap64(u_int64_t v) { return ((u_int64_t)kd_bswap32((u_int32_t)v) << 32) | kd_bswap32((u_int32_t)(v >> 32)); }
+#define swap16(x) kd_bswap16(x)
+#define swap32(x) kd_bswap32(x)
 static inline unsigned min(unsigned a, unsigned b) { return a < b ? a : b; }
 static inline unsigned max(unsigned a, unsigned b) { return a > b ? a : b; }
 #define M_DEVBUF 2
@@ -107,10 +111,23 @@ void splx(int previous_ipl);
 #define letoh32(x) ((u_int32_t)(x))
 #define le16toh(x) ((u_int16_t)(x))
 #define le32toh(x) ((u_int32_t)(x))
-#define htobe16(x) ((u_int16_t)(__builtin_bswap16(x)))
-#define htobe32(x) ((u_int32_t)(__builtin_bswap32(x)))
+#define htobe16(x) kd_bswap16(x)
+#define htobe32(x) kd_bswap32(x)
 #define betoh16(x) htobe16(x)
 #define betoh32(x) htobe32(x)
+#define htole64(x) ((u_int64_t)(x))
+#define letoh64(x) ((u_int64_t)(x))
+#define le64toh(x) ((u_int64_t)(x))
+#define htobe64(x) kd_bswap64(x)
+#define betoh64(x) htobe64(x)
+/* sys/param.h: округление и битовые операции над флагами */
+#define roundup(x, y) ((((x) + ((y) - 1)) / (y)) * (y))
+#define howmany(x, y) (((x) + ((y) - 1)) / (y))
+#define SET(t, f) ((t) |= (f))
+#define CLR(t, f) ((t) &= ~(f))
+#define ISSET(t, f) ((t) & (f))
+#define __BEGIN_DECLS
+#define __END_DECLS
 
 /* ---- device, cfattach, cfdriver ---- */
 struct device { char dv_xname[16]; int dv_unit; struct device* dv_parent; int dv_flags; };
@@ -144,7 +161,16 @@ struct cfdriver { void* cd_devs; char* cd_name; int cd_class; };
 #define M_EXT 0x0001
 #define M_BCAST 0x0100
 #define M_MCAST 0x0200
-struct pkthdr { int len; unsigned ph_ifidx; };
+#define M_IPV4_CSUM_OUT 0x0001
+#define M_TCP_CSUM_OUT 0x0002
+#define M_UDP_CSUM_OUT 0x0004
+#define M_IPV4_CSUM_IN_OK 0x0008
+#define M_IPV4_CSUM_IN_BAD 0x0010
+#define M_TCP_CSUM_IN_OK 0x0020
+#define M_TCP_CSUM_IN_BAD 0x0040
+#define M_UDP_CSUM_IN_OK 0x0080
+#define M_UDP_CSUM_IN_BAD 0x0100
+struct pkthdr { int len; unsigned ph_ifidx; u_int16_t csum_flags; };
 struct mbuf {
     struct mbuf* m_next; struct mbuf* m_nextpkt;
     caddr_t m_data; int m_len; short m_type; unsigned short m_flags;
@@ -179,11 +205,21 @@ struct mbuf* ml_dequeue(struct mbuf_list* ml);
 #define IFM_10_2 4
 #define IFM_10_5 5
 #define IFM_100_TX 6
-#define IFM_HPNA_1 7
+#define IFM_100_FX 7
+#define IFM_100_T4 8
+#define IFM_1000_SX 11
+#define IFM_1000_T 16
+#define IFM_HPNA_1 17
+/* дополнительные биты режима (управление потоком), как в net/if_media.h OpenBSD */
+#define IFM_ETH_MASTER 0x100
+#define IFM_ETH_RXPAUSE 0x200
+#define IFM_ETH_TXPAUSE 0x400
+#define IFM_OMASK 0x0000ff00
 #define IFM_GMASK 0x00ff0000
 #define IFM_FDX 0x100000
 #define IFM_HDX 0x200000
 #define IFM_SUBTYPE(w) ((w) & 0x1f)
+#define IFM_OPTIONS(w) ((w) & (IFM_OMASK | IFM_GMASK))
 #define IFM_TYPE(w) ((w) & 0xe0)
 #define IFM_INST_ANY ((unsigned)-1)
 #define IFM_AVALID 1
@@ -210,6 +246,8 @@ struct ifmedia {
 
 /* ---- MII: общий PHY по IEEE 802.3 (bsd_mii.c): поиск по адресам, автосогласование, состояние связи ---- */
 #define MIIF_NOISOLATE 0x0002
+#define MIIF_DOPAUSE 0x0100
+#define MIIF_HAVEFIBER 0x0020
 #define MII_NPHY 32
 #define MII_ANER 0x06
 #define BMSR_MEDIAMASK (BMSR_100T4 | BMSR_100TXFDX | BMSR_100TXHDX | BMSR_10TFDX | BMSR_10THDX)
@@ -273,13 +311,20 @@ void ifmedia_delete_instance(struct ifmedia*, unsigned);
 #define IFF_OACTIVE 0x400
 #define IFF_SIMPLEX 0x800
 #define IFF_MULTICAST 0x8000
+#define IFCAP_CSUM_IPv4 0x1
+#define IFCAP_CSUM_TCPv4 0x2
+#define IFCAP_CSUM_UDPv4 0x4
 #define IFCAP_VLAN_MTU 0x10
+#define IFCAP_VLAN_HWTAGGING 0x20
+#define IFCAP_CSUM_TCPv6 0x80
+#define IFCAP_CSUM_UDPv6 0x100
 #define SIOCSIFADDR 1
 #define SIOCSIFFLAGS 2
 #define SIOCGIFMEDIA 3
 #define SIOCSIFMEDIA 4
 #define SIOCADDMULTI 5
 #define SIOCDELMULTI 6
+#define SIOCSIFMTU 7
 #define ENETRESET (-2)
 #define BPF_DIRECTION_OUT 2
 #define BPF_DIRECTION_IN 1
@@ -287,7 +332,7 @@ struct sockaddr_dl { u_int8_t sdl_data[8]; };
 #define LLADDR(s) ((u_int8_t*)(s)->sdl_data)
 struct ifqueue { struct mbuf* ifq_head; struct mbuf* ifq_tail; unsigned ifq_len; int ifq_oactive; unsigned ifq_maxlen; };
 struct ifnet {
-    void* if_softc; char if_xname[IFNAMSIZ]; int if_flags; int if_timer; int if_capabilities; unsigned if_hardmtu; u_long if_baudrate;
+    void* if_softc; char if_xname[IFNAMSIZ]; int if_flags; unsigned if_mtu; int if_timer; int if_capabilities; unsigned if_hardmtu; u_long if_baudrate;
     unsigned if_ipackets, if_opackets, if_ierrors, if_oerrors, if_collisions, if_iqdrops;
     void (*if_start)(struct ifnet*); int (*if_ioctl)(struct ifnet*, u_long, caddr_t); void (*if_watchdog)(struct ifnet*);
     struct ifqueue if_snd; void* if_bpf; unsigned if_index;
@@ -295,6 +340,7 @@ struct ifnet {
     kdrv_netctl_t* if_ctl;                       /* кольца ядра (ether_ifattach) */
 };
 struct ether_header { u_int8_t ether_dhost[6]; u_int8_t ether_shost[6]; u_int16_t ether_type; };
+struct ether_vlan_header { u_int8_t evl_dhost[6]; u_int8_t evl_shost[6]; u_int16_t evl_encap_proto; u_int16_t evl_tag; u_int16_t evl_proto; };
 struct ether_multi { u_int8_t enm_addrlo[6]; u_int8_t enm_addrhi[6]; struct ether_multi* enm_next; };
 struct arpcom { struct ifnet ac_if; u_int8_t ac_enaddr[ETHER_ADDR_LEN]; int ac_multirangecnt; int ac_multicnt; struct ether_multi* ac_multi; };
 struct ether_multistep { struct ether_multi* e_enm; };
@@ -311,6 +357,8 @@ struct mbuf* ifq_dequeue(struct ifqueue* q);
 int loadfirmware(const char* name, u_char** buf, size_t* len);
 #define ifq_restart(q) ((q)->ifq_oactive = 0)
 int m_defrag(struct mbuf*, int how);
+void m_copydata(struct mbuf*, int off, int len, void* cp);
+#define m_trailingspace(m) ((int)M_TRAILINGSPACE(m))
 void m_adj(struct mbuf*, int len);
 struct mbuf* m_devget(char* buf, int totlen, int off);
 #define ETHER_ALIGN 2
