@@ -731,14 +731,13 @@ int console_stdin_begin(uint32_t pid) {
     uint64_t f = spin_lock_irqsave(&in_lock);
     int r = 0;
     if (in_owner && in_owner != pid) r = -16;
-    else if (!in_owner) { uart_print("[DBG] begin\n"); in_owner = pid; in_head = in_tail = in_off = 0; in_eof = 0; }
+    else if (!in_owner) { in_owner = pid; in_head = in_tail = in_off = 0; in_eof = 0; }
     spin_unlock_irqrestore(&in_lock, f);
     return r;
 }
 int64_t console_stdin_poll(uint32_t pid, char* out, uint64_t cap) {
     uint64_t f = spin_lock_irqsave(&in_lock);
     int64_t r = -11;
-    static unsigned dbgn; if ((++dbgn % 500) == 0) uart_print("[DBG] poll500\n");
     if (in_intr_pid == pid) { in_intr_pid = 0; r = -4; }
     else if (in_owner != pid) r = -4;
     else if (in_tail != in_head) {
@@ -762,7 +761,6 @@ static int stdin_take_line(void) {
     uint64_t f = spin_lock_irqsave(&in_lock);
     int taken = 0;
     if (in_owner) {
-        uart_print("[DBG] take_line\n");
         taken = 1;
         if (in_head - in_tail < IN_LINES) {
             char* q = in_q[in_head % IN_LINES]; unsigned n = line_len;

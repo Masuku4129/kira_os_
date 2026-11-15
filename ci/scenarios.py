@@ -261,17 +261,12 @@ ALL = [
         {"cmd": "python hi.py"}, {"sleep": 10},
         {"log": [r"\[USER pid \d+\] 5050\b"]},
         {"send": "python"}, {"sleep": 10},
-        {"send": "x = [i*i for i in range(5)]"}, {"sleep": 2}, {"send": "print(x)"}, {"sleep": 2},
-        {"send": "1/0"}, {"sleep": 2}, {"send": "import sys; sys.exit(5)"}, {"sleep": 4},
+        {"type": "x = [i*i for i in range(5)]"}, {"sleep": 3}, {"type": "print(x)"}, {"sleep": 3},
+        {"type": "1/0"}, {"sleep": 3}, {"type": "import sys; sys.exit(5)"}, {"sleep": 4},
         {"log": [r"MicroPython v1\.24\.1", r"\[0, 1, 4, 9, 16\]", r"ZeroDivisionError: divide by zero", r"wasm: finished with code 5"]},
+        {"type": ""},                                                       # Enter: оболочка снова печатает приглашение
         {"cmd": "status", "must": [r"."]},
         {"log_forbid": NO_ERR + [r"wasm: stopped"]},
-    ], smp=2, mem="512M"),
-    sc("pydbg", "отладка", [
-        {"log": BOOT_LOG},
-        {"send": "python"}, {"sleep": 6},
-        {"send": "print(1)"}, {"sleep": 3}, {"send": "print(2)"}, {"sleep": 3}, {"send": "print(3)"}, {"sleep": 3},
-        {"log": [r"\[USER pid \d+\] .*3"]},
     ], smp=2, mem="512M"),
     sc("wasm-speed", "WebAssembly: JIT x86-64 - плазма wgfx на стенде укладывается в порог по времени (до JIT на этом стенде было 1257 мс)", [
         {"log": BOOT_LOG},

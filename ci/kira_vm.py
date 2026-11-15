@@ -399,6 +399,13 @@ def run(sc, args):
             elif "send" in st:                        # без ожидания приглашения (нагрузка, запуск программ)
                 mark = len(vm.log)
                 vm.send(st["send"] + "\r")
+            elif "type" in st:                        # ввод запущенной программе (её читает стандартный ввод): оболочка приглашения не печатает, ждать его нельзя
+                vm.drain(0.05)
+                vm.ser.setblocking(True)
+                for ch in (st["type"] + "\r").encode():
+                    vm.ser.sendall(bytes([ch]))
+                    time.sleep(0.004)
+                mark = len(vm.log)
             elif "capture" in st:                     # значения из журнала после последнего send (первая группа регулярного выражения)
                 for nm, rx in st["capture"].items():
                     m = re.search(rx.encode(), bytes(vm.log[mark:]))
