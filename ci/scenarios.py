@@ -270,6 +270,9 @@ ALL = [
         {"log": [r"MicroPython v1\.24\.1", r"\[0, 1, 4, 9, 16\]", r"ZeroDivisionError: divide by zero", r"wasm: finished with code 5"]},
         {"type": ""},                                                       # Enter: оболочка снова печатает приглашение
         {"cmd": "status", "must": [r"."]},
+        {"cmd": "write /data/wasm/t.sh for i in 1 2 3; do echo n=$((i*i)); done"},
+        {"cmd": "ksh t.sh"}, {"sleep": 8},
+        {"log": [r"wasm: /wasm/ksh\.wasm - \d+ functions", r"n=1\b", r"n=4\b", r"n=9\b", r"wasm: finished with code 0"]},
         {"log_forbid": NO_ERR + [r"wasm: stopped"]},
     ], smp=2, mem="512M"),
     sc("wasm-speed", "WebAssembly: JIT x86-64 - плазма wgfx на стенде укладывается в порог по времени (до JIT на этом стенде было 1257 мс)", [
