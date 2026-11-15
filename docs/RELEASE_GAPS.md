@@ -4,6 +4,8 @@
 **Working branch:** `v46/unified-release-integration`  
 **Status:** engineering work in progress; this document is not a release declaration.
 
+**Update 2026-11-15 (integration branch `integrate/autodrv-main-2026-11-15`):** Gate remains **CLOSED**; sections 1-7 below are not closed by this work. Done since the snapshot: app signatures (APP domain, shared rollback state), boot command line, UEFI RSDP fix, WASI 0.1 subset and three WASM decoder/validator regressions fixed, level-map checks in CI (56 known violations, none new), Mind no longer controls screen frames (`framegov.c`), clean desktop without permanent CPU/RAM meters. Any archive built from this branch is an **unofficial development build**, not a release. Evidence: host tests (`tests/run_host_tests.sh`) and CI on PR #183; static analysis: `docs/ANALYSIS_2026-11-15.md`.
+
 This file separates implemented mechanisms from the capabilities still required before the next combined update. Passing CI does not close a blocker unless the corresponding acceptance criteria are met.
 
 ## 1. Boot chain — BLOCKED
