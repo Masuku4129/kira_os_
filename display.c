@@ -501,13 +501,26 @@ static void mind_notify_latest(void) {
     wm_notify(title, e->text, level);
 }
 
+/* Окна Разума, Монитора и Настроек перерисовываются целиком (сотни тысяч точек), а состояние Разума меняется каждую его
+   тактику, при вводе - по несколько раз в секунду. Вид и уведомления обновляются на каждую смену, а рисуются окна не чаще
+   4 раз в секунду: глазу этого хватает, а на медленной машине цикл дисплея не тонет в перерисовке. */
+#define PANEL_REDRAW_NS 250000000ULL
 static void update_mind(void) {
+    static int pending;
+    static uint64_t last_draw_ns;
     uint32_t v = mind_sys_version();
-    if (v == mv_ver) return;
-    mv_ver = v;
-    mind_sys_view(&mv);
-    mind_notify_latest();
-    if (mv.t) wm_set_meters(mv.busy, (int)(mv.cores > 64 ? 64 : mv.cores), (int)mv.mem_used, mv.health);
+    if (v != mv_ver) {
+        mv_ver = v;
+        mind_sys_view(&mv);
+        mind_notify_latest();
+        if (mv.t) wm_set_meters(mv.busy, (int)(mv.cores > 64 ? 64 : mv.cores), (int)mv.mem_used, mv.health);
+        pending = 1;
+    }
+    if (!pending) return;
+    uint64_t now = clock_ns();
+    if (now && last_draw_ns && now - last_draw_ns < PANEL_REDRAW_NS) return;
+    last_draw_ns = now;
+    pending = 0;
     draw_mind();
     draw_monitor();
     draw_settings();
