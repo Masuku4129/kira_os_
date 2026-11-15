@@ -1,9 +1,9 @@
 #!/bin/bash
 # Пакеты тестового драйвера edu (QEMU -device edu) в /drv образа диска: tools/mkdrv.sh образ драйвер.elf [компилятор-хоста]
-#   edu    - нормальный пакет, все права, подтверждён сборщиком образа (kdrvpack --confirm)
+#   edu    - пакет с DMA+MSI правами; fail-closed до появления per-device IOMMU domain
 #   Порядок записи важен: менеджер пробует пакеты в порядке каталога, плохие должны идти раньше edu.
 #   abad   - тот же ELF, но хеш в .rec испорчен: ядро обязано отказаться (имя раньше edu - его пробуют первым)
-#   edunc  - права только mmio и irq: попытка DMA получает отказ ядра
+#   edunc  - MMIO-only права: драйвер запускается без bus mastering; DMA и MSI недоступны
 #   eduun  - не подтверждён пользователем (confirmed=0): не запускается
 set -e
 cd "$(dirname "$0")/.."
@@ -14,7 +14,7 @@ P="--pci 1234:11e8 --source tools/mkdrv.sh(тестовый-драйвер-edu)"
 tools/kdrvpack abad  $ELF $T/abad.kdrv  $T/abad.rec  $P --caps mmio,irq,dma,pcidev --confirm --corrupt >/dev/null
 tools/kdrvpack eduun $ELF $T/eduun.kdrv $T/eduun.rec $P --caps mmio,irq,dma,pcidev >/dev/null
 tools/kdrvpack edu   $ELF $T/edu.kdrv   $T/edu.rec   $P --caps mmio,irq,dma,pcidev --confirm >/dev/null
-tools/kdrvpack edunc $ELF $T/edunc.kdrv $T/edunc.rec $P --caps mmio,irq,pcidev --confirm >/dev/null
+tools/kdrvpack edunc $ELF $T/edunc.kdrv $T/edunc.rec $P --caps mmio,pcidev --confirm >/dev/null
 for n in abad eduun edu edunc; do
     tools/kfstool $IMG put /drv/$n.kdrv $T/$n.kdrv >/dev/null
     tools/kfstool $IMG put /drv/$n.rec $T/$n.rec >/dev/null
