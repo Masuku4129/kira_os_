@@ -5,6 +5,8 @@
 #include "kdrv.h"
 #include "life.h"
 #include "klog.h"
+#include "mind_sys.h"
+#include "buildcmd.h"
 #include "hwprofile.h"
 #include "uheap.h"
 #include "blk.h"
@@ -33,6 +35,8 @@ _Static_assert(SVC_UDP_SENDTO == NET_UDP_SENDTO && SVC_UDP_RECVFROM == NET_UDP_R
 static int wire_own_disk(blk_dev_t* d) { return store_detect(d) || kfs_detect(d, KFS_BASE_LBA) == 0; }
 
 void wire_init(void) {
+    static const mind_sys_env_t mind_env = { display_get_fx, display_set_fx, display_get_stats, display_compositor_stats, gfx_focus_pid, build_mind_tick };
+    mind_sys_set_env(&mind_env);
     hw_set_describe_extra(uheap_describe_limits);
     static const syscall_services_t services = {
         gfx_sys_create, gfx_sys_present, gfx_sys_event, fsrv_syscall, net_sys, net_udp_sys, kdrv_sys };
