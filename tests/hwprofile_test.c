@@ -18,6 +18,7 @@ static char text[2048];
 static void out(const char* s) { strcat(text, s); }
 
 int main(void) {
+    hw_set_describe_extra(uheap_describe_limits);   /* как wire_init в ядре */
     hw_profile_t p;
 
     /* Intel Skylake клиентский: AVX2, SMEP, SMAP, PCID, INVPCID, XSAVE до AVX (832 байта), инвариантный TSC. */

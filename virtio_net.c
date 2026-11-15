@@ -3,7 +3,7 @@
    будит поток «net» (без него - опрос каждый тик, как у e1000). */
 #include "virtio_net.h"
 #include "virtio.h"
-#include "net.h"
+#include "netdev.h"
 #include "msi.h"
 #include "uart.h"
 #include "spinlock.h"
@@ -101,6 +101,7 @@ int virtio_net_probe(void) {
     for (int i = 0; i < 6; i++) { m[3 * i] = hx[v.nd.mac[i] >> 4]; m[3 * i + 1] = hx[v.nd.mac[i] & 15]; m[3 * i + 2] = i < 5 ? ':' : 0; }
     uart_print("[KIRA NET] virtio-net: MAC "); uart_print(m);
     uart_print(has_irq ? ", receive wakes the network thread by MSI-X\n" : ", polled\n");
-    net_register(&v.nd);
     return 0;
 }
+
+netdev_t* virtio_net_netdev(void) { return &v.nd; }

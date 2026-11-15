@@ -30,4 +30,18 @@ void gfx_on_close(int win);
 
 int  gfx_focus_pid(void);
 
+/* Окна приложений создаёт оконный менеджер (ур.8). Сервер работает с ним только через эти операции (все поля обязательны). */
+typedef struct {
+    int  (*create)(const char* title, int content_w, int content_h, uint32_t* mem);   /* окно с поверхностью mem, место выбирает менеджер; id или <0 */
+    void (*destroy)(int id);
+    const char* (*nice_title)(const char* program);                                   /* понятное название программы или 0 */
+    void (*set_title)(int id, const char* title);
+    void (*set_frame_seq)(int id, const volatile uint32_t* seq);
+    void (*raise)(int id);
+    int  (*visible)(int id);
+    void (*invalidate)(int id);
+    int  (*top)(void);                                                                /* верхнее видимое окно или -1 */
+} gfx_wm_ops_t;
+void gfx_set_wm_ops(const gfx_wm_ops_t* ops);
+
 #endif

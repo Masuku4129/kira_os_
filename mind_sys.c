@@ -3,14 +3,12 @@
 #include "proc.h"
 #include "pmm.h"
 #include "heap.h"
-#include "display.h"
 #include "blk.h"
 #include "kobj.h"
 #include "kfs.h"
 #include "life.h"
 #include "timer.h"
 #include "clock.h"
-#include "gfxsrv.h"
 #include "uart.h"
 #include "spinlock.h"
 #include "percpu.h"
@@ -22,7 +20,6 @@
 #include "audio.h"
 #include "kfs.h"
 #include "mind_archive_policy.h"
-#include "buildcmd.h"
 
 #define MODEL_PATH   "/var/mind.dat"
 #define SEED_PATH    "/etc/mind_seed.bin"
@@ -52,12 +49,22 @@ static thread_info_t* tt_info; static unsigned tt_cap;
 static void tact_main(void* arg);          /* секундный шаг и тактика меняют одни и те же записи Разума */
 static int32_t req_tz = 0x7FFFFFFF;
 
+/* ---------------- связь с верхними уровнями (mind_sys.h) ---------------- */
+
+static mind_sys_env_t env;
+void mind_sys_set_env(const mind_sys_env_t* e) { env = *e; }
+static void env_display_stats(uint64_t* loops, uint64_t* late, uint64_t* gap) {
+    *loops = *late = *gap = 0;
+    if (env.display_stats) env.display_stats(loops, late, gap);
+}
+static int env_focus_pid(void) { return env.focus_pid ? env.focus_pid() : 0; }
+
 /* ---------------- исполнители ---------------- */
 
 static void a_quantum(uint32_t q) { sched_set_quantum(q * TIMER_PER_10MS); }
 static void a_weight(uint32_t pid, uint32_t w) { sched_set_proc_weight(pid, w); }
 static void a_limit(uint32_t pid, uint32_t pct) { sched_set_proc_limit(pid, pct); }
-static void a_fx(int level) { display_set_fx(level); }
+static void a_fx(int level) { if (env.display_set_fx) env.display_set_fx(level); }
 static unsigned a_trim(void) { return heap_trim(); }
 static void a_restrict(int level) { proc_set_heap_restrict(level); }
 static int a_kill(uint32_t pid) { return proc_kill(pid); }
@@ -191,7 +198,7 @@ static void gather(uint64_t seconds) {
     s->mem_used = total_kb ? 100 - (uint32_t)((uint64_t)(free_kb > total_kb ? total_kb : free_kb) * 100 / total_kb) : 0;
 
     uint64_t loops, late, gap;
-    display_get_stats(&loops, &late, &gap);
+    env_display_stats(&loops, &late, &gap);
     s->loops = (uint32_t)(loops - prev_loops); s->late = (uint32_t)(late - prev_late);
     prev_loops = loops; prev_late = late;
     s->worst_gap_ms = (uint32_t)(gap / 1000000);
@@ -221,7 +228,7 @@ static void gather(uint64_t seconds) {
 
     static proc_stat_t ps[MIND_PROC_MAX];                   /* 256 записей - не на стек потока */
     unsigned np = proc_stats(ps, MIND_PROC_MAX);
-    int focus = gfx_focus_pid();
+    int focus = env_focus_pid();
     for (unsigned i = 0; i < np; i++) {
         mind_proc_t* p = &s->proc[s->nproc++];
         p->pid = ps[i].pid;
@@ -274,7 +281,7 @@ static void publish(const mind_t* model) {
     v.t = S.t; v.lifetime_s = model->m.lifetime_s;
     v.health = model->health; v.c_resp = model->c_resp; v.c_room = model->c_room; v.c_bal = model->c_bal; v.c_stab = model->c_stab;
     scopy(v.mood, model->mood ? model->mood : "", sizeof v.mood);
-    v.mode = model->m.mode; v.fx = (uint8_t)display_get_fx(); v.fx_user = model->m.fx_user;
+    v.mode = model->m.mode; v.fx = (uint8_t)(env.display_get_fx ? env.display_get_fx() : 0); v.fx_user = model->m.fx_user;
     v.quantum_ms = mind_quantum_ms(model);
     v.cores = S.cores; v.load = S.load; v.mem_used = S.mem_used; v.runnable = S.runnable;
     for (unsigned i = 0; i < 64; i++) v.busy[i] = S.busy[i];
@@ -305,7 +312,7 @@ static void publish(const mind_t* model) {
     for (int i = 0; i < MNET_F; i++) v.net_w[i] = model->m.net.w[i];
     v.core_cap = mind_core_cap(model);
     v.stab_episodes = model->stab_episodes; v.stab_limited_s = model->stab_limited_ms / 1000; v.stab_relapses = model->stab_relapses; v.stab_longest_s = model->stab_longest_ms / 1000; v.tact_cost_x100 = model->tact_cost_x100;
-    display_compositor_stats(&v.comp_par, &v.comp_ns_kpx_par, &v.comp_ns_kpx_ser);
+    if (env.compositor_stats) env.compositor_stats(&v.comp_par, &v.comp_ns_kpx_par, &v.comp_ns_kpx_ser);
     v.dev_errors=S.dev_errors; scopy(v.dev_name,S.dev_name,sizeof v.dev_name);
     v.hid_suspect=S.hid_suspect; v.hid_rate=S.hid_rate; scopy(v.hid_name,S.hid_name,sizeof v.hid_name);
     v.denied=S.denied; scopy(v.denied_name,S.denied_name,sizeof v.denied_name);
@@ -553,7 +560,7 @@ void mind_sys_tick(uint64_t seconds) {
     }
     printed = published_model.jn;
     publish(&published_model);
-    build_mind_tick(&published_model, &S, (uint32_t)seconds);      /* только предложение строкой в serial; сборки и разрешений здесь нет */
+    if (env.build_tick) env.build_tick(&published_model, &S, (uint32_t)seconds);      /* только предложение строкой в serial; сборки и разрешений здесь нет */
     char line[256]; unsigned n = 0;
     put_s(line, &n, "[KIRA TELEMETRY] t="); put_u(line, &n, seconds);
     put_s(line, &n, "s health="); put_u(line, &n, published_model.health);
@@ -603,10 +610,10 @@ static void tact_main(void* arg) {
         }
         in->cores = cores ? cores : 1;
         uint64_t loops, late, gap;
-        display_get_stats(&loops, &late, &gap);
+        env_display_stats(&loops, &late, &gap);
         in->loops = (uint32_t)(loops - tt_loops); in->late = (uint32_t)(late - tt_late);
         tt_loops = loops; tt_late = late;
-        int focus = gfx_focus_pid();
+        int focus = env_focus_pid();
         unsigned nt = sched_snapshot(tt_info, tt_cap);
         for (unsigned i = 0; i < nt; i++) {
             const thread_info_t* t = &tt_info[i];

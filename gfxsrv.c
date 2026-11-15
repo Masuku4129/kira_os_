@@ -1,7 +1,5 @@
 #include "uaccess.h"
 #include "gfxsrv.h"
-#include "wm.h"
-#include "dock.h"
 #include "vmm.h"
 #include "pmm.h"
 #include "input.h"
@@ -13,6 +11,10 @@
 #include "sched.h"
 #include "timer.h"
 #include "fb.h"
+
+/* Оконный менеджер (ур.8) подключается через gfx_set_wm_ops (wire_init): графический сервер его заголовки не включает. */
+static gfx_wm_ops_t wmo;
+void gfx_set_wm_ops(const gfx_wm_ops_t* ops) { wmo = *ops; }
 
 #define MAX_APPS 256                  /* = наибольшее число программ (scale_procs): окно есть у каждой */
 #define EVQ 32
@@ -184,7 +186,7 @@ void gfx_server_run(void) {
             uint64_t qf = spin_lock_irqsave(&a->q_lock);
             if (__atomic_load_n(&a->used, __ATOMIC_ACQUIRE) == 1) __atomic_store_n(&a->used, 2, __ATOMIC_RELEASE);
             spin_unlock_irqrestore(&a->q_lock, qf);
-            if (a->win >= 0) wm_destroy(a->win);
+            if (a->win >= 0) wmo.destroy(a->win);
             pmm_free_contiguous(a->phys, a->pages * 2);    /* страницы помечены SHARED: процесс их не освобождал */
             a->win = -1;
             a->need_destroy = 0; a->need_create = 0;
@@ -192,18 +194,18 @@ void gfx_server_run(void) {
             continue;
         }
         if (a->need_create) {
-            a->win = wm_create_user(a->title, WM_AUTO, WM_AUTO, (int)a->w, (int)a->h, (uint32_t*)(uintptr_t)a->phys);
+            a->win = wmo.create(a->title, (int)a->w, (int)a->h, (uint32_t*)(uintptr_t)a->phys);
             a->need_create = 0;
             if (a->win < 0) { uart_print("[KIRA GFX] no free window slot for '"); uart_print(a->title); uart_print("'.\n"); }
             else {
-                const char* nice = dock_title(a->title);       /* понятное русское название в заголовке окна; метка (tag) остаётся именем программы */
-                if (nice) wm_set_title(a->win, nice);
-                wm_set_frame_seq(a->win, &a->seq); wm_raise(a->win);
+                const char* nice = wmo.nice_title(a->title);       /* понятное русское название в заголовке окна; метка (tag) остаётся именем программы */
+                if (nice) wmo.set_title(a->win, nice);
+                wmo.set_frame_seq(a->win, &a->seq); wmo.raise(a->win);
             }
         }
-        if (a->win >= 0) __atomic_store_n(&a->hidden, !wm_visible(a->win), __ATOMIC_RELEASE);
-        if (a->dirty && a->win >= 0) { a->dirty = 0; wm_invalidate(a->win); }
+        if (a->win >= 0) __atomic_store_n(&a->hidden, !wmo.visible(a->win), __ATOMIC_RELEASE);
+        if (a->dirty && a->win >= 0) { a->dirty = 0; wmo.invalidate(a->win); }
     }
-    const app_t* top = find_win(wm_top());
+    const app_t* top = find_win(wmo.top());
     __atomic_store_n(&focus_pid_pub, top ? (int)top->pid : 0, __ATOMIC_RELEASE);
 }

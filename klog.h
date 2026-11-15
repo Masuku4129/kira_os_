@@ -14,4 +14,10 @@ uint64_t klog_total(void);                                  // всего зап
 // сдвигается к самым старым сохранившимся (возвращает флаг через *lost).
 unsigned klog_read(uint64_t* cursor, char* out, unsigned max, unsigned* lost);
 
+
+// Вывод журнала на экран при панике. Нижние уровни (сторож, исключения) не знают о дисплее: дисплей регистрирует свою функцию
+// через klog_set_panic_flush (wire.c). Без регистрации - ничего не делает.
+void klog_set_panic_flush(void (*fn)(void));
+void klog_panic_flush(void);                                // синхронно показать журнал на экране (паника/исключение)
+
 #endif

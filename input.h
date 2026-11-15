@@ -65,4 +65,8 @@ uint32_t input_dropped(void);
    поэтому они работают, даже если приложение не читает клавиатуру. Возвращает KEY_F10/KEY_F11 или 0. */
 int input_take_hotkey(void);                  /* сколько событий потеряно при переполнении */
 
+/* Счётчик внешних событий (клавиатура, ввод с UART) для основного цикла: считает note, take отдаёт накопленное и сбрасывает. */
+void input_note_event(void);
+uint32_t input_take_events(void);
+
 #endif

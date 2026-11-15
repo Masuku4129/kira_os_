@@ -2,6 +2,7 @@
 #define USB_H
 #include <stdint.h>
 #include "usbhid.h"
+#include "blk.h"
 
 /* USB: общее ядро стека и интерфейс контроллеров.
    Контроллеры: UHCI (USB 1.1; его даёт QEMU/Limbo с -usb) и xHCI (USB 3.x, все современные ПК; в QEMU - qemu-xhci).
@@ -81,6 +82,9 @@ void msc_detach(usb_dev_t* d);
 void msc_poll(void);                                   /* отложенное отключение томов */
 void msc_print(void (*out)(const char*));
 int  msc_count(void);
+/* Тома FAT накопителей подключает верхний уровень (usbmsc_fs.h): mount возвращает номер тома /usbN или <0, unmount_try - 0, если том снят. */
+typedef struct { int (*mount)(int slot, blk_dev_t* blk, const char* vendor, const char* product); int (*unmount_try)(int vol); } msc_fs_ops_t;
+void msc_set_fs_ops(const msc_fs_ops_t* ops);
 
 /* Иммунитет ввода. Клавиатура, которая в первые секунды или в любой момент печатает быстрее человека (больше
    USB_HID_BURST нажатий за 200 мс), рефлекторно задерживается: её нажатия копятся, а не уходят в систему, и

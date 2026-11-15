@@ -1,6 +1,5 @@
 #include "proc.h"
 #include "proc_pid.h"
-#include "net.h"
 #include "audio.h"
 #include "syscall.h"
 #include "sched.h"
@@ -10,9 +9,7 @@
 #include "cpu.h"
 #include "spinlock.h"
 #include "uart.h"
-#include "gfxsrv.h"
 #include "elf.h"
-#include "life.h"
 #include "uheap.h"
 #include "scale.h"
 #include "heap.h"
@@ -21,7 +18,6 @@
 #include "futex.h"
 #include "caps.h"
 #include "smp.h"
-#include "kdrv.h"
 
 /* Адреса программы (пользовательская половина):
      0x80_0000_0000 .. 0x80_4000_0000  сегменты ELF (1 ГБ; сколько страниц - по ОЗУ машины)
@@ -253,7 +249,7 @@ static int64_t heap_grow_locked(proc_t* p, uint64_t pages) {
     if (heap_restrict >= 2) free_kb /= 2;     /* запас ядра проверяется против половины свободной памяти */
     int rc = uheap_check(p->heap_pages, pages, free_kb, pmm_get_total_memory_kb());
     if (rc != UHEAP_OK) {
-        if (rc == UHEAP_E_QUOTA || rc == UHEAP_E_MEM) life_note("deny-hp", p->name, (int)pages);
+        if (rc == UHEAP_E_QUOTA || rc == UHEAP_E_MEM) proc_note("deny-hp", p->name, (int)pages);
         return rc;
     }
     uint64_t start = UHEAP_VA + (uint64_t)p->heap_pages * 4096ULL;
@@ -403,15 +399,28 @@ void proc_dump(void) {
     uart_print("\n");
 }
 
+#define GONE_HOOKS_MAX 4
+static proc_gone_fn gone_hooks[2][GONE_HOOKS_MAX];
+static proc_note_fn note_hook;
+int proc_add_gone_hook(proc_gone_fn fn, int late) {
+    unsigned s = late ? 1 : 0;
+    for (unsigned i = 0; i < GONE_HOOKS_MAX; i++) if (!gone_hooks[s][i]) { gone_hooks[s][i] = fn; return 0; }
+    return -1;
+}
+void proc_set_note_hook(proc_note_fn fn) { note_hook = fn; }
+void proc_note(const char* kind, const char* name, int code) { proc_note_fn f = note_hook; if (f) f(kind, name, code); }
+static void run_gone_hooks(unsigned stage, uint32_t pid, uint32_t drv) {
+    for (unsigned i = 0; i < GONE_HOOKS_MAX; i++) if (gone_hooks[stage][i]) gone_hooks[stage][i](pid, drv);
+}
+
 /* Последний поток ушёл: всё, что принадлежало процессу, возвращается. Прерывания выключены, ядро уже в своём
    адресном пространстве, других потоков процесса нет ни на одном ядре. */
 static void teardown(proc_t* p) {
     uint32_t pid = p->pid;
-    gfx_proc_gone(pid);                    /* окно приложения снимет поток дисплея */
-    net_proc_gone(pid);                    /* соединения TCP программы закрываются */
+    run_gone_hooks(0, pid, p->drv);        /* окно приложения снимет поток дисплея, соединения TCP программы закроются */
     audio_proc_gone(pid);                  /* и её поток звука */
     syscall_proc_gone(pid);                /* его незаконченная строка журнала */
-    if (p->drv) kdrv_proc_gone(p->drv - 1, pid);   /* драйвер: устройство останавливается, DMA и кольца возвращаются позже */
+    run_gone_hooks(1, pid, p->drv);        /* драйвер: устройство останавливается, DMA и кольца возвращаются позже */
     for (uint32_t h = 1; h <= htab_cap(&p->handles); h++) kobj_release(htab_take(&p->handles, (int)h));
     htab_free(&p->handles);
     for (uint32_t i = 0; i < p->nmaps; i++) if (p->maps[i].shm) { kobj_release(p->maps[i].shm); p->maps[i].shm = 0; }
@@ -426,7 +435,7 @@ static void teardown(proc_t* p) {
     uart_print(", address space destroyed (");
     uart_print_dec(freed); uart_print(" pages returned to PMM).\n");
     if (code < 0) __atomic_add_fetch(&faults_total, 1, __ATOMIC_RELAXED);
-    life_note(code >= 0 ? "exit" : "killed", p->name, code);
+    proc_note(code >= 0 ? "exit" : "killed", p->name, code);
     __atomic_store_n(&p->used, 0, __ATOMIC_RELEASE);
 }
 

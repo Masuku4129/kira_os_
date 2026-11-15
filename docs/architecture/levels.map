@@ -53,6 +53,7 @@ kapi kstack.h
 0 keys/*
 0 prebuilt/*
 0 include/*
+0 wire.*   # проводка обратных вызовов между уровнями
 0 klog.*
 0 uart.*
 0 earlycon.*
@@ -64,6 +65,15 @@ kapi kstack.h
 1 fdt.*
 1 arch/aarch64/fdt*
 1 arch/*/hw*
+1 arch/*/cpu.h   # обёртки команд процессора (cpuid, rdtsc, cli): платформа, не драйверы
+3 scale.*   # чистые функции выбора размеров таблиц по числу ядер и ОЗУ, без зависимостей: нужны планировщику и процессам
+3 kdrv_sysnr.*   # номера системных вызовов драйверов Ring 3 (только enum)
+3 userlog.*   # построчный вывод программ: чистые функции без зависимостей
+3 usbmsc_fs.*   # тома FAT накопителей USB: usbmsc.c (ур.2) отдаёт блочное устройство, монтирует эта сторона
+3 kfs.*   # собственная файловая система ядра (ARCHITECTURE: подсистема ядра рядом с blk): опирается на blk, heap, kmutex; её читают Разум и службы
+3 store.*   # запись опыта на диск и crc32: только blk
+3 fat.*   # FAT поверх blk и kfs
+3 vfs.*   # точки монтирования kfs и FAT
 3 caps.*
 3 trust.*
 3 crypto.*
@@ -93,6 +103,7 @@ kapi kstack.h
 2 nvme.*
 2 blk.*
 2 part.*
+2 netdev.*   # интерфейс сетевой карты для драйверов
 2 e1000.*
 2 ac97.*
 2 hda.*
@@ -106,13 +117,14 @@ kapi kstack.h
 2 clock.*
 2 fb.*
 2 fbpix.*
-2 kdrv.*
+7 userland/kdrv.*   # SDK драйвера Ring 3 (включает userland/kira.h)
+6 kdrv.*   # менеджер драйверов Ring 3: грузит пакеты из ФС, держит сетевые карты, сверяет подписи (ур.4) и жизненный цикл (ур.5)
 5 mind*
-5 devhealth.*
+2 devhealth.*   # счётчики ошибок обмена от драйверов (только spinlock); Разум (ур.5) забирает
 5 experience.*
 5 life.*
-5 scale.*
-5 watchdog.*
+
+2 watchdog.*   # сторож тактов: опирается на таймер, планировщик и smp, экран получает через klog_set_panic_flush
 3 kernel*
 3 kernel/*
 3 sched.*
@@ -138,18 +150,14 @@ kapi kstack.h
 3 kpar.*
 3 linebuf.*
 3 elf.*
-3 progs.*
-6 kfs.*
-6 store.*
-6 vfs.*
-6 fat.*
+6 progs.*   # запуск программ из ФС: читает файлы (kfs), опирается на иммунитет, подписи и журнал жизни; вызывается консолью и дисплеем
 6 fscmd.*
 6 fsrv.*
 6 net.*
 6 ip6.*
 6 ipfrag.*
 6 buildcmd.*
-6 userlog.*
+
 6 gfxsrv.*
 6 display.*
 6 framegov.*

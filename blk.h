@@ -58,4 +58,7 @@ void blk_wait_irq(blk_wait_t* w, struct irqwait* iw);
 void blk_wait_begin(blk_wait_t* w, uint32_t ms);
 int  blk_wait_step(blk_wait_t* w);
 
+/* Распознаватель «своих» дисков: fn возвращает 1, если на диске наша разметка (только чтение). Подключается до blk_probe (wire_init). */
+void blk_set_own_detect(int (*fn)(blk_dev_t* d));
+
 #endif

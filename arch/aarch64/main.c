@@ -31,6 +31,7 @@
 #include "watchdog.h"
 #include "clock.h"
 #include "proc.h"
+#include "wire.h"
 #include "syscall.h"
 #include "uaccess.h"
 #include "progs.h"
@@ -1413,6 +1414,7 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     rng_init();              /* генератор случайных чисел: RNDR, virtio-rng, времена прерываний */
     immune_init();
     watchdog_init();
+    wire_init();             /* проводка между уровнями: до первого опроса дисков и USB */
     experience_init();       /* диски (virtio, NVMe, AHCI по PCI) и опыт прошлых жизней */
     fs_init();               /* KiraFS на системном диске */
     life_init();
@@ -1426,7 +1428,7 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     if (display_init(0) != 0) kprintf("[KIRA DISPLAY] No screen (no virtio-gpu, ramfb or simple-framebuffer): serial console only.\n");
     virtio_input_init();
     usb_init();              /* USB: xHCI (клавиатура, мышь, планшет, хабы, флешки) - тот же стек, что у x86-64 */
-    if (e1000_probe() != 0) virtio_net_probe();   /* сетевая карта: Intel e1000 или virtio-net */
+    wire_net_probe();   /* сетевая карта: Intel e1000 или virtio-net */
     net_start();
     hda_probe();
     kprintf("[KIRA ARM64] Ready. Type a command (help: any unknown word).\n");

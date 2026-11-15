@@ -17,4 +17,7 @@ int irqmode_core_failed(uint32_t failed_apic_id, uint32_t new_apic_id);
    0 - готово, <0 - нет APIC-режима или линии. */
 int irqmode_pci_line(unsigned irq, int on);
 
+/* Результат калибровки таймера LAPIC (команда status); 0 - калибровки нет. */
+void irqmode_set_apic_rate(uint64_t rate);
+
 #endif

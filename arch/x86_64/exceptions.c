@@ -2,7 +2,7 @@
 #include "uaccess.h"
 #include "exceptions.h"
 #include "uart.h"
-#include "display.h"
+#include "klog.h"
 #include "proc.h"
 #include "crashdump.h"
 #include "earlycon.h"
@@ -211,7 +211,7 @@ void exception_handler_main(uint64_t vector, uint64_t err_code, uint64_t rip, ui
 
     __asm__ volatile ("cli");
     uart_flush_all();
-    display_panic_flush();   // показать то же на экране
+    klog_panic_flush();   // показать то же на экране
     for (;;) {
         __asm__ volatile ("hlt");
     }

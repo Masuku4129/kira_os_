@@ -12,6 +12,7 @@
 #include "mind_sys.h"
 #include "watchdog.h"
 #include "keyboard.h"
+#include "input.h"
 #include "console.h"
 #include "sched.h"
 #include "timer.h"
@@ -30,6 +31,7 @@
 #include "percpu.h"
 #include "smp.h"
 #include "proc.h"
+#include "wire.h"
 #include "syscall.h"
 #include "fscmd.h"
 #include "life.h"
@@ -202,6 +204,7 @@ void kernel_main(unsigned long magic, unsigned long addr) {
     }
     ramext_init();
     bootmap_harden();               /* окно раннего отображения строилось до NXE: без NX */
+    wire_init();                 // проводка между уровнями: раньше описания железа, дисков и USB
     if (vmm_enforce_wx() != 0)      kernel_panic("W^X for kernel memory could not be enforced");
     acpi_set_map_hook(acpi_map);
     if (uefi_rsdp_override) acpi_init_rsdp(uefi_rsdp_override);
@@ -241,7 +244,7 @@ void kernel_main(unsigned long magic, unsigned long addr) {
     rng_init();            // генератор случайных чисел: RDSEED/RDRAND, virtio-rng, времена прерываний
     usb_init();
     virtio_input_init();
-    if (e1000_probe() != 0) virtio_net_probe();   /* сетевая карта: Intel e1000 или virtio-net */         // сетевая карта Intel e1000 (Limbo, QEMU, многие ПК)
+    wire_net_probe();   /* сетевая карта: Intel e1000 или virtio-net */         // сетевая карта Intel e1000 (Limbo, QEMU, многие ПК)
     net_start();
     if (hda_probe() != 0 && ac97_probe() != 0) sb16_probe();   // звук: Intel HDA, иначе AC'97 (Limbo: Sound ac97), иначе Sound Blaster 16 (ISA)           // стек: ARP, IPv4, ICMP, UDP, DHCP - свой поток   // клавиатура/мышь/планшет virtio (если машина их даёт)     // USB: клавиатуры, мыши, планшеты, хабы, флешки (UHCI, xHCI): свой поток, работает рядом с PS/2
     if (timer_init(TIMER_HZ) != 0)  kernel_panic("Timer initialization failed");
@@ -298,7 +301,7 @@ void kernel_main(unsigned long magic, unsigned long addr) {
     uint64_t apic_rate = 0;
     if (have_apic) {
         apic_rate = apic_calibrate_timer_tsc(tsc_khz_val);
-        console_set_apic_rate(apic_rate);
+        irqmode_set_apic_rate(apic_rate);
         if (apic_rate) {
             uart_print("[KIRA APIC] Timer calibrated against TSC: ");
             uart_print_dec(apic_rate / 1000);
@@ -345,7 +348,7 @@ void kernel_main(unsigned long magic, unsigned long addr) {
             /* Раз в секунду - шаг Разума: замеры всей системы, нормы, решения (если секунд накопилось несколько -
                основной поток был занят, - шаг один: замеры всё равно за весь промежуток). */
             seconds += pending;
-            (void)console_take_events();
+            (void)input_take_events();
             mind_sys_tick(seconds);
             experience_tick(seconds);
             sched_reap();

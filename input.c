@@ -249,3 +249,7 @@ int input_pop(input_event_t* ev) {
 }
 
 uint32_t input_dropped(void) { return dropped; }
+
+static volatile uint32_t event_count;
+void input_note_event(void) { event_count++; }
+uint32_t input_take_events(void) { uint32_t n = event_count; event_count = 0; return n; }
