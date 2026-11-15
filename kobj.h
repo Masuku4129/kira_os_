@@ -38,6 +38,7 @@ typedef struct kobj {
     uint32_t type;
     volatile uint32_t refs;
     char name[KNAME_MAX + 1];
+    uint32_t owner_dom;          // домен создателя (caps.h): общий объект другого домена открывается, только если домены связаны
     uint32_t owner_pid;          // создавший процесс; приватный объект доступен только ему
     uint32_t flags;              // KOBJ_F_PUBLIC: явное межпроцессное открытие
 } kobj_t;
@@ -56,6 +57,7 @@ void kobj_release(kobj_t* o);                             // последняя 
 
 // Порты
 int     port_open_as(const char* name, int flags, uint32_t owner_pid, kobj_t** out);
+int     port_open_in(const char* name, int flags, uint32_t owner_pid, uint32_t dom, kobj_t** out);   // то же с доменом процесса (DOM_*)
 int     port_open(const char* name, int flags, kobj_t** out);                 // совместимость host callers (PID 0); +1 ссылка
 int     port_send(kobj_t* port, uint32_t from_pid, const void* data, uint32_t len);   // 0, KE_FULL, KE_ARG, KE_NOMEM
 // Приём: длина сообщения (копируется не больше cap) и отправитель. timeout_ticks: 0 - не ждать, ~0 - без срока.
@@ -64,6 +66,7 @@ int64_t port_recv(kobj_t* port, void* kbuf, uint32_t cap, uint64_t timeout_ticks
 unsigned port_queued(kobj_t* port);
 
 // Разделяемая память (страницы обнулены при создании)
+int      shm_open_in(const char* name, uint32_t pages, int flags, uint32_t owner_pid, uint32_t dom, kobj_t** out);
 int      shm_open_as(const char* name, uint32_t pages, int flags, uint32_t owner_pid, kobj_t** out); // KE_AGAIN: same-name creation is in progress
 int      shm_open(const char* name, uint32_t pages, int flags, kobj_t** out);  // совместимость host callers (PID 0); +1 ссылка
 uint32_t shm_pages(kobj_t* shm);

@@ -18,6 +18,7 @@ int  proc_spawn_driver(const char* name, const void* image, size_t len, uint32_t
 uint32_t proc_current_drv(void);         /* номер привязки + 1; 0 - не драйвер */
 int  proc_map_phys(uint64_t va, uint64_t pa, uint32_t pages, uint64_t flags);   /* страницы в пространство текущего процесса (под proc_space_lock); VMM_SHARED добавляется */
 void proc_unmap_pages(uint64_t va, uint32_t pages);                              /* снять и сбросить TLB (под proc_space_lock) */
+uint32_t proc_current_domain(void);      /* домен текущего процесса (caps.h, DOM_*) */
 uint32_t proc_current_caps(void);        /* права текущего процесса (caps.h); 0 - не процесс */
 int  proc_cap_denied(uint32_t cap, uint64_t nr);   /* записывает отказ в журнал (раз на процесс); возвращает KE_PERM */
 const char* proc_current_grant(void);   /* "" - права нет */

@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "kobj.h"
+#include "caps.h"
 #include "futex.h"
 #include "sched.h"
 #include "spinlock.h"
@@ -222,6 +223,22 @@ int main(void) {
     CHECK(futex_wake(key, 1) == 0);                                          /* очередь пуста */
     dying = 1; CHECK(futex_wait(key, (uint64_t)(uintptr_t)&word, load_word, 7, ~0ULL, stop_fn) == KE_INTR); dying = 0;
 
-    printf("%s\n", fails ? "FAILED" : "kobj: names, handles, ports (order, overflow, wait/timeout/wake, kill), shared memory, futex passed");
+    /* домены приложений: общий объект открывается только доменами, до которых дотягивается домен создателя */
+    { kobj_t *o = 0, *r = 0;
+    CHECK(port_open_in("dom.pub", KOPEN_CREATE | KOPEN_PUBLIC, 10, DOM_MEDIA, &o) == 0 && o);
+    CHECK(port_open_in("dom.pub", 0, 11, DOM_MEDIA, &r) == 0 && r == o);
+    CHECK(port_open_in("dom.pub", 0, 12, DOM_SYSTEM, &r) == 0 && r == o);
+    CHECK(port_open_in("dom.pub", 0, 13, DOM_NET, &r) == KE_PERM);
+    CHECK(port_open_in("dom.pub", 0, 14, DOM_TOOLS, &r) == KE_PERM);
+    CHECK(port_open_in("dom.pub", 0, 15, DOM_UNTRUSTED, &r) == KE_PERM);
+    CHECK(port_open_in("dom.pub", KOPEN_CREATE | KOPEN_EXCL, 11, DOM_MEDIA, &r) == KE_EXIST);
+    /* Приватный объект по-прежнему только создателю, даже внутри домена и даже для system. */
+    CHECK(port_open_in("dom.priv", KOPEN_CREATE, 10, DOM_MEDIA, &o) == 0);
+    CHECK(port_open_in("dom.priv", 0, 11, DOM_MEDIA, &r) == KE_PERM && port_open_in("dom.priv", 0, 12, DOM_SYSTEM, &r) == KE_PERM);
+    /* Память: то же правило. */
+    CHECK(shm_open_in("dom.shm", 1, KOPEN_CREATE | KOPEN_PUBLIC, 20, DOM_NET, &o) == 0 && o);
+    CHECK(shm_open_in("dom.shm", 1, 0, 21, DOM_NET, &r) == 0 && shm_open_in("dom.shm", 1, 0, 22, DOM_MEDIA, &r) == KE_PERM);
+    }
+    printf("%s\n", fails ? "FAILED" : "kobj: names, handles, ports (order, overflow, wait/timeout/wake, kill), shared memory, futex, domains passed");
     return fails != 0;
 }

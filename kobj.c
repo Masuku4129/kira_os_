@@ -1,4 +1,5 @@
 #include "kobj.h"
+#include "caps.h"
 #include "heap.h"
 #include "pmm.h"
 #include "sched.h"
@@ -137,7 +138,7 @@ unsigned kobj_count(void) {
 
 // Найти или создать (создание - вне замка: страницы разделяемой памяти обнуляются долго). made - заготовка
 // нового объекта или 0; если объект за это время создал кто-то другой, заготовка уничтожается.
-static int publish(uint32_t type, const char* name, int flags, uint32_t owner_pid, kobj_t* made, kobj_t** out) {
+static int publish(uint32_t type, const char* name, int flags, uint32_t owner_pid, uint32_t dom, kobj_t* made, kobj_t** out) {
     uint64_t f = spin_lock_irqsave(&reg_lock);
     while (made && reg_n >= reg_cap) {                    // реестр полон: вырастить вне замка и повторить
         if (reg_cap > UINT32_MAX / 2) {
@@ -159,7 +160,7 @@ static int publish(uint32_t type, const char* name, int flags, uint32_t owner_pi
     kobj_t* o = find_locked(type, name);
     int rc = 0;
     if (o) {
-        if (o->owner_pid != owner_pid && !(o->flags & KOBJ_F_PUBLIC)) rc = KE_PERM;
+        if (o->owner_pid != owner_pid && (!(o->flags & KOBJ_F_PUBLIC) || !domain_may_reach(dom, o->owner_dom))) rc = KE_PERM;   /* чужой объект: только общий и только если домен дотягивается до домена создателя */
         else if ((flags & KOPEN_CREATE) && (flags & KOPEN_EXCL)) rc = KE_EXIST;
         else if (o->refs == UINT32_MAX) rc = KE_LIMIT;
         else { o->refs++; *out = o; }
@@ -167,6 +168,7 @@ static int publish(uint32_t type, const char* name, int flags, uint32_t owner_pi
         rc = KE_NOENT;
     } else {
         made->owner_pid = owner_pid;
+        made->owner_dom = dom;
         made->flags = (flags & KOPEN_PUBLIC) ? KOBJ_F_PUBLIC : 0;
         made->refs = 1;
         reg[reg_n++] = made;
@@ -246,7 +248,8 @@ static void set_name(kobj_t* o, uint32_t type, const char* name) {
 }
 
 // ---- порты ----
-int port_open_as(const char* name, int flags, uint32_t owner_pid, kobj_t** out) {
+int port_open_as(const char* name, int flags, uint32_t owner_pid, kobj_t** out) { return port_open_in(name, flags, owner_pid, DOM_SYSTEM, out); }
+int port_open_in(const char* name, int flags, uint32_t owner_pid, uint32_t dom, kobj_t** out) {
     if (!kname_ok(name) || !out || !open_flags_valid(flags)) return KE_ARG;
     port_t* p = 0;
     if ((flags & KOPEN_CREATE) && !exists(KOBJ_PORT, name)) {
@@ -255,7 +258,7 @@ int port_open_as(const char* name, int flags, uint32_t owner_pid, kobj_t** out) 
         __builtin_memset(p, 0, sizeof *p);
         set_name(&p->hdr, KOBJ_PORT, name);
     }
-    return publish(KOBJ_PORT, name, flags, owner_pid, p ? &p->hdr : 0, out);
+    return publish(KOBJ_PORT, name, flags, owner_pid, dom, p ? &p->hdr : 0, out);
 }
 
 int port_open(const char* name, int flags, kobj_t** out) {
@@ -366,13 +369,14 @@ static void shm_budget_release(uint64_t kb) {
     spin_unlock_irqrestore(&shm_budget_lock, f);
 }
 
-int shm_open_as(const char* name, uint32_t pages, int flags, uint32_t owner_pid, kobj_t** out) {
+int shm_open_as(const char* name, uint32_t pages, int flags, uint32_t owner_pid, kobj_t** out) { return shm_open_in(name, pages, flags, owner_pid, DOM_SYSTEM, out); }
+int shm_open_in(const char* name, uint32_t pages, int flags, uint32_t owner_pid, uint32_t dom, kobj_t** out) {
     if (!kname_ok(name) || !out || !open_flags_valid(flags)) return KE_ARG;
     shm_t* s = 0;
     shm_reservation_t* reservation = 0;
     if (flags & KOPEN_CREATE) {
         int rr = shm_reserve(name, &reservation);
-        if (rr == 1) return publish(KOBJ_SHM, name, flags, owner_pid, 0, out);
+        if (rr == 1) return publish(KOBJ_SHM, name, flags, owner_pid, dom, 0, out);
         if (rr) return rr;
         if (pages == 0) { shm_unreserve(reservation); return KE_ARG; }
         uint64_t budget_kb = (uint64_t)pages * 4;
@@ -405,7 +409,7 @@ int shm_open_as(const char* name, uint32_t pages, int flags, uint32_t owner_pid,
             __builtin_memset((void*)(uintptr_t)pa, 0, 4096);
         }
     }
-    int rc = publish(KOBJ_SHM, name, flags, owner_pid, s ? &s->hdr : 0, out);
+    int rc = publish(KOBJ_SHM, name, flags, owner_pid, dom, s ? &s->hdr : 0, out);
     if (reservation) shm_budget_release((uint64_t)pages * 4);
     shm_unreserve(reservation);
     return rc;

@@ -304,7 +304,7 @@ static void cmd_keys(const char* a) {
     uart_print(n ? "\n" : " (none)\n");
 }
 static void cmd_threads(const char* a) { (void)a; uart_print("[TEST] program mt: 4 threads of one process, futex mutex, then exit with live threads\n"); prog_start("mt"); }
-static void cmd_ipc(const char* a) { (void)a; uart_print("[TEST] two ipc processes: named ports (200 round trips), shared memory page, futex across processes\n"); prog_start("ipc"); prog_start("ipc"); }
+static void cmd_ipc(const char* a) { (void)a; uart_print("[TEST] two ipc processes: named ports (200 round trips), shared memory page, futex across processes\n"); prog_start("ipcx"); prog_start("ipc"); prog_start("ipc"); }
 static void cmd_isolation(const char* a) { (void)a; uart_print("[TEST] two demo processes write the same address: each must see only its own value\n"); prog_start("demo"); prog_start("demo"); }
 static void cmd_atk(const char* a) {
     (void)a;

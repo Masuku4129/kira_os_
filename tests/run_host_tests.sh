@@ -188,8 +188,12 @@ $CC $FLAGS -o $T/kmutex tests/kmutex_test.c kmutex.c sched.c scale.c percpu.c
 $T/kmutex
 
 echo "== kernel objects: ports, shared memory, handles, futex =="
-$CC $FLAGS -fsanitize=address,undefined -o $T/kobj tests/kobj_test.c kobj.c futex.c percpu.c
+$CC $FLAGS -fsanitize=address,undefined -o $T/kobj tests/kobj_test.c kobj.c caps.c futex.c percpu.c
 $T/kobj
+
+echo "== application domains: ceilings, reach, quotas =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/domain tests/domain_test.c caps.c
+$T/domain
 
 echo "== core fault isolation decision + per-core log line buffer =="
 $CC $FLAGS -o $T/corefault tests/corefault_test.c corefault.c linebuf.c

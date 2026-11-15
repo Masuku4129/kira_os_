@@ -34,7 +34,7 @@ echo "[*] Userland (Ring 3): программы собираются в ELF и �
 UCFLAGS="-ffreestanding -fPIE -fvisibility=hidden -mno-red-zone -mno-sse -mno-mmx -fno-stack-protector -fno-asynchronous-unwind-tables -O2 -Wall -Wextra"
 ULINK="-T userland/user.ld -z max-page-size=4096 -z noseparate-code -z norelro"
 UELF=""
-for app in plasma paint burn mt serve melody udpecho rec atk-cap; do
+for app in plasma paint burn mt serve melody udpecho rec atk-cap ipcx; do
     $CC $UCFLAGS -c userland/$app.c -o userland/$app.o
     ld.lld $ULINK -o userland/$app.elf userland/$app.o
     UELF="$UELF userland/$app.elf"
@@ -124,7 +124,7 @@ else
 fi
 
 # Пользовательская сборка (--android или KIRA_RELEASE=1): тестовые и учебные программы на диск не кладутся (CI собирает полный набор).
-TESTPROGS="burn mt ipc udpecho melody demo rsdemo fpu atk-cap atk-mem atk-priv atk-sys atk-gs atk-jmp"
+TESTPROGS="burn mt ipc ipcx udpecho melody demo rsdemo fpu atk-cap atk-mem atk-priv atk-sys atk-gs atk-jmp"
 RELEASE=0; case " $* " in *" --android "*) RELEASE=1 ;; esac; [ -n "$KIRA_RELEASE" ] && RELEASE=1
 if [ "$RELEASE" = 1 ]; then
     KEEP=""; for e in $UELF; do n=$(basename $e .elf); case " $TESTPROGS " in *" $n "*) ;; *) KEEP="$KEEP $e" ;; esac; done

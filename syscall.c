@@ -217,7 +217,7 @@ static uint64_t dispatch(uint64_t nr, uint64_t a1, uint64_t a2, uint64_t a3) {
         char name[KNAME_MAX + 1];
         if (!copy_name(a1, a2, name)) return (uint64_t)(int64_t)KE_ARG;
         kobj_t* o = 0;
-        int rc = port_open_as(name, (int)(a3 & 7), proc_current_pid(), &o);
+        int rc = port_open_in(name, (int)(a3 & 7), proc_current_pid(), proc_current_domain(), &o);
         if (rc) return (uint64_t)(int64_t)rc;
         return (uint64_t)proc_handle_add(o);
     }
@@ -264,7 +264,7 @@ static uint64_t dispatch(uint64_t nr, uint64_t a1, uint64_t a2, uint64_t a3) {
         char name[KNAME_MAX + 1];
         if (!copy_name(a1, a2, name)) return (uint64_t)(int64_t)KE_ARG;
         kobj_t* o = 0;
-        int rc = shm_open_as(name, (uint32_t)a3, (int)((a3 >> 32) & 7), proc_current_pid(), &o);
+        int rc = shm_open_in(name, (uint32_t)a3, (int)((a3 >> 32) & 7), proc_current_pid(), proc_current_domain(), &o);
         if (rc) return (uint64_t)(int64_t)rc;
         return (uint64_t)proc_handle_add(o);
     }

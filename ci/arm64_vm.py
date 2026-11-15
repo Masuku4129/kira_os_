@@ -128,6 +128,8 @@ SC = [
                ("test atk", [r"kernel pointer passed to write\(\) was rejected \(PASS\)", r"jumping into kernel memory"]),
                ("@sleep 3", []),
                ("test caps", [r"atk-cap: 16 calls without rights refused, harmless calls work \(PASS\)", r"\[KIRA CAPS\] process 'atk-cap' .* denied, no right CAP_GFX"]),
+               ("test ipc", [r"ipcx: foreign-domain open of a public shared-memory object refused \(PASS\)", r"ipc server: .* - PASS"]),
+               ("@sleep 5", []),
                ("test fpu", [r"fpu: rounds \d+, mismatches 0 - PASS[\s\S]*- PASS[\s\S]*- PASS"]),
                ("test threads", [r"mt: .* - PASS"]),
                ("status", [r"interrupts: GICv3"]),

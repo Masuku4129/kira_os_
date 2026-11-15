@@ -55,6 +55,7 @@ typedef struct {
     volatile uint32_t nthreads;
     volatile uint32_t dying;
     int exit_code;
+    uint32_t domain;                   /* домен (caps.h): потолок прав, квота процессов, доступ к общим объектам */
     uint32_t caps;                     /* права (caps.h): задаются при запуске, дальше не меняются */
     volatile uint32_t cap_denied;      /* отказов по правам: журнал - только первый */
     uint32_t drv;                      /* драйвер Ring 3: номер привязки к устройству + 1 (kdrv.c); 0 - обычная программа */
@@ -148,12 +149,22 @@ static int spawn(const char* name, const void* image, size_t len, const char* gr
         return -1;
     }
 
+    uint32_t dom = drv ? DOM_DRIVER : own_caps ? DOM_UNTRUSTED : domain_for_program(name);
     uint64_t f = spin_lock_irqsave(&proc_lock);
     proc_t* p = 0;
-    for (unsigned i = 0; i < max_procs; i++) if (!procs[i].used) { p = &procs[i]; break; }
-    if (!p) { spin_unlock_irqrestore(&proc_lock, f); return -1; }
+    unsigned in_dom = 0;
+    for (unsigned i = 0; i < max_procs; i++) {
+        if (!procs[i].used) { if (!p) p = &procs[i]; }
+        else if (procs[i].domain == dom) in_dom++;
+    }
+    if (!p || in_dom >= domain_proc_max(dom)) {      /* нет места или домен выбрал свою квоту */
+        spin_unlock_irqrestore(&proc_lock, f);
+        if (p) { uart_print("[KIRA PROC] '"); uart_print(name); uart_print("' refused: domain "); uart_print(domain_name(dom)); uart_print(" is at its process limit.\n"); }
+        return -1;
+    }
     p->used = 1;                       /* занят до конца настройки */
-    p->caps = own_caps ? caps : caps_for_program(name);
+    p->domain = dom;
+    p->caps = (own_caps ? caps : caps_for_program(name)) & domain_caps_max(dom);   /* права программы не выше потолка её домена */
     p->drv = drv;
     p->cap_denied = 0;
     {   /* право на чтение файла - до первого потока: программа видит его с первой команды */
@@ -315,6 +326,7 @@ int64_t proc_jit(uint64_t op, uint64_t a, uint64_t b) {
 
 int proc_in_user_thread(void) { return current_proc() != 0; }
 uint32_t proc_current_drv(void) { proc_t* p = current_proc(); return p ? p->drv : 0; }
+uint32_t proc_current_domain(void) { proc_t* p = current_proc(); return p ? p->domain : DOM_UNTRUSTED; }
 uint32_t proc_current_caps(void) { proc_t* p = current_proc(); return p ? p->caps : 0; }
 int proc_cap_denied(uint32_t cap, uint64_t nr) {
     proc_t* p = current_proc();
