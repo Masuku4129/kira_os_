@@ -28,6 +28,9 @@ UELF="$UELF build-arm64/ipc.elf"
 $CC $UCFLAGS -I. -Iuserland -c userland/fsport.c -o build-arm64/fp_fsport.o
 ld.lld -T userland/user_arm64.ld -z max-page-size=4096 -z noseparate-code -z norelro -o build-arm64/fsport.elf build-arm64/fp_fsport.o build-arm64/ui_cbor.o build-arm64/ui_libc_min.o
 UELF="$UELF build-arm64/fsport.elf"
+$CC $UCFLAGS -I. -Iuserland -c userland/gfxport.c -o build-arm64/fp_gfxport.o
+ld.lld -T userland/user_arm64.ld -z max-page-size=4096 -z noseparate-code -z norelro -o build-arm64/gfxport.elf build-arm64/fp_gfxport.o build-arm64/ui_cbor.o build-arm64/ui_libc_min.o
+UELF="$UELF build-arm64/gfxport.elf"
 # fetch: HTTP и HTTPS (TLS 1.3 и криптография внутри программы)
 for f in userland/fetch.c userland/tls.c userland/x509.c pk.c crypto.c sha256.c userland/libc_min.c; do
     $CC $UCFLAGS -I. -Iuserland -c $f -o build-arm64/uf_$(basename $f .c).o

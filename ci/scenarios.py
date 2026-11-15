@@ -82,6 +82,8 @@ ALL = [
         {"cmd": "test atk"}, {"sleep": 6},
         {"cmd": "test caps"}, {"sleep": 4},
         {"cmd": "test ipc"}, {"sleep": 8},
+        {"cmd": "test gfxport"}, {"sleep": 4},
+        {"log": [r"\[KIRA GFXCTL\] port kira\.gfx ready", r"gfxport: screen \d+x\d+, \d+ checks, 0 failed - PASS"]},
         {"cmd": "test fsport"}, {"sleep": 6},
         {"log": [r"\[KIRA FSSVC\] port kira\.fs ready", r"fsport: \d+ checks, 0 failed - PASS"]},
         {"cmd": "test threads"}, {"sleep": 6},
@@ -95,7 +97,7 @@ ALL = [
                  r"ipc client: descriptors passed through messages \(private port and shared memory, both directions\) \(PASS\)",
                  r"ipc server: descriptors received through messages: client's private port and shared memory \(PASS\)",
                  r"ipc server: wait on two ports: messages from both seen, timeout and duplicate refused \(PASS\)"]},
-        {"log_forbid": [r"\(FAIL\)", r"isolation broken", r"ipc (server|client): FAIL", r"ipcx: FAIL", r"fsport: FAIL", r"fsport: \d+ checks, [1-9]\d* failed", r"mt: FAIL", r"rsdemo: (FAILED|panic)"] + NO_ERR},
+        {"log_forbid": [r"\(FAIL\)", r"isolation broken", r"ipc (server|client): FAIL", r"ipcx: FAIL", r"fsport: FAIL", r"gfxport: FAIL", r"fsport: \d+ checks, [1-9]\d* failed", r"mt: FAIL", r"rsdemo: (FAILED|panic)"] + NO_ERR},
         {"responsive": "status", "within": 5},
     ]),
     sc("soak-8cpu", "8 ядер, 30 с жизни с фоновой нагрузкой: зависаний и аварий нет", [

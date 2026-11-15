@@ -49,6 +49,10 @@ UELF="$UELF userland/ipc.elf"
 $CC $UCFLAGS -I. -c userland/fsport.c -o userland/fsport.o
 ld.lld $ULINK -o userland/fsport.elf userland/fsport.o userland/u_cbor.o userland/u_libc_min.o
 UELF="$UELF userland/fsport.elf"
+# gfxport: проверка управляющего слоя графики на портах (CBOR)
+$CC $UCFLAGS -I. -c userland/gfxport.c -o userland/gfxport.o
+ld.lld $ULINK -o userland/gfxport.elf userland/gfxport.o userland/u_cbor.o userland/u_libc_min.o
+UELF="$UELF userland/gfxport.elf"
 # fetch: HTTP и HTTPS - TLS 1.3 и криптография (crypto.c, sha256.c - те же файлы, что у ядра) внутри программы
 $CC $UCFLAGS -I. -Iuserland -c userland/fetch.c -o userland/fetch.o
 $CC $UCFLAGS -I. -Iuserland -c userland/tls.c -o userland/u_tls.o
@@ -128,7 +132,7 @@ else
 fi
 
 # Пользовательская сборка (--android или KIRA_RELEASE=1): тестовые и учебные программы на диск не кладутся (CI собирает полный набор).
-TESTPROGS="burn mt ipc fsport ipcx udpecho melody demo rsdemo fpu atk-cap atk-mem atk-priv atk-sys atk-gs atk-jmp"
+TESTPROGS="burn mt ipc fsport gfxport ipcx udpecho melody demo rsdemo fpu atk-cap atk-mem atk-priv atk-sys atk-gs atk-jmp"
 RELEASE=0; case " $* " in *" --android "*) RELEASE=1 ;; esac; [ -n "$KIRA_RELEASE" ] && RELEASE=1
 if [ "$RELEASE" = 1 ]; then
     KEEP=""; for e in $UELF; do n=$(basename $e .elf); case " $TESTPROGS " in *" $n "*) ;; *) KEEP="$KEEP $e" ;; esac; done
