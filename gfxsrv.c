@@ -27,7 +27,8 @@ typedef struct {
     volatile int need_create, need_destroy, dirty;
     volatile uint32_t seq;            /* нечётный, пока идёт копия кадра в передний буфер */
     gfx_event_t q[EVQ];
-    volatile uint32_t qh, qt;         /* пишет поток дисплея, читает системный вызов */
+    spinlock_t q_lock;                /* очередь событий: несколько потоков одного PID могут читать одновременно */
+    uint32_t qh, qt;                  /* все операции над очередью выполняются под q_lock */
     uint64_t last_present;            /* тик последнего кадра (темп фоновых окон) */
     volatile int hidden;              /* окно свёрнуто/невидимо (публикует поток дисплея) */
 } app_t;
@@ -50,10 +51,14 @@ static app_t* find_win(int win) {
 }
 
 static void push(app_t* a, uint32_t type, uint32_t x, uint32_t y, uint32_t z) {
+    uint64_t f = spin_lock_irqsave(&a->q_lock);
+    if (__atomic_load_n(&a->used, __ATOMIC_ACQUIRE) != 1) { spin_unlock_irqrestore(&a->q_lock, f); return; }
     uint32_t h = a->qh;
-    if (h - a->qt >= EVQ) return;                     /* приложение не успевает: новые события теряем */
-    a->q[h % EVQ] = (gfx_event_t){ type, x, y, z };
-    __atomic_store_n(&a->qh, h + 1, __ATOMIC_RELEASE);
+    if (h - a->qt < EVQ) {
+        a->q[h % EVQ] = (gfx_event_t){ type, x, y, z };
+        a->qh = h + 1;
+    }                                                   /* приложение не успевает: новые события теряем */
+    spin_unlock_irqrestore(&a->q_lock, f);
 }
 
 int64_t gfx_sys_create(uint32_t pid, const char* title, uint32_t w, uint32_t h) {
@@ -86,7 +91,10 @@ int64_t gfx_sys_create(uint32_t pid, const char* title, uint32_t w, uint32_t h) 
     }
     a->pid = pid; a->win = -1; a->w = w; a->h = h; a->pages = pages; a->phys = phys;
     unsigned k = 0; while (title[k] && k < sizeof(a->title) - 1) { a->title[k] = title[k]; k++; } a->title[k] = 0;
-    a->qh = a->qt = 0; a->seq = 0; a->dirty = 0; a->need_destroy = 0; a->need_create = 1;
+    uint64_t qf = spin_lock_irqsave(&a->q_lock);
+    a->qh = a->qt = 0;
+    spin_unlock_irqrestore(&a->q_lock, qf);
+    a->seq = 0; a->dirty = 0; a->need_destroy = 0; a->need_create = 1;
     __atomic_store_n(&a->used, 1, __ATOMIC_RELEASE);
     return (int64_t)GFX_USER_VA;
 }
@@ -134,13 +142,24 @@ int gfx_focus_pid(void) { return __atomic_load_n(&focus_pid_pub, __ATOMIC_ACQUIR
 int64_t gfx_sys_event(uint32_t pid, uint64_t user_ptr) {
     app_t* a = find_pid(pid);
     if (!a || !user_range(user_ptr, sizeof(gfx_event_t), 1)) return -1;
+    uint64_t f = spin_lock_irqsave(&a->q_lock);
+    if (__atomic_load_n(&a->used, __ATOMIC_ACQUIRE) != 1 || a->pid != pid) {
+        spin_unlock_irqrestore(&a->q_lock, f);
+        return -1;
+    }
     uint32_t t = a->qt;
-    if (t != __atomic_load_n(&a->qh, __ATOMIC_ACQUIRE)) {
+    if (t != a->qh) {
         gfx_event_t e = a->q[t % EVQ];
-        if (copy_to_user(user_ptr, &e, sizeof e) != 0) return -1;     /* событие остаётся в очереди */
-        __atomic_store_n(&a->qt, t + 1, __ATOMIC_RELEASE);
+        /* Copy before advancing while serialized: a failed user copy leaves the event at the head. */
+        if (copy_to_user(user_ptr, &e, sizeof e) != 0) {
+            spin_unlock_irqrestore(&a->q_lock, f);
+            return -1;
+        }
+        a->qt = t + 1;
+        spin_unlock_irqrestore(&a->q_lock, f);
         return 1;
     }
+    spin_unlock_irqrestore(&a->q_lock, f);
     if (gfx_focus_pid() == (int)pid) {                 /* клавиатура уходит окну, которое сверху */
         input_event_t ev;
         if (input_pop(&ev)) {
@@ -173,6 +192,9 @@ void gfx_server_run(void) {
         app_t* a = &apps[i];
         if (__atomic_load_n(&a->used, __ATOMIC_ACQUIRE) != 1) continue;
         if (a->need_destroy) {
+            uint64_t qf = spin_lock_irqsave(&a->q_lock);
+            if (__atomic_load_n(&a->used, __ATOMIC_ACQUIRE) == 1) __atomic_store_n(&a->used, 2, __ATOMIC_RELEASE);
+            spin_unlock_irqrestore(&a->q_lock, qf);
             if (a->win >= 0) wm_destroy(a->win);
             pmm_free_contiguous(a->phys, a->pages * 2);    /* страницы помечены SHARED: процесс их не освобождал */
             a->win = -1;
