@@ -130,10 +130,12 @@ uint16_t inw(uint16_t p) {
 void outl(uint16_t p, uint32_t v) { if (p - IO == 0x08) frbase = v; }
 void outb(uint16_t p, uint8_t v) { if (p - IO == 0x0C) sof = v; }
 
+#include "usbmsc_fs.h"
 int main(void) {
     arena = mmap((void*)0x10000000, 16u << 20, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_32BIT, -1, 0);
     CHECK(arena != MAP_FAILED && (uintptr_t)arena + (16u << 20) < 0x100000000ull);
     input_init();
+    msc_set_fs_ops(&usbmsc_fs_ops);
     mdev_kbd(&devm[0]); mdev_tablet(&devm[1]);
     port[0] = 2; port[1] = 2;                           /* CSC: устройства уже подключены */
     pci_dev_t pd = { 0 }; pd.bar[4].io = 1; pd.bar[4].base = IO; pd.bar[4].size = 32;

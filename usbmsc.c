@@ -1,8 +1,6 @@
 #include "usb.h"
 #include "blk.h"
 #include "part.h"
-#include "fat.h"
-#include "vfs.h"
 #include "devhealth.h"
 
 /* Накопители USB (флешки, кардридеры, внешние диски): Bulk-Only Transport + SCSI (INQUIRY, TEST UNIT READY,
@@ -25,7 +23,6 @@ typedef struct {
     uint64_t blocks; uint32_t bsize;
     int cap16;
     blk_dev_t blk;
-    fat_vol_t fat;
     char vendor[9], product[17];
     uint32_t errors, got;              /* got - сколько байт данных пришло/ушло в последней команде */
 } msc_t;
@@ -177,28 +174,11 @@ static void copy_str(char* d, const uint8_t* s, int n) {
     d[k] = 0;
 }
 
+static msc_fs_ops_t fs_ops;                                              /* тома FAT: операции подключает верхний уровень (usbmsc_fs.c) */
+void msc_set_fs_ops(const msc_fs_ops_t* ops) { fs_ops = *ops; }
+
 static void mount(msc_t* m) {
-    static uint8_t s0[512];
-    if (m->blk.read(&m->blk, 0, 1, s0) != 0) { usb_log("[KIRA USB] storage: cannot read sector 0\n"); return; }
-    static part_t pt[PART_MAX];                                        /* не на стеке потока usb */
-    int np = part_scan(&m->blk, s0, pt, PART_MAX);
-    for (int i = 0; i < np; i++) {
-        if (fat_mount(&m->fat, &m->blk, pt[i].start, pt[i].count) != 0) continue;
-        char desc[48]; int k = 0;
-        for (const char* p = m->vendor; *p && k < 20; p++) desc[k++] = *p;
-        if (k) desc[k++] = ' ';
-        for (const char* p = m->product; *p && k < 46; p++) desc[k++] = *p;
-        desc[k] = 0;
-        m->vol = vfs_mount_fat_ro(&m->fat, desc);
-        if (m->vol < 0) { usb_log("[KIRA USB] storage: no free mount point (4 volumes max)\n"); return; }
-        usb_log("[KIRA USB] storage: FAT"); usb_log_dec((uint64_t)m->fat.type);
-        if (m->fat.label[0]) { usb_log(" '"); usb_log(m->fat.label); usb_log("'"); }
-        usb_log(" mounted at /usb"); usb_log_dec((uint64_t)m->vol); usb_log("\n");
-        return;
-    }
-    if (np == 0 && s0[3] == 'E' && s0[4] == 'X' && s0[5] == 'F' && s0[6] == 'A' && s0[7] == 'T') usb_log("[KIRA USB] storage: exFAT is not supported yet (format the stick as FAT32)\n");
-    else if (np == 0 && s0[3] == 'N' && s0[4] == 'T' && s0[5] == 'F' && s0[6] == 'S') usb_log("[KIRA USB] storage: NTFS is not supported yet (format the stick as FAT32)\n");
-    else usb_log("[KIRA USB] storage: no FAT volume found (exFAT/NTFS or unformatted)\n");
+    m->vol = fs_ops.mount ? fs_ops.mount((int)(m - mscs), &m->blk, m->vendor, m->product) : -1;
 }
 
 int msc_attach(usb_dev_t* d, const usb_iface_t* f) {
@@ -257,7 +237,7 @@ void msc_poll(void) {
     for (int i = 0; i < USB_MAX_MSC; i++) {
         msc_t* m = &mscs[i];
         if (!m->used || !m->gone) continue;
-        if (m->vol >= 0 && vfs_unmount_try(m->vol) != 0) continue;
+        if (m->vol >= 0 && (!fs_ops.unmount_try || fs_ops.unmount_try(m->vol) != 0)) continue;
         m->vol = -1; m->used = 0;
     }
 }

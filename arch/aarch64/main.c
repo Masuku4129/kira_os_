@@ -1414,11 +1414,11 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     rng_init();              /* генератор случайных чисел: RNDR, virtio-rng, времена прерываний */
     immune_init();
     watchdog_init();
+    wire_init();             /* проводка между уровнями: до первого опроса дисков и USB */
     experience_init();       /* диски (virtio, NVMe, AHCI по PCI) и опыт прошлых жизней */
     fs_init();               /* KiraFS на системном диске */
     life_init();
     proc_init(ncpu, total / 1024);
-    wire_init();
     kprintf("[KIRA SYSCALL] SVC from EL0: the same calls as on x86-64 (number in x8, arguments x0..x2); PAN %s; user pointers validated.\n",
             uaccess_enable_smap() ? "on (kernel touches programs only via LDTR/STTR)" : "not offered by this CPU (copies still use LDTR/STTR)");
     mind_sys_init();         /* Разум: нормы, модель предвидения, тактика ~40 Гц */

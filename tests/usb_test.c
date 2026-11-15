@@ -126,8 +126,10 @@ static int typed(const char* want) {
 static int img_read(blk_dev_t* d, uint64_t l, uint32_t c, void* o) { memcpy(o, (uint8_t*)d->priv + l * 512, (size_t)c * 512); return 0; }
 static void key(mdev_t* k, uint8_t usage) { uint8_t r[8] = { 0, 0, usage }, z[8] = { 0 }; mdev_report(k, r, 8); mdev_report(k, z, 8); }
 
+#include "usbmsc_fs.h"
 int main(void) {
     input_init();
+    msc_set_fs_ops(&usbmsc_fs_ops);
     static mdev_t kbd, tab, hub, fshub, kbd2, kbd3, stick, ro, empty;
 
     /* ---- HID на корневых портах ---- */

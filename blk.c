@@ -3,8 +3,6 @@
 #include "uart.h"
 #include "kmutex.h"
 #include "cpu.h"
-#include "kfs.h"
-#include "store.h"
 #include "devhealth.h"
 #include "clock.h"
 #include "sched.h"
@@ -94,13 +92,17 @@ static int g_flush(blk_dev_t* d) {
 
 static void scopy(char* d, const char* s, unsigned cap) { unsigned i = 0; while (s && s[i] && i + 1 < cap) { d[i] = s[i]; i++; } d[i] = 0; }
 
+/* Распознаватель «своих» дисков (KiraFS и хранилище опыта) подключает верхний уровень (wire_init): драйвер диска их форматов не знает. */
+static int (*own_detect)(blk_dev_t* d);
+void blk_set_own_detect(int (*fn)(blk_dev_t* d)) { own_detect = fn; }
+
 /* Что лежит на диске - только чтением. */
 static void classify(slot_t* s) {
     static uint8_t sec[2][BLK_SECTOR];
     blk_dev_t* d = &s->pub;
     s->info.kira = s->info.foreign = 0;
     if (d->sectors < 64) return;
-    if (store_detect(d) || kfs_detect(d, KFS_BASE_LBA) == 0) { s->info.kira = 1; return; }
+    if (own_detect && own_detect(d)) { s->info.kira = 1; return; }
     if (d->read(d, 0, 2, sec) != 0) { s->info.foreign = 1; return; }       /* не читается - тем более не трогаем */
     if (sec[0][510] == 0x55 && sec[0][511] == 0xAA) s->info.foreign = 1;  /* MBR, загрузочный сектор FAT/NTFS/exFAT */
     const char* efi = "EFI PART";

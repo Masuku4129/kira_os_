@@ -311,7 +311,7 @@ $CC $FLAGS -fsanitize=address,undefined -o $T/fm tests/fm_test.c fm.c
 ASAN_OPTIONS=detect_leaks=0 $T/fm
 
 echo "== USB: HID, hubs, flash drives (Bulk-Only/SCSI -> FAT -> /usbN), stack core, UHCI and xHCI drivers against controller models =="
-USB_STACK="usb.c usbhid.c usbhub.c usbmsc.c input.c fat.c part.c vfs.c kfs.c store.c devhealth.c"
+USB_STACK="usb.c usbhid.c usbhub.c usbmsc.c usbmsc_fs.c input.c fat.c part.c vfs.c kfs.c store.c devhealth.c"
 $CC $FLAGS -fsanitize=address,undefined -o $T/usbhid tests/usbhid_test.c usbhid.c input.c
 $T/usbhid
 $CC $FLAGS -Itests -fsanitize=address,undefined -o $T/usb tests/usb_test.c $USB_STACK

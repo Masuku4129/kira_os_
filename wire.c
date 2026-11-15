@@ -5,6 +5,10 @@
 #include "kdrv.h"
 #include "life.h"
 #include "klog.h"
+#include "blk.h"
+#include "kfs.h"
+#include "store.h"
+#include "usbmsc_fs.h"
 #include "e1000.h"
 #include "virtio_net.h"
 #include "display.h"
@@ -24,6 +28,8 @@ static void wire_gone_late(uint32_t pid, uint32_t drv) {
 _Static_assert(SVC_NET_CONNECT_SA == NET_SYS_CONNECT_SA && SVC_NET_PEER == NET_SYS_PEER, "коды net_sys расходятся с syscall.h");
 _Static_assert(SVC_UDP_SENDTO == NET_UDP_SENDTO && SVC_UDP_RECVFROM == NET_UDP_RECVFROM, "коды net_udp_sys расходятся с syscall.h");
 
+static int wire_own_disk(blk_dev_t* d) { return store_detect(d) || kfs_detect(d, KFS_BASE_LBA) == 0; }
+
 void wire_init(void) {
     static const syscall_services_t services = {
         gfx_sys_create, gfx_sys_present, gfx_sys_event, fsrv_syscall, net_sys, net_udp_sys, kdrv_sys };
@@ -32,6 +38,8 @@ void wire_init(void) {
     proc_add_gone_hook(wire_gone_late, 1);
     proc_set_note_hook(life_note);
     klog_set_panic_flush(display_panic_flush);
+    msc_set_fs_ops(&usbmsc_fs_ops);
+    blk_set_own_detect(wire_own_disk);
 }
 
 /* Сетевая карта: Intel e1000, иначе virtio-net; найденную регистрирует стек (драйверы ур.2 стек не включают). */
