@@ -685,8 +685,17 @@ void wm_set_fullscreen(int id, int on) {
 
 int wm_fullscreen(int id) { return id >= 0 && id < WM_MAX_WIN && win[id].used && win[id].full; }
 
+static struct { uintptr_t ra; uint32_t n; } inv_tab[8];                   /* кто чаще всего перерисовывает окна целиком (замеры) */
+void wm_invalidate_report(void (*out)(uintptr_t ra, uint32_t n)) { for (int i = 0; i < 8; i++) { if (inv_tab[i].n) out(inv_tab[i].ra, inv_tab[i].n); inv_tab[i].n = 0; } }
 void wm_invalidate(int id) {
     if (!wm_visible(id)) return;
+    {
+        uintptr_t ra = (uintptr_t)__builtin_return_address(0);
+        int k = 0, free_i = -1;
+        for (; k < 8; k++) { if (inv_tab[k].n && inv_tab[k].ra == ra) break; if (!inv_tab[k].n && free_i < 0) free_i = k; }
+        if (k < 8) inv_tab[k].n++;
+        else if (free_i >= 0) { inv_tab[free_i].ra = ra; inv_tab[free_i].n = 1; }
+    }
     win_t* w = &win[id];
     int ox, oy, dw, dh; geom(w, &ox, &oy, &dw, &dh);
     damage(ox, oy, ox + dw, oy + dh);

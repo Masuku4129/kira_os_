@@ -808,6 +808,8 @@ void display_request_files(const char* left, const char* right) {
 
 int display_kbd_owner(void) { return __atomic_load_n(&files_focus, __ATOMIC_ACQUIRE); }
 
+static void inv_out(uintptr_t ra, uint32_t n) { uart_print("[INVAL] caller "); uart_print_hex(ra); uart_print(" x"); uart_print_dec(n); uart_print("\n"); }
+
 void display_print_info(void) {
     const fb_info_t* i = fb_get_info();
     if (!fb_available()) {
@@ -858,6 +860,7 @@ void display_print_info(void) {
     p_frames = st.frames; p_comp = st.composed; p_late = st.late; p_mouse = st.mouse_events; p_t = nowp; p_busy = st.busy_ns;
     p_gfx = st.ns_gfx; p_mm = st.ns_mouse; p_mid = st.ns_mid; p_cmp = st.ns_comp; p_in = in_n; p_drop = drop_n;
     st.max_gap_period = 0; st.worst_busy_ns = 0;
+    wm_invalidate_report(inv_out);
 }
 
 void display_panic_flush(void) {
