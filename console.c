@@ -412,6 +412,11 @@ static void cmd_python(const char* a) {                     /* Python (MicroPyth
     if (!*a) uart_print("python: интерактивный режим; выход - Ctrl+D. Скрипты: python файл.py (файл в /data/wasm), код: python -c print(1+1)\n");
     (void)prog_run_file_args("wasm", "/wasm/python.wasm", a);
 }
+static void cmd_ksh(const char* a) {                        /* оболочка скриптов ksh - модуль WebAssembly /wasm/ksh.wasm в песочнице программы wasm */
+    while (a && *a == ' ') a++;
+    if (!*a) uart_print("ksh: интерактивный режим; выход - Ctrl+D. Скрипты: ksh файл.sh (файл в /data/wasm), код: ksh -c echo привет\n");
+    (void)prog_run_file_args("wasm", "/wasm/ksh.wasm", a);
+}
 static void cmd_view(const char* a) {                       /* то же, что двойной щелчок в Проводнике */
     while (a && *a == ' ') a++;
     if (!a || *a != '/') { uart_print("view /путь/к/файлу: просмотр (текст, PNG, BMP, PPM, шестнадцатерично)\n"); return; }
@@ -602,6 +607,7 @@ static const cmd_t cmds[] = {
     { "poweroff",  0,   "выключить машину (опыт и диски сохраняются; ACPI S5 / PSCI)", cmd_poweroff },
     { "reboot",    0,   "перезагрузить машину (опыт и диски сохраняются)", cmd_reboot },
     { "wasm",      0,   "wasm /путь.wasm: программа WebAssembly (один файл для x86-64 и ARM64; модули в /wasm)", cmd_wasm },
+    { "ksh",       0,   "Оболочка скриптов ksh: ksh - REPL; ksh файл.sh (файл в /data/wasm); ksh -c код", cmd_ksh },
     { "python",    0,   "Python (MicroPython): python - REPL; python файл.py (файл в /data/wasm); python -c код", cmd_python },
     { "view",      0,   "view /путь: просмотр файла (текст, PNG, BMP, PPM, двоичный) - как двойной щелчок в Проводнике", cmd_view },
     { "paint",     'b', "приложение Ring 3: холст (мышь, клавиши 1-8, c - очистить)", cmd_paint },
