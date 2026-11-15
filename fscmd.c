@@ -7,6 +7,8 @@
 #include "experience.h"
 #include "sysseal.h"
 #include "sha256.h"
+#include "kdrv.h"
+#include "kdrv_sig.h"
 
 static void fail(const char* what, int e) {
     uart_print(what); uart_print(": "); uart_print(kfs_strerror(e)); uart_print("\n");
@@ -230,6 +232,10 @@ int fs_verify_seal(int quiet) {
             uart_print(rep.root_ok ? "; корень Меркла верен" : "; КОРЕНЬ МЕРКЛА НЕ СХОДИТСЯ (печать повреждена)");
             uart_print("\n");
             rc = (rep.changed || rep.missing || !rep.root_ok) ? 1 : 0;
+            int miss = 0, sr = kdrv_seal_sig_check(m, (size_t)st.size, &miss);   /* подпись издателя */
+            if (sr == 0) uart_print("[KIRA SEAL] подпись издателя верна (Ed25519): печать выпущена владельцем ключа\n");
+            else if (miss) uart_print("[KIRA SEAL] печать не подписана издателем (защита от порчи, но не от подмены образа)\n");
+            else { uart_print("[KIRA SEAL] ПОДПИСЬ ПЕЧАТИ НЕВЕРНА: "); uart_print(kdrv_sig_strerror(sr)); uart_print("\n"); rc = 1; }
         } else {
             uart_print("[KIRA SEAL] печать не разбирается: ошибка "); uart_print_dec((uint64_t)(-rep.format)); uart_print("\n");
         }

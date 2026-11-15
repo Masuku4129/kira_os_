@@ -52,7 +52,7 @@ enum {
 
 enum { KDRV_AUTH_LOCAL = 0, KDRV_AUTH_PUBLISHER = 1 };
 
-extern const uint8_t KDRV_SIG_DOMAIN_DRIVER[16], KDRV_SIG_DOMAIN_APP[16];
+extern const uint8_t KDRV_SIG_DOMAIN_DRIVER[16], KDRV_SIG_DOMAIN_APP[16], KDRV_SIG_DOMAIN_SEAL[16];   /* SEAL - печать системы /etc/system.cbor */
 int kdrv_sig_verify_domain(const uint8_t domain[16], const void* package, size_t package_len,
                            const void* signature, size_t signature_len,
                            const kdrv_sig_key_t* keys, uint32_t key_count, int64_t now_utc);

@@ -65,6 +65,17 @@ class KdrvSignerTests(unittest.TestCase):
         message = b"KIRA-KDRV-SIG-V1" + key_id + digest + struct.pack("<QQQ", package_size, start, end)
         self.private.public_key().verify(signature, message)
 
+    def test_seal_domain_signs_system_manifest(self):
+        self.package_path.write_bytes(b"{seal manifest bytes}")
+        result = self.run_signer("--domain", "seal")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        raw = self.output_path.read_bytes()
+        _, _, _, key_id, digest, size, start, end, signature = struct.unpack("<IHH16s32sQQQ64s", raw)
+        message = b"KIRA-SEAL-SIG-V1" + key_id + digest + struct.pack("<QQQ", size, start, end)
+        self.private.public_key().verify(signature, message)          # домен печати
+        with self.assertRaises(Exception):
+            self.private.public_key().verify(signature, b"KIRA-KDRV-SIG-V1" + message[16:])   # не годится как подпись драйвера
+
     def test_refuses_mismatched_public_trust_anchor(self):
         self.public_path.write_text(("00" * 32) + "\n", encoding="ascii")
         result = self.run_signer()

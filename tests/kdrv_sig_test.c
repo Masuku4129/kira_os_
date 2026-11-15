@@ -64,6 +64,21 @@ int main(void) {
         CHECK(kdrv_sig_verify_domain(KDRV_SIG_DOMAIN_APP, package, sizeof package - 1, &valid_signature, sizeof valid_signature, &test_key, 1, 1800000000LL) != KDRV_SIG_OK);
     }
 
+    /* Печать системы: свой домен. */
+    {
+        kdrv_sig_t q = valid_signature;
+        static const uint8_t seal_sig[64] = {
+            0x46,0x79,0x7f,0x94,0xfb,0x2d,0xae,0xe8,0x57,0x25,0xe2,0xb5,0x77,0x14,0xc0,0x59,
+            0x17,0xa3,0x5e,0x4f,0x1d,0xbd,0x13,0x13,0x0f,0x5b,0x52,0x7b,0x48,0xa2,0x05,0x36,
+            0x6c,0x7b,0x13,0x97,0x86,0xb8,0xe0,0xe5,0x03,0xf1,0xf9,0xc9,0x24,0x87,0xd5,0x3e,
+            0xc3,0xd4,0x08,0x12,0xdf,0x80,0x5f,0x25,0x46,0x3b,0x51,0xd4,0x95,0x72,0xdc,0x03 };
+        memcpy(q.signature, seal_sig, 64);
+        CHECK(kdrv_sig_verify_domain(KDRV_SIG_DOMAIN_SEAL, package, sizeof package - 1, &q, sizeof q, &test_key, 1, 1800000000LL) == KDRV_SIG_OK);
+        CHECK(kdrv_sig_verify_domain(KDRV_SIG_DOMAIN_APP, package, sizeof package - 1, &q, sizeof q, &test_key, 1, 1800000000LL) != KDRV_SIG_OK);
+        CHECK(kdrv_sig_verify_domain(KDRV_SIG_DOMAIN_DRIVER, package, sizeof package - 1, &q, sizeof q, &test_key, 1, 1800000000LL) != KDRV_SIG_OK);
+        CHECK(kdrv_sig_verify_domain(KDRV_SIG_DOMAIN_SEAL, package, sizeof package - 1, &valid_signature, sizeof valid_signature, &test_key, 1, 1800000000LL) != KDRV_SIG_OK);
+    }
+
     uint8_t altered[sizeof package];
     memcpy(altered, package, sizeof package);
     altered[0] ^= 1;
