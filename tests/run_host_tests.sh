@@ -483,6 +483,8 @@ best() { local b=999999 t; for i in 1 2 3; do t=$(env $1 $T/wasmfast build-wasm/
 tj=$(best X=1); ti=$(best WASM_NOJIT=1)
 echo "wasm: wgfx 31 frames (unsanitized -O2 build): JIT $tj ms, interpreter $ti ms, speedup x$(( ti / (tj ? tj : 1) )).$(( ti * 10 / (tj ? tj : 1) % 10 ))"
 [ $(( ti )) -ge $(( 2 * tj )) ] || { echo "WASM JIT SPEEDUP BELOW 2x"; exit 1; }
+echo "== ksh: оболочка (userland/wasm/ksh.c): сценарии tests/ksh, хост-сборка и build-wasm/ksh.wasm (интерпретатор и JIT) дают один и тот же вывод =="
+WASMH=$T/wasmh tests/ksh_test.sh $T
 
 $CC $FLAGS -fsanitize=address,undefined -o $T/audio tests/audio_test.c audio.c -lm
 $T/audio

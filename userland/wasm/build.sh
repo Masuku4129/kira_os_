@@ -23,3 +23,7 @@ wasm-ld --no-entry --export=kmain -z stack-size=65536 --initial-memory=262144 bu
 if [ "${KIRA_NO_PYTHON:-0}" != 1 ]; then
     tools/mp_wasm.sh || echo "[ПРЕДУПРЕЖДЕНИЕ] Python не собран (нужны cmake, ninja, git, clang с wasm32, lld и github.com); образ будет без /wasm/python.wasm"
 fi
+# ksh: оболочка Киры (userland/wasm/ksh.c) -> build-wasm/ksh.wasm; тот же sysroot, что у Python. KIRA_NO_KSH=1 - пропустить.
+if [ "${KIRA_NO_KSH:-0}" != 1 ]; then
+    tools/ksh_wasm.sh || echo "[ПРЕДУПРЕЖДЕНИЕ] ksh не собран (нужны clang с wasm32, lld и sysroot wasi-libc, см. tools/wasi_sysroot.sh); образ будет без /wasm/ksh.wasm"
+fi

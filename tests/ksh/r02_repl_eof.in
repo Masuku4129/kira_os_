@@ -1,0 +1,6 @@
+echo first
+while true; do
+  break
+done
+echo second
+if true; then
