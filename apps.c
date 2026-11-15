@@ -203,22 +203,38 @@ static void mind_draw_state(surface_t* s, const mind_view_t* v) {
 }
 
 
-/* Панель Mind читает только опубликованный снимок ядра. */
+/* Панель Mind читает только опубликованный снимок ядра.
+   Разделы - крупная стеклянная панель сверху; страницы рисуются ниже неё в подповерхности (их координаты не меняются). */
+#define MIND_NAV_H 46
+#define MIND_NAV_W 580
+static const char* const mind_names[6] = { "Состояние", "Прогноз", "Обучение", "Решения", "Процессы", "Оборудование" };
+/* Ширина ячейки пропорциональна подписи, вместе они занимают всю панель. */
+static int mind_nav_geom(int i, int* x) {
+    int tw[6], sum = 0;
+    for (int k = 0; k < 6; k++) { tw[k] = gfx_text_width(mind_names[k]) + 20; sum += tw[k]; }
+    int room = MIND_NAV_W - 8, px = 14;
+    for (int k = 0; k < i; k++) px += tw[k] * room / sum;
+    *x = px;
+    return (i == 5 ? 14 + room - px : tw[i] * room / sum);
+}
 static void mind_tabs_draw(surface_t* s, unsigned page) {
-    static const char* const names[6] = { "Состояние", "Прогноз", "Обучение", "Решения", "Процессы", "Оборудование" };
-    int y = s->h - TH_BAR_H - 42;
+    gfx_rect(s, 0, 0, s->w, MIND_NAV_H, TH_CONTENT);
+    ui_round_rect(s, 10, 7, MIND_NAV_W, 34, 17, TH_BAR0, 255);
+    ui_round_frame(s, 10, 7, MIND_NAV_W, 34, 17, ui_mix(TH_BORDER, TH_CYAN, 50), 255);
     for (int i = 0; i < 6; i++) {
-        int x = 10 + i * 96;
-        ui_round_rect(s, x, y, 93, 30, 7, i == (int)page ? ui_mix(CARD, TH_CYAN, 48) : TH_TRACK, 255);
-        ui_round_frame(s, x, y, 93, 30, 7, i == (int)page ? TH_CYAN : CARD_EDGE, 255);
-        if (i == (int)page) ui_round_rect(s, x + 14, y + 27, 65, 2, 1, TH_CYAN, 255);
-        ui_text_fit(s, x + 5, y + 9, names[i], 83, i == (int)page ? TH_TEXT : TH_TEXT_DIM);
+        int x, cw = mind_nav_geom(i, &x);
+        if (i == (int)page) {
+            ui_round_rect(s, x, 10, cw, 28, 14, TH_CYAN, 52);
+            ui_round_frame(s, x, 10, cw, 28, 14, TH_CYAN, 130);
+        }
+        int lw = gfx_text_width(mind_names[i]); if (lw > cw - 8) lw = cw - 8;
+        ui_text_fit(s, x + (cw - lw) / 2, 16, mind_names[i], cw - 8, i == (int)page ? TH_CYAN : TH_TEXT_DIM);
     }
 }
 int app_mind_hit(int x, int y) {
-    if (x < 10 || x >= 583 || y < 558 || y >= 588) return -1;
-    int i = (x - 10) / 96;
-    return i >= 0 && i < 6 && x < 10 + i * 96 + 93 ? i : -1;
+    if (y < 10 || y >= 38) return -1;
+    for (int i = 0; i < 6; i++) { int px, cw = mind_nav_geom(i, &px); if (x >= px && x < px + cw) return i; }
+    return -1;
 }
 static void mind_page_status(surface_t* s, const mind_view_t* v, const char* msg) {
     char r[32]; int p = cat(r, 0, "здоровье "); p = cat_u(r, p, v->health); cat(r, p, "%");
@@ -383,12 +399,13 @@ static void mind_draw_hardware(surface_t* s, const mind_view_t* v) {
 }
 void app_mind_draw(surface_t* s, const mind_view_t* v, unsigned page) {
     if (page >= 6) page = 0;
-    if (page == 0) mind_draw_state(s, v);
-    else if (page == 1) mind_draw_forecast(s, v);
-    else if (page == 2) mind_draw_training(s, v);
-    else if (page == 3) mind_draw_decisions(s, v);
-    else if (page == 4) mind_draw_processes(s, v);
-    else mind_draw_hardware(s, v);
+    surface_t sub = { s->px + (size_t)MIND_NAV_H * (size_t)s->pitch, s->w, s->h - MIND_NAV_H, s->pitch };
+    if (page == 0) mind_draw_state(&sub, v);
+    else if (page == 1) mind_draw_forecast(&sub, v);
+    else if (page == 2) mind_draw_training(&sub, v);
+    else if (page == 3) mind_draw_decisions(&sub, v);
+    else if (page == 4) mind_draw_processes(&sub, v);
+    else mind_draw_hardware(&sub, v);
     mind_tabs_draw(s, page);
 }
 

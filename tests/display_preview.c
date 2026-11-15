@@ -296,12 +296,14 @@ int main(int argc, char** argv) {
         "mind_decisions.ppm", "mind_processes.ppm", "mind_hardware.ppm"
     };
     for (int page = 0; page < 6; page++) {
-        CHECK(app_mind_hit(10 + page * 96 + 45, 566) == page);
-        click_in(w_mind, 10 + page * 96 + 45, 566);
+        int cx = -1;
+        for (int xx = 0; xx < 600 && cx < 0; xx++) if (app_mind_hit(xx, 24) == page) cx = xx + 20;
+        CHECK(cx >= 0 && app_mind_hit(cx, 24) == page);
+        click_in(w_mind, cx, 24);
         run(3);
         save_shot(mind_shots[page]);
     }
-    CHECK(app_mind_hit(5, 566) == -1 && app_mind_hit(20, 540) == -1);
+    CHECK(app_mind_hit(5, 24) == -1 && app_mind_hit(20, 60) == -1);
 
     /* Настоящее управление окнами: перетаскивание заголовка и изменение размера за уголок.
        Проверяем ограничения владельца: шаг 8x16 и верхнюю границу выделенного буфера. */
@@ -337,7 +339,7 @@ int main(int argc, char** argv) {
         surface_t* ms = wm_content(w_mind);
         unsigned bars = 0;
         app_mind_draw(ms, &MV, 5);
-        for (int y = 48; y < 126; y++) for (int x = 30; x < 570; x++) {
+        for (int y = 48 + 46; y < 126 + 46; y++) for (int x = 30; x < 570; x++) {
             uint32_t p = ms->px[y * ms->pitch + x];
             if (p == TH_CYAN || p == TH_AMBER || p == TH_RED) bars++;
         }
@@ -345,7 +347,7 @@ int main(int argc, char** argv) {
         MV.cores = 0;
         app_mind_draw(ms, &MV, 5);
         bars = 0;
-        for (int y = 48; y < 126; y++) for (int x = 30; x < 570; x++) {
+        for (int y = 48 + 46; y < 126 + 46; y++) for (int x = 30; x < 570; x++) {
             uint32_t p = ms->px[y * ms->pitch + x];
             if (p == TH_CYAN || p == TH_AMBER || p == TH_RED) bars++;
         }
