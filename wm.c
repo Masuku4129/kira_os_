@@ -997,24 +997,56 @@ void wm_mouse(int ddx, int ddy, unsigned buttons) {
 /* --- рисование (в поверхность clip, координаты экрана сдвинуты на ox,oy) --- */
 
 /* Масштабированная копия. Без общих таблиц: композитор рисует полосы экрана на нескольких ядрах одновременно.
-   Номер столбца источника (i - dx) * w / dw ведётся приращениями - точно то же значение, без деления на точку. */
+   Уменьшение - усреднение по площади (каждый исходный пиксель входит с весом своей доли в целевом): тонкие линии букв
+   не пропадают, как при выборе ближайшей точки. Увеличение - ближайшая точка (интерфейс сам не увеличивается). */
 static void blit_scaled(surface_t* c, int dx, int dy, int dw, int dh, const surface_t* src) {
     if (dw == src->w && dh == src->h) { gfx_blit(c, dx, dy, src, 0, 0, src->w, src->h); return; }
     if (dw <= 0 || dh <= 0) return;
     int xa = dx < 0 ? 0 : dx, xb = dx + dw > c->w ? c->w : dx + dw;
     int ya = dy < 0 ? 0 : dy, yb = dy + dh > c->h ? c->h : dy + dh;
     if (xa >= xb || ya >= yb) return;
-    long n0 = (long)(xa - dx) * src->w;
-    int q0 = (int)(n0 / dw);
-    long r0 = n0 - (long)q0 * dw;
+    int sw = src->w, sh = src->h;
+    if (dw >= sw && dh >= sh) {                                  /* увеличение: ближайшая точка */
+        long n0 = (long)(xa - dx) * sw;
+        int q0 = (int)(n0 / dw);
+        long r0 = n0 - (long)q0 * dw;
+        for (int j = ya; j < yb; j++) {
+            const uint32_t* sp = src->px + (long)((j - dy) * sh / dh) * src->pitch;
+            uint32_t* dp = &c->px[(long)j * c->pitch];
+            int q = q0; long r = r0;
+            for (int i = xa; i < xb; i++) {
+                dp[i] = sp[q];
+                r += sw;
+                while (r >= dw) { r -= dw; q++; }
+            }
+        }
+        return;
+    }
     for (int j = ya; j < yb; j++) {
-        const uint32_t* sp = src->px + (long)((j - dy) * src->h / dh) * src->pitch;
+        long y0 = (long)(j - dy) * sh, y1 = y0 + sh;              /* строка назначения покрывает [y0, y1) в долях 1/dh строки источника */
+        int ry0 = (int)(y0 / dh), ry1 = (int)((y1 - 1) / dh);
+        if (ry1 >= sh) ry1 = sh - 1;
         uint32_t* dp = &c->px[(long)j * c->pitch];
-        int q = q0; long r = r0;
         for (int i = xa; i < xb; i++) {
-            dp[i] = sp[q];
-            r += src->w;
-            while (r >= dw) { r -= dw; q++; }
+            long x0 = (long)(i - dx) * sw, x1 = x0 + sw;
+            int rx0 = (int)(x0 / dw), rx1 = (int)((x1 - 1) / dw);
+            if (rx1 >= sw) rx1 = sw - 1;
+            uint64_t sr = 0, sg = 0, sb = 0;
+            for (int ry = ry0; ry <= ry1; ry++) {
+                long ya0 = (long)ry * dh > y0 ? (long)ry * dh : y0;
+                long ya1 = (long)(ry + 1) * dh < y1 ? (long)(ry + 1) * dh : y1;
+                uint64_t wy = (uint64_t)(ya1 - ya0);
+                const uint32_t* sp = src->px + (long)ry * src->pitch;
+                for (int rx = rx0; rx <= rx1; rx++) {
+                    long xa0 = (long)rx * dw > x0 ? (long)rx * dw : x0;
+                    long xa1 = (long)(rx + 1) * dw < x1 ? (long)(rx + 1) * dw : x1;
+                    uint64_t wgt = wy * (uint64_t)(xa1 - xa0);
+                    uint32_t p = sp[rx];
+                    sr += wgt * ((p >> 16) & 255); sg += wgt * ((p >> 8) & 255); sb += wgt * (p & 255);
+                }
+            }
+            uint64_t tot = (uint64_t)sw * (uint64_t)sh;
+            dp[i] = (uint32_t)((sr / tot) << 16 | (sg / tot) << 8 | (sb / tot));
         }
     }
 }
@@ -1051,10 +1083,16 @@ static void draw_panel(surface_t* c, int ox, int oy, int id) {
     int focused = w->pinned || id == wm_top();
     uint32_t accent = accent_of(w);
     if (focused && !w->pinned) ui_glow(c, x, y, ow, oh, PANEL_R, WM_GLOW, accent, 150);
-    ui_round_rect(c, x, y, ow, oh, PANEL_R, TH_PANEL1, 255);
-    ui_round_rect(c, x, y, ow, WM_HEAD, PANEL_R, TH_PANEL0, 255);
-    ui_vgrad(c, x + 1, y + PANEL_R, ow - 2, WM_HEAD - PANEL_R,
-             focused ? TH_PANEL0 : ui_mix(TH_PANEL0, TH_PANEL1, 48), TH_PANEL1); /* заголовок отделён мягким градиентом */
+    /* Стеклянная рамка: заголовок и поля вокруг содержимого полупрозрачны, обои просвечивают; само содержимое непрозрачно. */
+    unsigned glass = wp_rgb ? (focused ? 178u : 150u) : 255u;
+    ui_round_rect(c, x, y, ow, oh, PANEL_R, TH_PANEL1, glass);
+    ui_round_rect(c, x, y, ow, WM_HEAD, PANEL_R, TH_PANEL0, glass);
+    for (int j = PANEL_R; j < WM_HEAD; j++) {                                    /* мягкий градиент заголовка (с прозрачностью) */
+        unsigned t = (unsigned)(j - PANEL_R) * 256u / (unsigned)(WM_HEAD - PANEL_R);
+        uint32_t gc = ui_mix(focused ? TH_PANEL0 : ui_mix(TH_PANEL0, TH_PANEL1, 48), TH_PANEL1, t);
+        for (int i = 1; i < ow - 1; i++) ui_blend(c, x + i, y + j, gc, glass);
+    }
+    if (wp_rgb) for (int i = PANEL_R; i < ow - PANEL_R; i++) ui_blend(c, x + i, y + 1, 0x00FFFFFF, 34u); /* блик по верхней кромке стекла */
     for (int i = 0; i < ow - 2 * PANEL_R; i++) {                                 /* неоновая черта под заголовком: к краям гаснет */
         int e = i < (ow - 2 * PANEL_R) / 2 ? i : ow - 2 * PANEL_R - 1 - i;       /* расстояние до ближайшего края */
         unsigned fade = e >= 40 ? 256u : (unsigned)e * 256u / 40u;
@@ -1228,8 +1266,13 @@ static void draw_topbar(surface_t* c, int ox, int oy) {
         if (i == act) {
             ui_round_rect(c, tx, y + 7, tw, TAB_H, 13, TH_CYAN, 52);
             ui_round_frame(c, tx, y + 7, tw, TAB_H, 13, TH_CYAN, 130);
-        } else if (i == tab_hover) ui_round_rect(c, tx, y + 7, tw, TAB_H, 13, TH_CYAN, 24);
-        if (tw > 20) ui_text_fit(c, tx + 10, y + 12, tabs[i].label, tw - 20,
+        } else if (i == tab_hover) {
+            ui_round_rect(c, tx, y + 7, tw, TAB_H, 13, TH_CYAN, 22);
+            ui_round_frame(c, tx, y + 7, tw, TAB_H, 13, TH_CYAN, 60);
+        }
+        int lw = gfx_text_width(tabs[i].label), room = tw - 16;
+        if (lw > room) lw = room;
+        if (tw > 20) ui_text_fit(c, tx + (tw - lw) / 2, y + 12, tabs[i].label, room,
                                       i == act ? TH_CYAN : (i == tab_hover ? TH_TEXT : TH_TEXT_DIM));
     }
     int left = topbar_right(c, ox, oy, 1) - 16;
