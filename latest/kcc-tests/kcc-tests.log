@@ -1,0 +1,18 @@
+KCC compilation-context sequential isolation: PASS
+yes: standard output: Broken pipe
+yes: standard output: Broken pipe
+yes: standard output: Broken pipe
+yes: standard output: Broken pipe
+yes: standard output: Broken pipe
+yes: standard output: Broken pipe
+yes: standard output: Broken pipe
+yes: standard output: Broken pipe
+yes: standard output: Broken pipe
+yes: standard output: Broken pipe
+yes: standard output: Broken pipe
+yes: standard output: Broken pipe
+yes: standard output: Broken pipe
+kcc: файлов-тестов 1390, провалов 0
+== kcc fuzz ==
+fuzz: итераций 3000, принято 274, отвергнуто 2726
+kcc tests: OK
