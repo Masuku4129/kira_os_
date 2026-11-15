@@ -267,6 +267,12 @@ ALL = [
         {"cmd": "status", "must": [r"."]},
         {"log_forbid": NO_ERR + [r"wasm: stopped"]},
     ], smp=2, mem="512M"),
+    sc("pydbg", "отладка", [
+        {"log": BOOT_LOG},
+        {"send": "python"}, {"sleep": 6},
+        {"send": "print(1)"}, {"sleep": 3}, {"send": "print(2)"}, {"sleep": 3}, {"send": "print(3)"}, {"sleep": 3},
+        {"log": [r"\[USER pid \d+\] .*3"]},
+    ], smp=2, mem="512M"),
     sc("wasm-speed", "WebAssembly: JIT x86-64 - плазма wgfx на стенде укладывается в порог по времени (до JIT на этом стенде было 1257 мс)", [
         {"log": BOOT_LOG},
         {"cmd": "wasm /wasm/wgfx.wasm"}, {"sleep": 6},
