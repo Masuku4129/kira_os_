@@ -148,30 +148,30 @@ $CC $FLAGS -o $T/store tests/store_test.c store.c
 $T/store
 
 echo "== KiraFS (files, dirs, crash at every write, corruption fuzz) =="
-$CC $FLAGS -fsanitize=address,undefined -Itests -o $T/kfs tests/kfs_test.c tests/kfs_v1_ref.c kfs.c store.c
+$CC $FLAGS -fsanitize=address,undefined -Itests -o $T/kfs tests/kfs_test.c tests/kfs_v1_ref.c kfs.c sha256.c zstd.c store.c
 $T/kfs
 
 echo "== KiraFS COW (kfs_clone: общие блоки, ссылки, обрыв питания) =="
-$CC $FLAGS -fsanitize=address,undefined -o $T/kfscow tests/kfs_cow_test.c kfs.c store.c
+$CC $FLAGS -fsanitize=address,undefined -o $T/kfscow tests/kfs_cow_test.c kfs.c sha256.c zstd.c store.c
 $T/kfscow
 
 echo "== PCI + virtio-blk (bus model, device model, init order, rings, KiraFS over virtio) =="
-$CC $FLAGS -fsanitize=undefined -DSPIN_LIMIT=200000 -o $T/virtio tests/virtio_test.c virtio.c virtio_blk.c pci.c kfs.c store.c
+$CC $FLAGS -fsanitize=undefined -DSPIN_LIMIT=200000 -o $T/virtio tests/virtio_test.c virtio.c virtio_blk.c pci.c kfs.c sha256.c zstd.c store.c
 $T/virtio
 
 echo "== programs: ELF validation, trust manifest, life log in KiraFS =="
-$CC $FLAGS -O1 -o $T/kfstool tools/kfstool.c kfs.c store.c sha256.c sysseal.c cbor.c cas.c
+$CC $FLAGS -O1 -o $T/kfstool tools/kfstool.c kfs.c zstd.c store.c sha256.c sysseal.c cbor.c cas.c
 if ls userland/*.elf >/dev/null 2>&1; then $T/kfstool manifest userland/*.elf | sed 's/PROG_MANIFEST/TEST_MANIFEST/g' > tests/manifest_test.h
 else printf '#include "trust.h"\nstatic const trust_entry_t TEST_MANIFEST[] = { { "none", {0} } };\n#define TEST_MANIFEST_COUNT 0\n' > tests/manifest_test.h; fi
-$CC $FLAGS -fsanitize=undefined -Itests -o $T/prog tests/prog_test.c elf.c trust.c life.c kfs.c store.c sha256.c
+$CC $FLAGS -fsanitize=undefined -Itests -o $T/prog tests/prog_test.c elf.c trust.c life.c kfs.c zstd.c store.c sha256.c
 $T/prog
 rm -f tests/manifest_test.h
 
 echo "== program file service (sandbox /data/<name>) =="
-$CC $FLAGS -fsanitize=undefined -o $T/fsrv tests/fsrv_test.c fsrv.c caps.c kfs.c store.c kdrv_fmt.c sha256.c
+$CC $FLAGS -fsanitize=undefined -o $T/fsrv tests/fsrv_test.c fsrv.c caps.c kfs.c zstd.c store.c kdrv_fmt.c sha256.c
 $T/fsrv
 TS=tests/s""tub   # каталог подмен заголовков для теста окон (имя каталога, не признак недоделки)
-$CC $FLAGS -fsanitize=undefined -I$TS -o $T/paint tests/paint_test.c fsrv.c kfs.c store.c kdrv_fmt.c sha256.c caps.c
+$CC $FLAGS -fsanitize=undefined -I$TS -o $T/paint tests/paint_test.c fsrv.c kfs.c zstd.c store.c kdrv_fmt.c sha256.c caps.c
 $T/paint
 
 echo "== Mind request mailboxes (atomic exchange/store under concurrent producer/consumer; ThreadSanitizer) =="
@@ -337,7 +337,7 @@ $CC $FLAGS -fsanitize=address,undefined -o $T/fm tests/fm_test.c fm.c
 ASAN_OPTIONS=detect_leaks=0 $T/fm
 
 echo "== USB: HID, hubs, flash drives (Bulk-Only/SCSI -> FAT -> /usbN), stack core, UHCI and xHCI drivers against controller models =="
-USB_STACK="usb.c usbhid.c usbhub.c usbmsc.c usbmsc_fs.c input.c fat.c part.c vfs.c kfs.c store.c devhealth.c"
+USB_STACK="usb.c usbhid.c usbhub.c usbmsc.c usbmsc_fs.c input.c fat.c part.c vfs.c kfs.c sha256.c zstd.c store.c devhealth.c"
 $CC $FLAGS -fsanitize=address,undefined -o $T/usbhid tests/usbhid_test.c usbhid.c input.c
 $T/usbhid
 $CC $FLAGS -Itests -fsanitize=address,undefined -o $T/usb tests/usb_test.c $USB_STACK
@@ -352,7 +352,7 @@ MKFS_FAT=${MKFS_FAT:-$(command -v mkfs.fat || command -v mkfs.vfat || true)}
 FSCK_FAT=${FSCK_FAT:-$(command -v fsck.fat || command -v fsck.vfat || true)}
 MTOOLS=${MTOOLS:-$(dirname "$(command -v mcopy 2>/dev/null || echo /nonexistent/mcopy)")}
 if [ -x "$MKFS_FAT" ] && [ -x "$FSCK_FAT" ] && [ -x "$MTOOLS/mcopy" ]; then
-    $CC $FLAGS -Wno-unused-result -fsanitize=address,undefined -o $T/fat tests/fat_test.c fat.c part.c vfs.c kfs.c store.c
+    $CC $FLAGS -Wno-unused-result -fsanitize=address,undefined -o $T/fat tests/fat_test.c fat.c part.c vfs.c kfs.c sha256.c zstd.c store.c
     MKFS_FAT=$MKFS_FAT FSCK_FAT=$FSCK_FAT MTOOLS=$MTOOLS ASAN_OPTIONS=detect_leaks=0 $T/fat
 else
     echo "SKIPPED: нужны mkfs.fat, fsck.fat (пакет dosfstools) и mcopy (пакет mtools) - эталон для проверки FAT"

@@ -36,6 +36,7 @@ int  kfs_mounted(void);
 int  kfs_stat(const char* path, kfs_stat_t* st);
 int64_t kfs_read(const char* path, uint64_t off, void* buf, size_t len);   /* прочитано байт или ошибка */
 int  kfs_write(const char* path, const void* data, size_t len);            /* создаёт или целиком и атомарно заменяет файл */
+int  kfs_write_packed(const char* path, const void* z, size_t zlen, uint64_t usize);   /* файл хранится сжатым кадром Zstd (до 8 МБ), читается и виден (размер) как распакованный; кадр проверяется до записи */
 int  kfs_clone(const char* src, const char* dst);   /* COW-копия файла: данные не копируются, блоки общие до замены любого из файлов */
 int  kfs_mkdir(const char* path);
 int  kfs_unlink(const char* path);                    /* файл или пустой каталог */

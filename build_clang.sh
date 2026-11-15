@@ -133,7 +133,7 @@ fi
 
 echo "[*] Инструмент kfstool, манифест доверенных программ и установка в образ диска..."
 HOSTCC="${HOSTCC:-clang}"
-$HOSTCC -O1 -Wall -DKFS_NO_THREADS -I. -Iarch/x86_64 -o tools/kfstool tools/kfstool.c kfs.c store.c sha256.c sysseal.c cbor.c cas.c
+$HOSTCC -O1 -Wall -DKFS_NO_THREADS -I. -Iarch/x86_64 -o tools/kfstool tools/kfstool.c kfs.c zstd.c store.c sha256.c sysseal.c cbor.c cas.c
 tools/kfstool manifest $UELF > manifest.h
 rm -f kira.disk; dd if=/dev/zero of=kira.disk bs=1M count=16 2>/dev/null     # образ каждый раз новый: старые файлы не остаются
 tools/kfstool kira.disk init
@@ -182,7 +182,7 @@ for b in /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt ${P
 done
 ROOTS_N=$([ -n "$ROOTS_SRC" ] && tools/pem2der "$ROOTS_SRC" tools/roots.der)
 [ -n "$ROOTS_N" ] && echo "[*] Корневые сертификаты: $ROOTS_N из $ROOTS_SRC" || echo "[!] Связки корневых сертификатов нет (пакет ca-certificates): fetch https откажется проверять сервер"
-[ -n "$ROOTS_N" ] && tools/kfstool kira.disk put /etc/ssl/roots.der tools/roots.der
+[ -n "$ROOTS_N" ] && tools/kput.sh kira.disk /etc/ssl/roots.der tools/roots.der
 tools/kfstool kira.disk put /etc/ssl/drivers.index drivers/index.txt
 # Семя опыта Разума (получено в QEMU workflow mind-train): стартовые веса предвидения и подсказки по рычагам, если своего опыта на диске нет
 [ -f data/mind_seed.bin ] && tools/kfstool kira.disk put /etc/mind_seed.bin data/mind_seed.bin >/dev/null
@@ -299,7 +299,7 @@ case "$1" in
             for w in build-wasm/*.wasm; do tools/kfstool "$OUT/kira_disk.img" put /wasm/$(basename $w) $w >/dev/null; done
             for h in kcc/include/*.h; do tools/kfstool "$OUT/kira_disk.img" put /etc/kcc/include/$(basename $h) $h >/dev/null; done
             tools/put_bsd_inc.sh "$OUT/kira_disk.img"
-            [ -n "$ROOTS_N" ] && tools/kfstool "$OUT/kira_disk.img" put /etc/ssl/roots.der tools/roots.der >/dev/null
+            [ -n "$ROOTS_N" ] && tools/kput.sh "$OUT/kira_disk.img" /etc/ssl/roots.der tools/roots.der >/dev/null
             tools/kfstool "$OUT/kira_disk.img" put /etc/ssl/drivers.index drivers/index.txt >/dev/null
             [ -f data/mind_seed.bin ] && tools/kfstool "$OUT/kira_disk.img" put /etc/mind_seed.bin data/mind_seed.bin >/dev/null
             tools/kfstool "$OUT/kira_disk.img" rm /etc/wallpaper.kwp >/dev/null 2>&1 || true     # старые несжатые обои

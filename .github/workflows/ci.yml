@@ -459,7 +459,7 @@ jobs:
       - name: QEMU
         run: sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends qemu-system-x86 ipxe-qemu dosfstools mtools python3-pil python3-cryptography openssl
       - name: kfstool (test files on the VM disk)
-        run: gcc -O1 -Wall -DKFS_NO_THREADS -I. -Iarch/x86_64 -o tools/kfstool tools/kfstool.c kfs.c store.c sha256.c sysseal.c cbor.c cas.c
+        run: gcc -O1 -Wall -DKFS_NO_THREADS -I. -Iarch/x86_64 -o tools/kfstool tools/kfstool.c kfs.c zstd.c store.c sha256.c sysseal.c cbor.c cas.c
       - name: mindseed (испытательное семя для сценария mind-seed - не результат обучения)
         run: |
           mkdir -p ci-out

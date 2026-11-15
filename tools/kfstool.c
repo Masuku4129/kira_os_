@@ -5,10 +5,12 @@
      kfstool образ ls [/путь]           список
      kfstool образ cat /путь            содержимое в stdout
      kfstool manifest файл...           manifest.h для ядра: имя (без каталога и .elf) и SHA-256 каждого файла
+     kfstool образ putz /путь файл.zst  записать сжатый кадр Zstd: Кира видит файл распакованным, в блоках лежит кадр (до 8 МБ)
      kfstool образ seal                 печать системы: /etc/system.cbor со SHA-256 всех файлов /bin и /etc и корнем Меркла (sysseal.h) */
 #include "kfs.h"
 #include "immune.h"
 #include "sysseal.h"
+#include "zstd.h"
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -135,6 +137,16 @@ int main(int argc, char** argv) {
         int r = kfs_write(argv[3], b, n);
         if (r) die(argv[3], r);
         printf("kfstool: %s <- %s (%zu байт)\n", argv[3], argv[4], n);
+        return 0;
+    }
+    if (!strcmp(cmd, "putz") && argc == 5) {
+        size_t n; uint8_t* b = slurp(argv[4], &n);
+        int64_t us = zstd_frame_content_size(b, n);
+        if (us <= 0) { fprintf(stderr, "kfstool: %s: в кадре Zstd нет размера содержимого (сожмите zstd/python-zstandard с записью размера)\n", argv[4]); return 1; }
+        mkdirs(argv[3]);
+        int r = kfs_write_packed(argv[3], b, n, (uint64_t)us);
+        if (r) die(argv[3], r);
+        printf("kfstool: %s <- %s (сжато %zu байт, содержимое %lld)\n", argv[3], argv[4], n, (long long)us);
         return 0;
     }
     if (!strcmp(cmd, "seal")) { open_image(argv[1], 0); return do_seal(); }

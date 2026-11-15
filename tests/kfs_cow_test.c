@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "kfs_zst_frame.inc"
 #define CHECK(c) do{ if(!(c)){ printf("FAIL line %d: %s\n",__LINE__,#c); exit(1);} }while(0)
 #define SECT (16 + 16384)
 static uint8_t disk[SECT * 512];
@@ -71,6 +72,65 @@ int main(void){
         if(t) CHECK(kfs_unlink("/t")==0);
         CHECK(has("/s",60000,3) && freeb()==fs0);
     }
-    printf("kfs cow: clone, refs, replace, unlink, remount, power-cut sweep passed\n");
+
+    /* Дедупликация при обычной записи: одинаковое содержимое делит блоки, а не пишется второй раз. */
+    CHECK(kfs_format(&dev,16)==0);
+    fill(10,1); CHECK(kfs_write("/w",buf,10)==0 && kfs_unlink("/w")==0);
+    uint32_t d0 = freeb();
+    fill(100000,11); CHECK(kfs_write("/p",buf,100000)==0);
+    uint32_t d1 = freeb(); CHECK(d1 < d0);
+    CHECK(kfs_write("/q",buf,100000)==0);
+    CHECK(freeb()==d1);                                          /* второй экземпляр места не занял */
+    kfs_info(&in); CHECK(in.shared==1);
+    CHECK(has("/p",100000,11) && has("/q",100000,11));
+    CHECK(kfs_write("/q",buf,100000)==0 && freeb()==d1);         /* та же запись в тот же файл - ничего не делает */
+    fill(100000,12); CHECK(kfs_write("/q",buf,100000)==0);       /* другое содержимое - свои блоки */
+    CHECK(has("/p",100000,11) && has("/q",100000,12) && freeb()<d1);
+    kfs_info(&in); CHECK(in.shared==0);
+    fill(100000,11); CHECK(kfs_write("/q",buf,100000)==0 && freeb()==d1);   /* вернули - снова общие */
+    CHECK(kfs_mount(&dev,16)==0);                                /* индекс хэшей восстанавливается по иноду */
+    CHECK(kfs_write("/r",buf,100000)==0 && freeb()==d1 && has("/r",100000,11));
+    kfs_info(&in); CHECK(in.shared==1 && in.repaired==0);
+    CHECK(kfs_unlink("/p")==0 && kfs_unlink("/q")==0 && has("/r",100000,11) && freeb()==d1);
+    CHECK(kfs_unlink("/r")==0 && freeb()==d0);
+    fill(100000,11); CHECK(kfs_write("/a",buf,100000)==0 && kfs_write("/b",buf,100000)==0);   /* пустые файлы и мелочь не ломают индекс */
+    CHECK(kfs_write("/e",buf,0)==0 && kfs_write("/e2",buf,0)==0 && kfs_write("/t",buf,1)==0);
+    CHECK(kfs_unlink("/a")==0 && kfs_unlink("/b")==0 && kfs_unlink("/e")==0 && kfs_unlink("/e2")==0 && kfs_unlink("/t")==0 && freeb()==d0);
+
+    /* обрыв питания на каждой записи дедупликации */
+    fill(60000,3); CHECK(kfs_write("/s",buf,60000)==0);
+    memcpy(snap,disk,sizeof disk); uint32_t ds0 = freeb();
+    for(long cut=0; cut<40; cut++){
+        memcpy(disk,snap,sizeof disk); CHECK(kfs_mount(&dev,16)==0);
+        budget=cut; int r=kfs_write("/t",buf,60000); budget=-1;
+        CHECK(kfs_mount(&dev,16)==0);
+        CHECK(has("/s",60000,3));
+        kfs_stat_t st; int t=kfs_stat("/t",&st)==0;
+        if(r==0) CHECK(t);
+        if(t) CHECK(has("/t",60000,3));
+        if(t) CHECK(kfs_unlink("/t")==0);
+        CHECK(has("/s",60000,3) && freeb()==ds0);
+    }
+
+    /* Сжатый файл: размер и содержимое - распакованные, в блоках - кадр. */
+    CHECK(kfs_format(&dev,16)==0);
+    fill(10,1); CHECK(kfs_write("/w",buf,10)==0 && kfs_unlink("/w")==0);
+    uint32_t z0 = freeb();
+    CHECK(kfs_write_packed("/z",zframe,sizeof zframe,ZUSIZE)==0);
+    CHECK(z0 - freeb() <= (sizeof zframe + 4095) / 4096 + 1);    /* заняты блоки под кадр, не под 30000 байт */
+    CHECK(has("/z",ZUSIZE,5));
+    fill(ZUSIZE,5); { uint8_t part[500]; CHECK(kfs_read("/z",12345,part,500)==500 && !memcmp(part,buf+12345,500));
+                      CHECK(kfs_read("/z",ZUSIZE-10,part,500)==10 && kfs_read("/z",ZUSIZE,part,5)==0); }
+    CHECK(kfs_mount(&dev,16)==0 && has("/z",ZUSIZE,5));
+    CHECK(kfs_write_packed("/bad",zframe,sizeof zframe,ZUSIZE+1)==KFS_ERR_INVAL);   /* размер не сходится с кадром */
+    { static uint8_t broken[sizeof zframe]; memcpy(broken,zframe,sizeof zframe); broken[sizeof zframe/2]^=0x55;
+      CHECK(kfs_write_packed("/bad",broken,sizeof broken,ZUSIZE)!=0); }              /* битый кадр не записывается */
+    { kfs_stat_t st; CHECK(kfs_stat("/bad",&st)==KFS_ERR_NOENT); }
+    CHECK(kfs_clone("/z","/z2")==0 && has("/z2",ZUSIZE,5));                         /* копия сжатого файла тоже сжатая */
+    CHECK(kfs_unlink("/z")==0 && has("/z2",ZUSIZE,5));
+    fill(ZUSIZE,5); CHECK(kfs_write("/z2",buf,ZUSIZE)==0 && has("/z2",ZUSIZE,5));   /* обычная запись заменяет сжатый файл */
+    CHECK(kfs_unlink("/z2")==0 && freeb()==z0);
+    CHECK(kfs_mount(&dev,16)==0 && freeb()==z0);
+    printf("kfs cow: clone, refs, dedup on write, zstd files, remount, power-cut sweeps passed\n");
     return 0;
 }

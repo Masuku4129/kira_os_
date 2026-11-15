@@ -1,5 +1,7 @@
 #include "kfs.h"
 #include "store.h"      /* crc32 */
+#include "sha256.h"
+#include "zstd.h"
 
 /* KiraFS v2. Границы определяет диск, а не код:
    - размер тома - весь диск (до 2^32 блоков по 4 КБ = 16 ТБ: номер блока - 32 бита); вырос диск (образ увеличили,
@@ -57,6 +59,11 @@ typedef struct {
 } inode_t;
 _Static_assert(sizeof(inode_t) == 128, "inode must be 128 bytes");
 
+/* inode.flags: HASHED - в reserved[0..7] SHA-256 содержимого (по нему запись находит такой же файл и делит с ним блоки);
+   ZSTD - файл хранится сжатым кадром Zstd: size - размер распакованного, reserved[8] - размер сжатого (столько байт лежит в блоках). */
+#define KFS_IF_HASHED 1u
+#define KFS_IF_ZSTD   2u
+#define ZST_MAX (8u << 20)               /* предел размера (сжатого и распакованного) для прозрачной распаковки */
 typedef struct { uint32_t start, count; } iext_t;   /* первый блок участка и число инодов в нём */
 
 typedef struct {
@@ -88,6 +95,8 @@ static struct {
     /* Общее содержимое (COW-копии): файл, чьё дерево блоков делят несколько инодов. Ключ - первый блок данных (он принадлежит
        только этому содержимому), refs - сколько инодов его держат (>= 2). Строится при монтировании, на диске не хранится. */
     struct { uint32_t first, refs; } *sh; uint32_t sh_n, sh_cap;
+    uint32_t* hidx; uint32_t hcap;       /* индекс «хэш содержимого -> инод» (подсказка: проверяется по иноду; на диске не хранится) */
+    uint8_t* zc; uint64_t zc_size; uint32_t zc_ino, zc_gen;   /* распакованное содержимое последнего прочитанного сжатого файла */
 } fs;
 
 /* --- сектора --- */
@@ -199,7 +208,8 @@ static uint32_t alloc_inode(void) {
 
 /* --- блоки файла: адресация --- */
 
-static uint64_t data_blocks(const inode_t* i) { return (i->size + KFS_BLOCK - 1) / KFS_BLOCK; }
+static uint64_t stored_bytes(const inode_t* i) { return (i->flags & KFS_IF_ZSTD) ? i->reserved[8] : i->size; }   /* сколько байт лежит в блоках */
+static uint64_t data_blocks(const inode_t* i) { return (stored_bytes(i) + KFS_BLOCK - 1) / KFS_BLOCK; }
 #define L1 ((uint64_t)PTRS)
 #define L2 ((uint64_t)PTRS * PTRS)
 #define L3 ((uint64_t)PTRS * PTRS * PTRS)
@@ -288,6 +298,33 @@ static int sh_release(uint32_t first) {
     if (--fs.sh[k].refs < 2) fs.sh[k] = fs.sh[--fs.sh_n];       /* остался один владелец: обычный файл */
     return 1;
 }
+/* --- индекс хэшей содержимого --- */
+static uint32_t hkey(const uint8_t h[32]) { return (uint32_t)h[0] | (uint32_t)h[1] << 8 | (uint32_t)h[2] << 16 | (uint32_t)h[3] << 24; }
+static int hash_eq(const uint32_t* r, const uint8_t h[32]) { const uint8_t* p = (const uint8_t*)r; uint8_t d = 0; for (int i = 0; i < 32; i++) d |= (uint8_t)(p[i] ^ h[i]); return d == 0; }
+static void hidx_put(const uint8_t h[32], uint32_t ino) {
+    if (!fs.hidx) return;
+    uint32_t i = hkey(h) & (fs.hcap - 1), last = i;
+    for (int k = 0; k < 8; k++) {
+        uint32_t j = (i + (uint32_t)k) & (fs.hcap - 1);
+        last = j;
+        if (!fs.hidx[j] || fs.hidx[j] == ino) { fs.hidx[j] = ino; return; }
+    }
+    fs.hidx[last] = ino;                                          /* таблица - подсказка: вытесняем */
+}
+static uint32_t hidx_find(const uint8_t h[32]) {                  /* кандидат; подлинность проверяет вызывающий по иноду */
+    if (!fs.hidx) return 0;
+    uint32_t i = hkey(h) & (fs.hcap - 1);
+    for (int k = 0; k < 8; k++) {
+        uint32_t c = fs.hidx[(i + (uint32_t)k) & (fs.hcap - 1)];
+        if (!c) return 0;
+        if (c < fs.inode_count && fs.itype[c] == KFS_FILE) {
+            inode_t* ip = iget(c);
+            if (ip && (ip->flags & KFS_IF_HASHED) && !(ip->flags & KFS_IF_ZSTD) && hash_eq(ip->reserved, h)) return c;
+        }
+    }
+    return 0;
+}
+static void zc_drop(void) { kfree_(fs.zc); fs.zc = 0; fs.zc_ino = 0; }
 static void free_inode_blocks(const inode_t* in) {                /* повреждённое дерево - вернёт fsck */
     uint32_t f;
     if (first_data_block(in, &f) == 0 && sh_release(f)) return;
@@ -634,7 +671,11 @@ static int mount_scan(void) {
                 if (n == 0 || chunk[i].type == 0) { fs.itype[n] = 0; continue; }
                 int ok = inode_ok(&chunk[i]);
                 if (ok) { int w = walk_blocks(&chunk[i], check_cb, 0); if (w == KFS_ERR_IO) { r = w; break; } ok = w == 0; }
-                if (ok) fs.itype[n] = (uint8_t)chunk[i].type;
+                if (ok) {
+                    fs.itype[n] = (uint8_t)chunk[i].type;
+                    if (chunk[i].type == KFS_FILE && chunk[i].size && (chunk[i].flags & KFS_IF_HASHED) && !(chunk[i].flags & KFS_IF_ZSTD))
+                        hidx_put((const uint8_t*)chunk[i].reserved, n);
+                }
                 else { fs.itype[n] = 0; r = clear_inode(n); }
             }
         }
@@ -759,6 +800,7 @@ static int grow_volume(void) {
 }
 
 static void release_mem(void) {
+    kfree_(fs.hidx); fs.hidx = 0; fs.hcap = 0; zc_drop();
     kfree_(fs.sh); fs.sh = 0; fs.sh_n = fs.sh_cap = 0;
     kfree_(fs.used); fs.used = 0;
     kfree_(fs.itype); fs.itype = 0;
@@ -780,6 +822,9 @@ static int kfs_mount_impl(blk_dev_t* dev, uint64_t base) {
     fs.used = (uint8_t*)kalloc((size_t)((fs.total_blocks + 7) / 8));
     fs.itype = (uint8_t*)kalloc(fs.inode_count);
     if (!fs.used || !fs.itype) { release_mem(); return KFS_ERR_NOSPC; }
+    fs.hcap = 1024; while (fs.hcap < 2 * fs.inode_count && fs.hcap < (1u << 20)) fs.hcap <<= 1;
+    fs.hidx = (uint32_t*)kalloc((size_t)fs.hcap * 4);              /* нет памяти - дедупликации просто не будет */
+    if (!fs.hidx) fs.hcap = 0;
     for (uint32_t b = 0; b < fs.data_start; b++) fs.used[b >> 3] |= (uint8_t)(1u << (b & 7));
     for (uint32_t e = 1; e < fs.next; e++)
         for (uint32_t b = fs.ext[e].start; b < fs.ext[e].start + fs.ext[e].count / IPB; b++) fs.used[b >> 3] |= (uint8_t)(1u << (b & 7));
@@ -851,17 +896,11 @@ static int kfs_stat_impl(const char* path, kfs_stat_t* st) {
     return 0;
 }
 
-static int64_t kfs_read_impl(const char* path, uint64_t off, void* buf, size_t len) {
-    uint32_t parent, ino; char leaf[KFS_NAME_MAX + 1];
-    int r = resolve(path, &parent, leaf, &ino);
-    if (r) return r;
-    if (!ino) return KFS_ERR_NOENT;
-    inode_t* ip = iget(ino);
-    if (!ip) return KFS_ERR_IO;
-    inode_t in = *ip;
-    if (in.type != KFS_FILE) return KFS_ERR_ISDIR;
-    if (off >= in.size) return 0;
-    if (len > in.size - off) len = (size_t)(in.size - off);
+/* Чтение «как лежит в блоках»: stored - сколько байт в файле хранится. */
+static int64_t read_stored(const inode_t* inp, uint64_t stored, uint64_t off, void* buf, size_t len) {
+    inode_t in = *inp; int r;
+    if (off >= stored) return 0;
+    if (len > stored - off) len = (size_t)(stored - off);
     uint8_t* out = (uint8_t*)buf;
     size_t done = 0;
     while (done < len) {
@@ -890,7 +929,52 @@ static int64_t kfs_read_impl(const char* path, uint64_t off, void* buf, size_t l
     return (int64_t)done;
 }
 
-static int kfs_write_impl(const char* path, const void* data, size_t len) {
+/* Сжатый файл: распаковывается целиком (кадр Zstd), результат последнего файла хранится до следующего изменения тома. */
+static int64_t read_zstd(const inode_t* in, uint32_t ino, uint64_t off, void* buf, size_t len) {
+    if (off >= in->size) return 0;
+    if (len > in->size - off) len = (size_t)(in->size - off);
+    if (!(fs.zc && fs.zc_ino == ino && fs.zc_gen == in->gen && fs.zc_size == in->size)) {
+        uint64_t cs = in->reserved[8];
+        if (in->size > ZST_MAX || cs > ZST_MAX || !cs) return KFS_ERR_FBIG;
+        zc_drop();
+        uint8_t* comp = (uint8_t*)kalloc((size_t)cs);
+        uint8_t* out = (uint8_t*)kalloc((size_t)in->size);
+        uint8_t* work = (uint8_t*)kalloc(zstd_work_size() + 8);
+        int64_t r = KFS_ERR_NOSPC;
+        if (comp && out && work) {
+            uintptr_t wa = ((uintptr_t)work + 7) & ~(uintptr_t)7;
+            r = read_stored(in, cs, 0, comp, (size_t)cs);
+            if (r == (int64_t)cs) {
+                size_t got = 0;
+                int z = zstd_decompress(comp, (size_t)cs, out, (size_t)in->size, &got, (zstd_work*)wa);
+                r = (z == ZSTD_OK && got == in->size) ? 0 : KFS_ERR_CORRUPT;
+            } else if (r >= 0) r = KFS_ERR_CORRUPT;
+        }
+        kfree_(comp); kfree_(work);
+        if (r != 0) { kfree_(out); return r; }
+        fs.zc = out; fs.zc_size = in->size; fs.zc_ino = ino; fs.zc_gen = in->gen;
+    }
+    copy(buf, fs.zc + off, len);
+    return (int64_t)len;
+}
+
+static int64_t kfs_read_impl(const char* path, uint64_t off, void* buf, size_t len) {
+    uint32_t parent, ino; char leaf[KFS_NAME_MAX + 1];
+    int r = resolve(path, &parent, leaf, &ino);
+    if (r) return r;
+    if (!ino) return KFS_ERR_NOENT;
+    inode_t* ip = iget(ino);
+    if (!ip) return KFS_ERR_IO;
+    inode_t in = *ip;
+    if (in.type != KFS_FILE) return KFS_ERR_ISDIR;
+    if (in.flags & KFS_IF_ZSTD) return read_zstd(&in, ino, off, buf, len);
+    return read_stored(&in, in.size, off, buf, len);
+}
+
+/* Запись файла. data/len - то, что кладётся в блоки; lsize - размер содержимого для читателя (у сжатого файла - распакованный; zst = 1). Обычная
+   запись ищет файл с тем же содержимым (по SHA-256 в иноде) и, если находит, делит с ним блоки вместо записи копии (дедупликация, как kfs_clone). */
+static int write_file(const char* path, const void* data, size_t len, uint64_t lsize, int zst) {
+    zc_drop();
     uint32_t parent, ino; char leaf[KFS_NAME_MAX + 1];
     int r = resolve(path, &parent, leaf, &ino);
     if (r) return r;
@@ -910,15 +994,29 @@ static int kfs_write_impl(const char* path, const void* data, size_t len) {
     if (!list || !mlist) { kfree_(list); kfree_(mlist); return KFS_ERR_NOSPC; }
     mlist_t meta = { mlist, 0, nmeta + 1 };
     uint64_t got = 0;
-    for (; got < nb; got++) { list[got] = alloc_block(); if (!list[got]) { r = KFS_ERR_NOSPC; break; } }
+    uint8_t hash[32]; int hashed = 0, dedup = 0; uint32_t dfirst = 0; inode_t cand; zero(&cand, sizeof cand);
+    if (!zst && len) {
+        sha256(data, len, hash); hashed = 1;
+        uint32_t c = hidx_find(hash);
+        if (c) {
+            inode_t* cp = iget(c);
+            uint32_t f;
+            if (cp && cp->size == len && first_data_block(cp, &f) == 0) {
+                if (c == slot) { kfree_(list); kfree_(mlist); return 0; }       /* тот же файл с тем же содержимым: писать нечего */
+                cand = *cp; dfirst = f; dedup = 1;
+            }
+        }
+    }
+    uint64_t nb_w = dedup ? 0 : nb;                                 /* блоков, которые пишем сами */
+    for (; got < nb_w; got++) { list[got] = alloc_block(); if (!list[got]) { r = KFS_ERR_NOSPC; break; } }
     /* данные: подряд идущие целые блоки - одним запросом */
     const uint8_t* src = (const uint8_t*)data;
-    for (uint64_t i = 0; i < nb && !r; ) {
+    for (uint64_t i = 0; i < nb_w && !r; ) {
         size_t off = (size_t)(i * KFS_BLOCK);
         size_t chunk = len - off;
         if (chunk >= KFS_BLOCK) {
             uint32_t run = 1;
-            while (i + run < nb && run < RUN_MAX && list[i + run] == list[i] + run && len - off >= (size_t)(run + 1) * KFS_BLOCK) run++;
+            while (i + run < nb_w && run < RUN_MAX && list[i + run] == list[i] + run && len - off >= (size_t)(run + 1) * KFS_BLOCK) run++;
             r = wr((uint64_t)list[i] * SPB, run * SPB, src + off);
             i += run;
         } else {
@@ -928,8 +1026,9 @@ static int kfs_write_impl(const char* path, const void* data, size_t len) {
         }
     }
     inode_t nin; zero(&nin, sizeof nin);
-    if (!r) r = attach_list(&nin, list, nb, &meta);
-    if (!r) r = flush();                                         /* данные и указатели на диске до переключения инода */
+    if (!r && dedup) nin = cand;
+    else if (!r) r = attach_list(&nin, list, nb, &meta);
+    if (!r && !dedup) r = flush();                               /* данные и указатели на диске до переключения инода */
     if (r) {
         for (uint64_t k = 0; k < got; k++) set_free(list[k]);
         for (uint64_t k = 0; k < meta.n; k++) set_free(mlist[k]);
@@ -939,20 +1038,29 @@ static int kfs_write_impl(const char* path, const void* data, size_t len) {
     inode_t* ip = iget(slot);
     if (!ip) r = KFS_ERR_IO;
     inode_t old = ip ? *ip : nin;
+    if (!r && dedup) r = sh_add(dfirst);                         /* ещё одна ссылка на общие блоки */
+    int shared_ref = !r && dedup;
     if (!r) {
-        nin.type = KFS_FILE; nin.size = len; nin.gen = (ino ? old.gen : 0) + 1;
+        uint32_t gen = (ino ? old.gen : 0) + 1;
+        nin.type = KFS_FILE; nin.size = lsize; nin.gen = gen; nin.flags = 0;
+        for (int q = 0; q < 11; q++) nin.reserved[q] = 0;
+        if (zst) { nin.flags = KFS_IF_ZSTD; nin.reserved[8] = (uint32_t)len; }
+        else if (hashed) { nin.flags = KFS_IF_HASHED; copy(nin.reserved, hash, 32); }
+        nin.crc = 0;
         *ip = nin;
         r = write_inode(slot);
         if (!r) r = flush();
         if (r) { ip = iget(slot); if (ip) *ip = old; }
     }
     if (r) {                                                     /* инод не переключён: возвращаем всё как было */
-        for (uint64_t k = 0; k < nb; k++) set_free(list[k]);
+        if (shared_ref) sh_release(dfirst);
+        for (uint64_t k = 0; k < nb_w; k++) set_free(list[k]);
         for (uint64_t k = 0; k < meta.n; k++) set_free(mlist[k]);
         kfree_(list); kfree_(mlist);
         return r;
     }
     kfree_(list); kfree_(mlist);
+    if (hashed) hidx_put(hash, slot);
     if (ino) { free_inode_blocks(&old); return 0; }
     fs.free_inodes--;
     r = dir_add(parent, leaf, slot);
@@ -970,7 +1078,27 @@ static int kfs_write_impl(const char* path, const void* data, size_t len) {
     return 0;
 }
 
+static int kfs_write_impl(const char* path, const void* data, size_t len) { return write_file(path, data, len, len, 0); }
+
+/* Файл, сохранённый сжатым кадром Zstd: читатели видят распакованное содержимое. Кадр проверяется полной распаковкой до записи. */
+static int kfs_write_packed_impl(const char* path, const void* z, size_t zlen, uint64_t usize) {
+    if (!zlen || zlen > ZST_MAX || !usize || usize > ZST_MAX) return KFS_ERR_FBIG;
+    int64_t cs = zstd_frame_content_size(z, zlen);
+    if (cs >= 0 && (uint64_t)cs != usize) return KFS_ERR_INVAL;
+    uint8_t* out = (uint8_t*)kalloc((size_t)usize);
+    uint8_t* work = (uint8_t*)kalloc(zstd_work_size() + 8);
+    int r = KFS_ERR_NOSPC;
+    if (out && work) {
+        size_t got = 0;
+        int rc = zstd_decompress(z, zlen, out, (size_t)usize, &got, (zstd_work*)(((uintptr_t)work + 7) & ~(uintptr_t)7));
+        r = (rc == ZSTD_OK && got == usize) ? 0 : KFS_ERR_INVAL;
+    }
+    kfree_(out); kfree_(work);
+    return r ? r : write_file(path, z, zlen, usize, 1);
+}
+
 static int kfs_clone_impl(const char* src, const char* dst) {
+    zc_drop();
     uint32_t sp, sino, dp, dino; char sl[KFS_NAME_MAX + 1], dl[KFS_NAME_MAX + 1];
     int r = resolve(src, &sp, sl, &sino);
     if (r) return r;
@@ -1020,6 +1148,7 @@ static int kfs_mkdir_impl(const char* path) {
 }
 
 static int kfs_unlink_impl(const char* path) {
+    zc_drop();
     uint32_t parent, ino; char leaf[KFS_NAME_MAX + 1];
     int r = resolve(path, &parent, leaf, &ino);
     if (r) return r;
@@ -1104,6 +1233,7 @@ int kfs_format(blk_dev_t* dev, uint64_t base) { KFS_LOCK(); int r = kfs_format_i
 int kfs_stat(const char* path, kfs_stat_t* st) { KFS_LOCK(); int r = kfs_stat_impl(path, st); KFS_UNLOCK(); return r; }
 int64_t kfs_read(const char* path, uint64_t off, void* buf, size_t len) { KFS_LOCK(); int64_t r = kfs_read_impl(path, off, buf, len); KFS_UNLOCK(); return r; }
 int kfs_write(const char* path, const void* data, size_t len) { KFS_LOCK(); int r = kfs_write_impl(path, data, len); KFS_UNLOCK(); return r; }
+int kfs_write_packed(const char* path, const void* z, size_t zlen, uint64_t usize) { KFS_LOCK(); int r = kfs_write_packed_impl(path, z, zlen, usize); KFS_UNLOCK(); return r; }
 int kfs_clone(const char* src, const char* dst) { KFS_LOCK(); int r = kfs_clone_impl(src, dst); KFS_UNLOCK(); return r; }
 int kfs_mkdir(const char* path) { KFS_LOCK(); int r = kfs_mkdir_impl(path); KFS_UNLOCK(); return r; }
 int kfs_unlink(const char* path) { KFS_LOCK(); int r = kfs_unlink_impl(path); KFS_UNLOCK(); return r; }

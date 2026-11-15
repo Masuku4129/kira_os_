@@ -10,7 +10,7 @@ CFLAGS="$KIRA_ARM64_EXTRA -ffreestanding -fno-builtin -nostdlib -mgeneral-regs-o
 mkdir -p build-arm64
 # Программы для ARM64 (EL0): те же исходники, что и для x86-64; ядро их не содержит - они лежат на диске в /bin
 HOSTCC="${HOSTCC:-clang}"
-[ -x tools/kfstool ] || $HOSTCC -O1 -Wall -DKFS_NO_THREADS -I. -Iarch/x86_64 -o tools/kfstool tools/kfstool.c kfs.c store.c sha256.c sysseal.c cbor.c cas.c
+[ -x tools/kfstool ] || $HOSTCC -O1 -Wall -DKFS_NO_THREADS -I. -Iarch/x86_64 -o tools/kfstool tools/kfstool.c kfs.c zstd.c store.c sha256.c sysseal.c cbor.c cas.c
 UCFLAGS="-ffreestanding -fno-builtin -fno-math-errno -fPIE -fvisibility=hidden -fno-stack-protector -fno-asynchronous-unwind-tables -O2 -Wall -Wextra"
 UELF=""
 for app in mt burn plasma cube3d paint fpu demo atk-mem atk-priv atk-sys atk-jmp atk-cap serve melody wasm udpecho rec; do   # fpu проверяет x87 (long double): на ARM64 - отдельная проверка позже
@@ -114,7 +114,7 @@ for b in /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt ${P
 done
 ROOTS_N=$([ -n "$ROOTS_SRC" ] && tools/pem2der "$ROOTS_SRC" tools/roots.der)
 [ -n "$ROOTS_N" ] && echo "[*] Корневые сертификаты: $ROOTS_N из $ROOTS_SRC" || echo "[!] Связки корневых сертификатов нет (пакет ca-certificates): fetch https откажется проверять сервер"
-[ -n "$ROOTS_N" ] && tools/kfstool kira-arm64.disk put /etc/ssl/roots.der tools/roots.der >/dev/null
+[ -n "$ROOTS_N" ] && tools/kput.sh kira-arm64.disk /etc/ssl/roots.der tools/roots.der >/dev/null
 tools/kfstool kira-arm64.disk put /etc/ssl/drivers.index drivers/index.txt >/dev/null
 # Семя опыта Разума (см. build_clang.sh)
 [ -f data/mind_seed.bin ] && tools/kfstool kira-arm64.disk put /etc/mind_seed.bin data/mind_seed.bin >/dev/null
