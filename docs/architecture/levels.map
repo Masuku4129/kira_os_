@@ -19,6 +19,11 @@ kapi uheap.h
 kapi mem.h
 kapi sched.h
 kapi kernel.h
+kapi rng.h
+kapi syscall.h
+kapi corefault.h
+kapi wx.h
+kapi ramext.h
 kapi percpu.h
 kapi cpumask.h
 kapi uaccess.h
@@ -27,6 +32,9 @@ kapi kobj.h
 kapi futex.h
 kapi proc.h
 kapi kstack.h
+# Корни сборки: связывают все уровни по определению (инициализация и порядок запуска), поэтому им разрешено включать всё.
+0 kernel.c
+0 arch/aarch64/main.c
 0 tests/*
 0 ci/*
 0 tools/*
@@ -159,10 +167,10 @@ kapi kstack.h
 8 fm.*
 8 dock.*
 8 wm.*
-8 theme.*
+2 theme.*   # палитра и токены: нужны и консоли кадрового буфера, и оболочке; зависимостей не имеют
 8 icons.*
-8 font*
-8 gfx2d.*
+2 font*
+2 gfx2d.*   # программный 2D-рисовальщик без зависимостей: под fb/fbcon/gfxsrv, а не над ними
 8 gfxui.*
 8 brainfx.*
 8 usbhid.*
