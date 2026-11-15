@@ -10,6 +10,9 @@ for m in wtest ftest wgfx wmix; do
     clang $WF -c userland/wasm/$m.c -o build-wasm/$m.o
     wasm-ld --no-entry --export=kmain -z stack-size=65536 --initial-memory=$mem build-wasm/$m.o build-wasm/kwlib.o -o build-wasm/$m.wasm
 done
+# проверка WASI 0.1 (точка входа _start, как у модулей wasm32-wasi)
+clang $WF -c userland/wasm/wasitest.c -o build-wasm/wasitest.o
+wasm-ld --no-entry --export=_start -z stack-size=65536 --initial-memory=262144 build-wasm/wasitest.o -o build-wasm/wasitest.wasm
 # тот же wmix без оптимизации: много local.tee/local.set и пересылок через память - другие формы кода для предкомпилятора
 clang $WF -O0 -c userland/wasm/wmix.c -o build-wasm/wmix0.o
 wasm-ld --no-entry --export=kmain -z stack-size=65536 --initial-memory=262144 build-wasm/wmix0.o build-wasm/kwlib.o -o build-wasm/wmix0.wasm

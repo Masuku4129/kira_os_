@@ -86,7 +86,7 @@ jobs:
               "arm64": code,
               "gui": infra or any(
                   p in {"wm.c", "gfxui.c", "gfx2d.c", "font8x16.c", "icons.c",
-                        "brainfx.c", "apps.c", "dock.c", "display.c", "apps.h",
+                        "brainfx.c", "apps.c", "dock.c", "display.c", "framegov.c", "apps.h",
                         "mind_sys.h", "explorer.c", "fm.c", "mind_view.c"}
                   or p.startswith(("tests/wm", "tests/ui", "tests/display_preview"))
                   for p in changed
@@ -489,8 +489,6 @@ jobs:
           /tmp/mind-policy 2>&1 | tee -a ci-out/mind-quality.log
           gcc -O1 -g -Wall -Werror -DKIRA_HOST_TEST -I. -Iarch/x86_64 -no-pie -fsanitize=address,undefined -o /tmp/mind-levers tests/mind_lever_test.c mind.c mindnet.c
           /tmp/mind-levers 2>&1 | tee -a ci-out/mind-quality.log
-          gcc -O1 -g -Wall -Werror -DKIRA_HOST_TEST -I. -Iarch/x86_64 -no-pie -fsanitize=address,undefined -o /tmp/mind-eff tests/mind_eff_test.c mind.c mindnet.c
-          /tmp/mind-eff 2>&1 | tee -a ci-out/mind-quality.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -515,7 +513,7 @@ jobs:
       - name: Shell end-to-end preview (Mind, Explorer, Monitor, Settings, Dock, input)
         run: |
           set -euo pipefail
-          gcc -O1 -g -Wall -Werror -DKIRA_HOST_TEST -I. -Iarch/x86_64 -fsanitize=address,undefined -o /tmp/kira-display-preview tests/display_preview.c display.c kpar.c wm.c gfxui.c icons.c brainfx.c apps.c fm.c dock.c mind.c mindnet.c rtc.c input.c gfx2d.c font8x16.c klog.c fbcon.c -lm
+          gcc -O1 -g -Wall -Werror -DKIRA_HOST_TEST -I. -Iarch/x86_64 -fsanitize=address,undefined -o /tmp/kira-display-preview tests/display_preview.c display.c framegov.c kpar.c wm.c gfxui.c icons.c brainfx.c apps.c fm.c dock.c mind.c mindnet.c rtc.c input.c gfx2d.c font8x16.c klog.c fbcon.c -lm
           for resolution in "1024 768" "1280 720" "1920 1080"; do
             read -r width height <<< "$resolution"
             echo "Display preview: ${width}x${height}" | tee -a ci-out/gui-regression.log

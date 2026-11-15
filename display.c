@@ -14,6 +14,7 @@
 #include "input.h"
 #include "experience.h"
 #include "gfxsrv.h"
+#include "framegov.h"
 #include "proc.h"
 #include "progs.h"
 #include "platform.h"
@@ -48,7 +49,7 @@ void* gfx_alloc_pages(uint64_t bytes) {
 static int ready;
 static int in_flush;
 static int w_con = -1, w_mind = -1, w_mon = -1, w_files = -1, w_set = -1;
-static volatile int fx_req = 3;
+static volatile int fx_req = 3;                 /* 0..3 - задано пользователем, 4 - авто: решает сам компоновщик (gov_*) */
 
 static struct {
     uint64_t frames;
@@ -564,6 +565,19 @@ static void comp_note(int mode, uint64_t ns, uint64_t px) {
     }
 }
 
+
+/* ---------------- темп кадров: решает компоновщик (framegov.c) ----------------
+   Раз в секунду по собственным замерам цикла, без участия Разума и без обучения. */
+static framegov_t gov;
+static uint64_t gov_t0, gov_frames, gov_late;
+
+static void governor(uint64_t now) {
+    if (!now || now - gov_t0 < 1000000000ULL) return;
+    uint64_t df = st.frames - gov_frames, dl = st.late - gov_late;
+    gov_t0 = now; gov_frames = st.frames; gov_late = st.late;
+    framegov_second(&gov, (uint32_t)df, (uint32_t)dl, fx_req);
+}
+
 /* ---------------- цикл ---------------- */
 
 static void display_main(void* arg) {
@@ -631,7 +645,8 @@ static void display_main(void* arg) {
             if (g != vgen) { vgen = g; explorer_refresh(); }
         }
 
-        wm_set_fx(fx_req);
+        governor(t0);
+        wm_set_fx(fx_req == FGOV_FX_AUTO ? (int)gov.fx : fx_req);
         wm_anim((uint32_t)(now0 / 1000000ULL), mv.activity);
 
         uint64_t tp0 = clock_ns();
@@ -661,6 +676,7 @@ static void wm_release(void* ptr, uint64_t bytes) {
 }
 
 int display_init(unsigned long mbi) {
+    framegov_init(&gov);
     /* кадровый буфер от загрузчика (multiboot), иначе - virtio-gpu по PCI (QEMU virt на ARM64, машины без VBE) */
     int rc = mbi ? fb_init(mbi) : -1;
     if (rc != 0 && virtio_gpu_probe() == 0) rc = 0;
@@ -702,7 +718,8 @@ int display_init(unsigned long mbi) {
     return 0;
 }
 
-void display_set_fx(int level) { fx_req = level < 0 ? 0 : level > 3 ? 3 : level; }
+void display_set_fx(int level) { fx_req = level < 0 ? 0 : level > 4 ? 4 : level; }   /* 4 - авто */
+int display_get_fx(void) { return fx_req == FGOV_FX_AUTO ? (int)gov.fx : fx_req; }
 
 void display_get_stats(uint64_t* loops, uint64_t* late, uint64_t* worst_gap_ns) {
     *loops = st.frames; *late = st.late; *worst_gap_ns = st.worst_gap_ns;

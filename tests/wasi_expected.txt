@@ -1,0 +1,19 @@
+wasi: fd_write two buffers
+fd_write rc 0
+fd_write bytes 27
+bad fd rc 8
+fault rc 21
+clock monotonic rc 0
+clock monotonic non-decreasing 1
+clock realtime rc 52
+args rc 0
+argc 0
+argv size 0
+environ rc 0
+environ n 0
+fdstat rc 0
+fdstat filetype 2
+seek stdout rc 70
+close stdout rc 0
+close fd 9 rc 8
+wasi: done

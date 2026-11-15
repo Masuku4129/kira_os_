@@ -7,6 +7,9 @@ FLAGS="-O1 -g -Wall -Werror -DKIRA_HOST_TEST -I. -Iarch/x86_64 -no-pie"
 SSE="-msse2 -mfpmath=sse -fno-math-errno"
 T=$(mktemp -d)
 
+echo "== уровни архитектуры (docs/architecture/levels.map) =="
+python3 ci/check_layers.py
+
 echo "== process PID allocator (no wrap/reuse for private IPC principals) =="
 $CC $FLAGS -o $T/proc-pid tests/proc_pid_test.c
 $T/proc-pid
@@ -252,6 +255,10 @@ else
     echo "UI primitives: covered by gui-regression job"
 fi
 
+echo "== framegov (frame pacing: decided by the compositor, not by Mind) =="
+$CC $FLAGS -Werror -o $T/framegov tests/framegov_test.c framegov.c
+$T/framegov
+
 echo "== Mind archive policy (preserve current and last-good snapshots, score eviction, fail closed) =="
 $CC $FLAGS -Werror -o $T/mind-archive-policy tests/mind_archive_policy_test.c
 $T/mind-archive-policy
@@ -261,13 +268,9 @@ if [ "${KIRA_SKIP_MIND:-0}" != 1 ]; then
     $CC $FLAGS -fsanitize=address,undefined -o $T/mind tests/mind_test.c mind.c mindnet.c
     $T/mind
 
-    echo "== mind levers 13-30 (A/B by measurement, rollback, useless marking, budget, general rollback, hints, seed) =="
+    echo "== mind levers 13-23 (A/B by measurement, rollback, useless marking, budget, general rollback, hints, seed) =="
     $CC $FLAGS -fsanitize=address,undefined -o $T/mindlv tests/mind_lever_test.c mind.c mindnet.c
     $T/mindlv
-
-    echo "== mind efficiency stand (closed-loop scenario: late frames, reaction, release, churn, false actions, bg cost; observe vs act) =="
-    $CC $FLAGS -fsanitize=address,undefined -o $T/mind-eff tests/mind_eff_test.c mind.c mindnet.c
-    $T/mind-eff
 else
     echo "Mind quality: covered by mind-quality job"
 fi
@@ -342,7 +345,7 @@ else
 fi
 
 echo "== display thread end-to-end with apps (preview: /tmp/kira_gfx/*.ppm) =="
-$CC $FLAGS -fsanitize=address,undefined -o $T/disp tests/display_preview.c display.c kpar.c wm.c gfxui.c icons.c brainfx.c apps.c fm.c dock.c mind.c mindnet.c rtc.c input.c gfx2d.c font8x16.c klog.c fbcon.c -lm
+$CC $FLAGS -fsanitize=address,undefined -o $T/disp tests/display_preview.c display.c framegov.c kpar.c wm.c gfxui.c icons.c brainfx.c apps.c fm.c dock.c mind.c mindnet.c rtc.c input.c gfx2d.c font8x16.c klog.c fbcon.c -lm
 # код возврата превью - не через tail (раньше сбой терялся в конвейере)
 for r in "" "1280 720" "1920 1080"; do
     ASAN_OPTIONS=detect_leaks=0 $T/disp $r > $T/disp.out 2>&1; rc=$?
@@ -374,6 +377,15 @@ UBSAN_OPTIONS=halt_on_error=1 ASAN_OPTIONS=detect_leaks=0 $T/wasmh build-wasm/wt
 grep -v "^wasm: " $T/w_interp.txt > $T/w_body.txt
 cmp -s $T/w_native.txt $T/w_body.txt || { echo "WASM OUTPUT DIFFERS"; cat $T/w_native.txt $T/w_interp.txt; exit 1; }
 echo "wasm: interpreter output equals native ($(cat $T/w_native.txt | cut -c1-60)...)"
+echo "== wasm: WASI 0.1 subset (fd_write, clock, args, errors) in interpreter and JIT, exit code from proc_exit =="
+for mode in jit interp; do
+    if [ $mode = interp ]; then export WASM_NOJIT=1; else unset WASM_NOJIT; fi
+    UBSAN_OPTIONS=halt_on_error=1 ASAN_OPTIONS=detect_leaks=0 $T/wasmh build-wasm/wasitest.wasm > $T/wasi_$mode.txt 2>&1 || true
+    grep -q "finished with code 3" $T/wasi_$mode.txt || { echo "WASI ($mode): proc_exit code"; cat $T/wasi_$mode.txt; exit 1; }
+    grep -v "^wasm: " $T/wasi_$mode.txt | cmp -s - tests/wasi_expected.txt || { echo "WASI ($mode): output differs"; cat $T/wasi_$mode.txt; exit 1; }
+done
+unset WASM_NOJIT
+echo "wasm: WASI subset passed (JIT and interpreter)"
 clang -O2 -DKW_NATIVE -w -Iuserland/wasm -o $T/ftest_native userland/wasm/ftest.c -lm
 $T/ftest_native > $T/f_native.txt
 UBSAN_OPTIONS=halt_on_error=1 ASAN_OPTIONS=detect_leaks=0 $T/wasmh build-wasm/ftest.wasm | grep -v "^wasm: " > $T/f_body.txt

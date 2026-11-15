@@ -124,13 +124,12 @@ static void fill_mind(void) {
         { 2702, MJ_FOCUS, 1, "фокус: cube3d - квант x1,5, пока окно впереди" },
         { 2650, MJ_TUNE_KEEP, 1, "квант 30 мс лучше прежнего 40 мс на 12% - оставляю и запоминаю для 4 ядер" },
         { 2610, MJ_TUNE_TRY, 1, "пробую квант 30 мс вместо 40 мс: сравню переключения и ожидание потоков" },
-        { 2433, MJ_LIMIT, 1, "экран опаздывает (7% кадров): ограничиваю фоновую burn (98% ядра) до 50%" },
-        { 2440, MJ_RESTORE, 1, "экран успевает 10 с: burn снова без ограничения" },
-        { 1800, MJ_FX, 1, "у экрана есть запас времени: анимация фона - уровень 3" },
+        { 2433, MJ_LIMIT, 1, "тактика: система ждёт процессор - фон ужат до 25% ядер (предел 50%)" },
+        { 2440, MJ_RESTORE, 1, "тактика: процессор не в дефиците - фон снова без пределов" },
         { 2, MJ_LEARN, 1, "опыт загружен: 7 из 8 норм выучены, квант 40 мс, решений за жизнь 41" },
     };
-    v->nj = 8;
-    for (unsigned i = 0; i < 8; i++) { v->j[i].t = J[i].t; v->j[i].kind = J[i].kind; v->j[i].applied = J[i].applied; snprintf(v->j[i].text, MIND_TEXT, "%s", J[i].text); }
+    v->nj = sizeof J / sizeof J[0];
+    for (unsigned i = 0; i < v->nj; i++) { v->j[i].t = J[i].t; v->j[i].kind = J[i].kind; v->j[i].applied = J[i].applied; snprintf(v->j[i].text, MIND_TEXT, "%s", J[i].text); }
     v->risk = 64; v->risk_why = 3; v->net_n = 14000; v->net_pos = 1300;
     v->net_prec = 76; v->net_rec = 68; v->net_trusted = 1; v->forecasts = 120; v->net_loss_x1e4 = 2240;
     for (int i = 0; i < MNET_F; i++) v->net_w[i] = (i % 3 - 1) * (12000 + i * 1800);
@@ -140,7 +139,7 @@ static void fill_mind(void) {
         v->lv[i].backs = (uint16_t)(i % 3); v->lv[i].state = (uint8_t)(i % 4);
     }
     v->lv_changes = 37; v->lv_general = 2; v->lv_seed = 1;
-    v->bg_fps = 30; v->core_cap = 60; v->core_res_pid = 7; v->core_res = 2;
+    v->core_cap = 60;
     v->comp_par = 1; v->comp_ns_kpx_par = 840; v->comp_ns_kpx_ser = 1190;
     v->dev_errors = 2; snprintf(v->dev_name, sizeof v->dev_name, "virtio-blk");
     v->hid_suspect = 1; v->hid_rate = 240; snprintf(v->hid_name, sizeof v->hid_name, "USB-HID");
@@ -446,6 +445,13 @@ int main(int argc, char** argv) {
     { int x, y; wm_side_center(1, &x, &y); move_to(x, y, 0); }
     run(40);
     save_shot("home.ppm");
+    {   /* чистый рабочий стол: обзор скрыт; клик по системной зоне открывает его, второй - закрывает */
+        int sx = W - 60, sy = 16;
+        extern int wm_home_open(void);
+        CHECK(!wm_home_open());
+        click(sx, sy); run(3); CHECK(wm_home_open()); save_shot("home_overview.ppm");
+        click(sx, sy); run(3); CHECK(!wm_home_open());
+    }
 
     /* программы Ring 3: значок запускает (команда в терминал), окно приложения рядом с Разумом */
     con_n = 0; click_side(0);

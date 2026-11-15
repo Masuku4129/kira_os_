@@ -39,10 +39,9 @@ typedef struct {
     uint32_t net_n, net_pos, net_prec, net_rec, forecasts, net_loss_x1e4;
     uint8_t  net_trusted;
     int32_t  net_w[MNET_F];
-    uint32_t bg_fps, core_cap;
+    uint32_t core_cap;
     uint32_t stab_episodes, stab_limited_s, stab_relapses, stab_longest_s;   /* стабилизация за запуск */
     uint32_t tact_cost_x100;               /* цена тактики: доля одного ядра, % x100, за последнюю секунду */
-    uint32_t core_res_pid; int core_res;   /* ядро фокуса: кому отдано (0 - никому) и какое (-1 - нет) */             /* тактика: предел кадров фоновых окон (0 - нет), предел загрузки ядер фоном */
     uint32_t comp_par, comp_ns_kpx_par, comp_ns_kpx_ser;   /* композитор: параллельно ли сейчас и цена 1000 точек */
     /* Последние реальные события оборудования и защитных механизмов из секундного снимка ядра. */
     uint32_t dev_errors;
@@ -51,7 +50,7 @@ typedef struct {
     char hid_name[16];
     uint32_t denied;
     char denied_name[16];
-    /* рычаги 13-30 */
+    /* рычаги 13-23 */
     struct { int32_t val, def; uint16_t trials, wins, backs; uint8_t state; } lv[ML_N];
     uint32_t lv_changes, lv_general, lv_seed;
 } mind_view_t;

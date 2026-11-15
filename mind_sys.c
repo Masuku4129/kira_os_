@@ -62,11 +62,6 @@ static unsigned a_trim(void) { return heap_trim(); }
 static void a_restrict(int level) { proc_set_heap_restrict(level); }
 static int a_kill(uint32_t pid) { return proc_kill(pid); }
 static void a_hid(int block) { usb_hid_verdict(block); }
-static void a_bgfps(uint32_t fps) { gfx_set_bg_period(fps ? (TIMER_HZ + fps - 1) / fps : 0); }
-static void a_core(int on, uint32_t pid) {                         /* отдаётся последнее ядро: загрузочное занято ядром */
-    unsigned n = sched_cpu_count();
-    sched_reserve_core(on && n >= 3 ? (int)n - 1 : -1, pid);
-}
 
 typedef struct { uint32_t magic; mind_profile_t p; uint32_t check; } prof_file_t;
 
@@ -117,7 +112,7 @@ static void a_pput(const char* name, const mind_profile_t* p) {
     kfs_write(path, &f, sizeof f);
 }
 
-/* Рычаги ядра (13-30, те, чьё значение живёт вне Разума). Границы значений уже заданы лесенкой Разума и проверены ещё раз в самих модулях. */
+/* Рычаги ядра (13-23, те, чьё значение живёт вне Разума). Границы значений уже заданы лесенкой Разума и проверены ещё раз в самих модулях. */
 static void a_lever(int lever, int32_t v) {
     if (v <= 0) return;
     switch (lever) {
@@ -130,7 +125,7 @@ static void a_lever(int lever, int32_t v) {
     }
 }
 
-static const mind_act_t act = { a_quantum, a_weight, a_limit, a_fx, a_trim, a_restrict, a_kill, a_pget, a_pput, a_hid, a_bgfps, a_core, a_lever };
+static const mind_act_t act = { a_quantum, a_weight, a_limit, a_fx, a_trim, a_restrict, a_kill, a_pget, a_pput, a_hid, a_lever };
 
 /* ---------------- замеры ---------------- */
 
@@ -279,7 +274,7 @@ static void publish(const mind_t* model) {
     v.t = S.t; v.lifetime_s = model->m.lifetime_s;
     v.health = model->health; v.c_resp = model->c_resp; v.c_room = model->c_room; v.c_bal = model->c_bal; v.c_stab = model->c_stab;
     scopy(v.mood, model->mood ? model->mood : "", sizeof v.mood);
-    v.mode = model->m.mode; v.fx = (uint8_t)model->fx; v.fx_user = model->m.fx_user;
+    v.mode = model->m.mode; v.fx = (uint8_t)display_get_fx(); v.fx_user = model->m.fx_user;
     v.quantum_ms = mind_quantum_ms(model);
     v.cores = S.cores; v.load = S.load; v.mem_used = S.mem_used; v.runnable = S.runnable;
     for (unsigned i = 0; i < 64; i++) v.busy[i] = S.busy[i];
@@ -308,9 +303,8 @@ static void publish(const mind_t* model) {
     v.net_n = model->m.net.n; v.net_pos = model->m.net.pos; v.net_prec = mnet_precision(&model->m.net); v.net_rec = mnet_recall(&model->m.net);
     v.net_trusted = (uint8_t)mnet_trusted(&model->m.net); v.forecasts = model->m.forecasts; v.net_loss_x1e4 = model->m.net.loss_x1e4;
     for (int i = 0; i < MNET_F; i++) v.net_w[i] = model->m.net.w[i];
-    v.bg_fps = mind_bg_fps(model); v.core_cap = mind_core_cap(model);
+    v.core_cap = mind_core_cap(model);
     v.stab_episodes = model->stab_episodes; v.stab_limited_s = model->stab_limited_ms / 1000; v.stab_relapses = model->stab_relapses; v.stab_longest_s = model->stab_longest_ms / 1000; v.tact_cost_x100 = model->tact_cost_x100;
-    v.core_res_pid = mind_core_reserved_pid(model); v.core_res = sched_reserved_core();
     display_compositor_stats(&v.comp_par, &v.comp_ns_kpx_par, &v.comp_ns_kpx_ser);
     v.dev_errors=S.dev_errors; scopy(v.dev_name,S.dev_name,sizeof v.dev_name);
     v.hid_suspect=S.hid_suspect; v.hid_rate=S.hid_rate; scopy(v.hid_name,S.hid_name,sizeof v.hid_name);
@@ -711,20 +705,17 @@ void mind_sys_print(const char* what) {
         uart_print("  2. вес потоков: окно в фокусе x1,5, голодающий x2; проснувшийся более тяжёлый вытесняет лёгкий сразу (рефлекс в планировщике)\n");
         uart_print("  3. доля ядра фоновых программ: при нехватке процессора фон получает не больше "); uart_print_dec(v->core_cap);
         uart_print("% всех ядер и не больше свободного (ai cap N)\n");
-        uart_print("  4. темп фоновых окон: "); if (v->bg_fps) { uart_print("не чаще "); uart_print_dec(v->bg_fps); uart_print(" кадров/с"); } else uart_print("без предела");
-        uart_print(" (ступени 30/15/8/4 по опозданию экрана)\n");
+        uart_print("  4. кадрами экрана Разум не управляет: открытые окна идут в 60 кадров/с, свёрнутые - 4 кадра/с (правило компоновщика)\n");
         uart_print("  5. сборка кадра: "); uart_print(v->comp_par ? "на всех ядрах" : "на одном ядре"); uart_print(" (по замеренной цене)\n");
-        uart_print("  6. анимация фона: уровень "); uart_print_dec(v->fx); uart_print(v->fx_user == MIND_FX_AUTO ? " (решает Разум)\n" : " (задана вручную)\n");
+        uart_print("  6. анимация фона (только настройка пользователя): уровень "); uart_print_dec(v->fx); uart_print(v->fx_user == MIND_FX_AUTO ? " (авто: решает компоновщик)\n" : " (задана вручную)\n");
         uart_print("  7. допуск запусков: копий одной программы и запусков в секунду - по ядрам и здоровью\n");
         uart_print("  8. память: возврат запасов ядра, осторожный рост куч, в крайнем случае остановка самой большой программы\n");
         uart_print("  9. поведение программ: необычная по своему профилю программа ограничивается до 50% ядра\n");
         uart_print(" 10. устройства ввода: печатающее быстрее человека (BadUSB) - отключается\n");
-        uart_print(" 11. предвидение: при доверии модели фон ужимается до опоздания экрана (сейчас риск "); uart_print_dec(v->risk); uart_print("%)\n");
-        uart_print(" 12. ядро фокуса: при опоздании экрана (3+ ядра) одно ядро - окну в фокусе, фон - на остальных: ");
-        if (v->core_res >= 0) { uart_print("ядро "); uart_print_dec((uint64_t)v->core_res); uart_print(" отдано pid "); uart_print_dec(v->core_res_pid); }
-        else uart_print("сейчас общее");
+        uart_print(" 11. предвидение опоздания экрана: только наблюдение, не действует (сейчас риск "); uart_print_dec(v->risk); uart_print("%)\n");
+        uart_print(" 12. (убран: ядро фокуса теперь не отдаётся - экран не в ведении Разума)\n");
         uart_print("\n\n");
-        uart_print("  Рычаги 13-30 (каждый проверяется по замеру: проба соседнего значения, сравнение с базой, подтверждение вторым окном, "
+        uart_print("  Рычаги 13-23 (каждый проверяется по замеру: проба соседнего значения, сравнение с базой, подтверждение вторым окном, "
                    "откат при ухудшении; не больше одной пробы за раз; 5 смен в минуту; общий откат, если экран стал опаздывать сильнее). "
                    "Колонки: номер, имя, значение (обычное), состояние, проб/удач/откатов.\n");
         for (int L = 0; L < ML_N; L++) {
@@ -795,8 +786,7 @@ void mind_sys_print(const char* what) {
         uart_print("), предупреждения сбываются "); uart_print_dec(v->net_prec); uart_print("%, замечено опозданий заранее ");
         uart_print_dec(v->net_rec); uart_print("%, "); uart_print(v->net_trusted ? "доверие есть" : "пока без права действовать");
         uart_print(", упреждений "); uart_print_dec(v->forecasts);
-        uart_print("\n[MIND] тактика: фон - не больше "); uart_print_dec(v->core_cap); uart_print("% ядер при нехватке; фоновые окна - ");
-        if (v->bg_fps) { uart_print("не чаще "); uart_print_dec(v->bg_fps); uart_print(" кадров/с"); } else uart_print("без предела кадров");
+        uart_print("\n[MIND] тактика: фон - не больше "); uart_print_dec(v->core_cap); uart_print("% ядер при нехватке");
         uart_print("\n[MIND] стабилизация: фон ужимался "); uart_print_dec(v->stab_episodes); uart_print(" раз, всего "); uart_print_dec(v->stab_limited_s);
         uart_print(" с (самый долгий период "); uart_print_dec(v->stab_longest_s); uart_print(" с), возвратов давления после снятия предела "); uart_print_dec(v->stab_relapses);
         uart_print("; цена тактики "); uart_print_dec(v->tact_cost_x100 / 100); uart_print(","); uart_print_dec(v->tact_cost_x100 / 10 % 10); uart_print_dec(v->tact_cost_x100 % 10); uart_print("% ядра");

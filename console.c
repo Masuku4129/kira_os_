@@ -361,7 +361,7 @@ static void cmd_smpcrash(const char* a) {
     int r = smp_crash_test(mode, cpu);
     if (r == -1) uart_print("[KIRA SMPCRASH] no such online core.\n");
     else if (r == -3) uart_print("[KIRA SMPCRASH] that core does not run threads (no LAPIC tick: see the boot log, IRQ mode).\n");
-    else if (r == -4) uart_print("[KIRA SMPCRASH] not available on this architecture yet (docs/HANDOFF.md, plan).\n");
+    else if (r == -4) uart_print("[KIRA SMPCRASH] not available on this architecture yet (docs/BACKLOG.md).\n");
     else if (r == -5) uart_print("[KIRA SMPCRASH] core failure is an SError on ARM64; this CPU cannot raise SError from software (no RAS error injection), so the path is not testable here.\n");
     else if (r < 0) uart_print("[KIRA SMPCRASH] cannot create the thread.\n");
     else uart_print("[KIRA SMPCRASH] crash thread started.\n");
