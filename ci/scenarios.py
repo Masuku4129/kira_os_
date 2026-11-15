@@ -303,6 +303,15 @@ ALL = [
         {"sleep": 10}, {"cmd": "fb", "must": [r"\[PERIOD\] ms \d+ frames \d+"]},
         {"cmd": "ai", "must": [r"."]},
     ], smp=4, mem="512M"),
+    sc("mouse-limbo", "замер как на телефоне (Limbo: эмуляция одним потоком, 4 ядра, qemu64): цикл дисплея без мыши и при потоке движений мыши", [
+        {"log": BOOT_LOG},
+        {"sleep": 8}, {"cmd": "fb"},
+        {"sleep": 10}, {"cmd": "fb", "must": [r"\[PERIOD\] ms \d+ frames \d+"]},
+        {"mouse": {"seconds": 10, "hz": 125, "step": 10}}, {"cmd": "fb", "must": [r"\[PERIOD\] ms \d+ frames \d+"]},
+        {"mouse": {"seconds": 10, "hz": 500, "step": 10}}, {"cmd": "fb", "must": [r"\[PERIOD\] ms \d+ frames \d+"]},
+        {"sleep": 5}, {"cmd": "fb", "must": [r"\[PERIOD\] ms \d+ frames \d+"]},
+        {"cmd": "ai", "must": [r"."]},
+    ], smp=4, mem="512M", limbo=True),
     sc("wasm-speed", "WebAssembly: JIT x86-64 - плазма wgfx на стенде укладывается в порог по времени (до JIT на этом стенде было 1257 мс)", [
         {"log": BOOT_LOG},
         {"cmd": "wasm /wasm/wgfx.wasm"}, {"sleep": 6},
