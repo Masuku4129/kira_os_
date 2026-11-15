@@ -39,7 +39,7 @@ static int resizing = -1;
 static int capture = -1;
 static int dmg_valid, dx0, dy0, dx1, dy1;
 static wm_side_item_t side[WM_SIDE_MAX];
-static int side_n, side_hover = -1;
+static int side_n, side_hover = -1, side_hover_desk;
 static wm_tab_t tabs[WM_TAB_MAX];
 static int tab_n, tab_hover = -1, last_tab = -2;
 static int light_hover = -1;       /* окно, над «светофором» которого курсор */
@@ -242,6 +242,29 @@ static void damage_side_full(void) {
     if (desk_on()) damage(0, WM_TOP_H, WM_SIDE_W + 20, WM_TOP_H + 26 + DESK_MAX * DESK_PITCH);
 }
 static void damage_side(void) { damage_side_full(); }
+
+/* Наведение мыши на значок: перерисовывается сам значок и его подпись, а не весь Dock шириной в экран
+   (раньше каждый переход курсора по значкам давал около 170 тысяч точек, на медленной машине - десятки миллисекунд). */
+static void damage_hover_item(int i, int from_desk) {
+    if (i < 0 || i >= side_n) return;
+    if (from_desk) {
+        for (int k = 0, n = desk_count(); k < n; k++)
+            if (desk_item(k) == i) { int x = desk_cx() - DESK_CELL_W / 2, y = desk_ty(k); damage(x - 8, y - 8, x + DESK_CELL_W + 8, y + DESK_TILE + 30); return; }
+        damage_side_full();
+        return;
+    }
+    int x = side_item_x(i), y = side_ty();
+    damage(x - 12, y - 12, x + side_ts + 12, y + side_ts + 12);               /* значок с подсветкой */
+    const char* desc = side[i].desc; const char* hint = side[i].hint;
+    int lines = 1 + (desc && *desc) + 1 + (hint && *hint);                    /* подпись: название, описание, состояние, подсказка (с запасом на состояние) */
+    int th = 12 + lines * 18;
+    int lw = 440 < scr->w - 8 ? 440 : scr->w - 8;
+    int lx = x + side_ts / 2 - lw / 2;
+    if (lx < 4) lx = 4;
+    if (lx + lw > scr->w - 4) lx = scr->w - 4 - lw;
+    int ty = dock_y() - 10 - th;
+    damage(lx - 4, ty - 4, lx + lw + 4, dock_y() - 4);
+}
 
 static int side_hit(int px, int py) {
     side_from_desk = 0;
@@ -926,9 +949,17 @@ static void click(int px, int py) {
 static void update_hover(void) {
     int fs = fs_top();
     int sh = fs >= 0 ? -1 : side_hit(cx, cy);
-    if (sh != side_hover) { damage_side_full(); side_hover = sh; damage_side_full(); }
+    if (sh != side_hover) {
+        damage_hover_item(side_hover, side_hover_desk);                       /* был подсвечен тот - перерисовать */
+        side_hover = sh; side_hover_desk = sh >= 0 ? side_from_desk : 0;
+        damage_hover_item(side_hover, side_hover_desk);                       /* и новый */
+    }
     int th = fs >= 0 ? -1 : tab_hit(cx, cy);
-    if (th != tab_hover) { tab_hover = th; damage_top(); }
+    if (th != tab_hover) {
+        if (tab_hover >= 0 && tab_hover < tab_n) damage(tab_x(tab_hover) - 4, 2, tab_x(tab_hover) + tab_w(tab_hover) + 4, 7 + TAB_H + 6);
+        tab_hover = th;
+        if (th >= 0) damage(tab_x(th) - 4, 2, tab_x(th) + tab_w(th) + 4, 7 + TAB_H + 6);
+    }
     int lh = -1;
     if (fs < 0 && cy >= WM_TOP_H) {
         int id = hit_window(cx, cy);
