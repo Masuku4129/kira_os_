@@ -278,6 +278,14 @@ ALL = [
         {"log": [r"wasm: /wasm/ksh\.wasm - \d+ functions", r"n=1\b", r"n=4\b", r"n=9\b", r"wasm: finished with code 0"]},
         {"log_forbid": NO_ERR + [r"wasm: stopped"]},
     ], smp=2, mem="512M"),
+    sc("ipcbench", "замер обмена: опрос против ожидания портов, 1 МиБ сообщениями против одного вложения памяти", [
+        {"log": BOOT_LOG},
+        {"cmd": "test ipcbench"}, {"sleep": 40},
+        {"log": [r"ipcbench: round trip, polling two ports \(before\)", r"ipcbench: round trip, waiting on two ports \(after\)",
+                 r"ipcbench: round trip, one port \(floor\)", r"ipcbench: server idle 300 ms by polling: \d+ rounds",
+                 r"ipcbench: 1 MiB in 64 KiB messages \(before\)", r"ipcbench: 1 MiB by one shared-memory attachment \(after\)", r"ipcbench: done"]},
+        {"log_forbid": [r"ipcbench: FAIL"] + NO_ERR},
+    ], smp=2, mem="512M"),
     sc("wasm-speed", "WebAssembly: JIT x86-64 - плазма wgfx на стенде укладывается в порог по времени (до JIT на этом стенде было 1257 мс)", [
         {"log": BOOT_LOG},
         {"cmd": "wasm /wasm/wgfx.wasm"}, {"sleep": 6},

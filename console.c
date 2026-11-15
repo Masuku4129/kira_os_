@@ -305,6 +305,7 @@ static void cmd_keys(const char* a) {
 }
 static void cmd_threads(const char* a) { (void)a; uart_print("[TEST] program mt: 4 threads of one process, futex mutex, then exit with live threads\n"); prog_start("mt"); }
 static void cmd_ipc(const char* a) { (void)a; uart_print("[TEST] two ipc processes: named ports (200 round trips), shared memory page, futex across processes\n"); prog_start("ipcx"); prog_start("ipc"); prog_start("ipc"); }
+static void cmd_ipcbench(const char* a) { (void)a; uart_print("[TEST] program ipcbench: two instances, polling vs waiting on two ports, 1 MiB in messages vs one memory attachment\n"); prog_start("ipcbench"); prog_start("ipcbench"); }
 static void cmd_gfxport(const char* a) { (void)a; uart_print("[TEST] program gfxport: graphics control on port kira.gfx (CBOR requests, reply port passed in a message)\n"); prog_start("gfxport"); }
 static void cmd_fsport(const char* a) { (void)a; uart_print("[TEST] program fsport: file service on port kira.fs (CBOR requests, private reply port passed in a message, bulk data in shared memory)\n"); prog_start("fsport"); }
 static void cmd_isolation(const char* a) { (void)a; uart_print("[TEST] two demo processes write the same address: each must see only its own value\n"); prog_start("demo"); prog_start("demo"); }
@@ -545,6 +546,7 @@ static const test_t tests[] = {
     { "smp",        "потоки на всех ядрах: расчёт, замок, вытеснение", cmd_smptest, 0 },
     { "crash",      "изоляция сбоев: crash thread | crash N (отказ ядра N) | crash lock (авария)", cmd_smpcrash, 0 },
     { "threads",    "потоки одного процесса на разных ядрах, мьютекс на futex, выход при живых потоках", cmd_threads, 0 },
+    { "ipcbench",   "замер обмена: опрос против ожидания портов, копирование против вложения памяти (запустить дважды)", cmd_ipcbench, 0 },
     { "gfxport",    "управление графикой на портах: запросы CBOR, размер экрана, окно и события", cmd_gfxport, 0 },
     { "fsport",     "файловая служба на портах: запросы CBOR, ответ во вложенный порт, большие данные через общую память", cmd_fsport, 0 },
     { "ipc",        "обмен между процессами: порты, разделяемая память, futex через общую память", cmd_ipc, 0 },
