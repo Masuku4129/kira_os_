@@ -247,7 +247,14 @@ int main(void) {
         wm_set_clock("ПЯТНИЦА, 30 ОКТЯБРЯ 2026", "13:05");
         wm_set_meters(home_busy, 4, 37, 91);
         frame();
-        CHECK(px(&scr, 800, 620) == TH_BAR0);
+        CHECK(px(&scr, 800, 620) != TH_BAR0);                  /* чистый рабочий стол: обзора нет (инвариант 1) */
+        extern int wm_home_open(void);
+        click(1024 - 60, 16);                                  /* клик по системной зоне открывает обзор */
+        frame();
+        CHECK(wm_home_open() && px(&scr, 800, 620) == TH_BAR0);
+        click(1024 - 60, 16);
+        frame();
+        CHECK(!wm_home_open() && px(&scr, 800, 620) != TH_BAR0);
     }
     wm_set_visible(b, 1); wm_set_visible(a, 1);
     CHECK(wm_top() == a);
