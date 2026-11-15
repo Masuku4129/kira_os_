@@ -239,7 +239,7 @@ if [ ! -f manifest.h ]; then
     mkdir -p $T/mf/bin
     if [ ! -s $T/u/progs.txt ]; then
         MF_OK=0; sk "ядро: сборка и сравнение с ld.lld" "нет manifest.h и нет собранных программ userland для kfstool manifest"
-    elif ! $HOSTCC -O1 -DKFS_NO_THREADS -I. -Iarch/x86_64 -o $T/kfstool tools/kfstool.c kfs.c store.c sha256.c 2>$T/err; then
+    elif ! $HOSTCC -O1 -DKFS_NO_THREADS -I. -Iarch/x86_64 -o $T/kfstool tools/kfstool.c kfs.c store.c sha256.c sysseal.c cbor.c cas.c 2>$T/err; then
         MF_OK=0; sk "ядро: сборка и сравнение с ld.lld" "нет manifest.h, kfstool не собрался: $(head -c 150 $T/err)"
     else
         while IFS='|' read name objs; do [ -f $T/u/$name.lld ] && cp $T/u/$name.lld $T/mf/bin/$name.elf; done < $T/u/progs.txt

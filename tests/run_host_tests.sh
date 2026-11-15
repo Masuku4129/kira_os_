@@ -156,7 +156,7 @@ $CC $FLAGS -fsanitize=undefined -DSPIN_LIMIT=200000 -o $T/virtio tests/virtio_te
 $T/virtio
 
 echo "== programs: ELF validation, trust manifest, life log in KiraFS =="
-$CC $FLAGS -O1 -o $T/kfstool tools/kfstool.c kfs.c store.c sha256.c
+$CC $FLAGS -O1 -o $T/kfstool tools/kfstool.c kfs.c store.c sha256.c sysseal.c cbor.c cas.c
 if ls userland/*.elf >/dev/null 2>&1; then $T/kfstool manifest userland/*.elf | sed 's/PROG_MANIFEST/TEST_MANIFEST/g' > tests/manifest_test.h
 else printf '#include "trust.h"\nstatic const trust_entry_t TEST_MANIFEST[] = { { "none", {0} } };\n#define TEST_MANIFEST_COUNT 0\n' > tests/manifest_test.h; fi
 $CC $FLAGS -fsanitize=undefined -Itests -o $T/prog tests/prog_test.c elf.c trust.c life.c kfs.c store.c sha256.c
