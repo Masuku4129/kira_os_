@@ -29,7 +29,7 @@ enum {
     IOMMU_E_RANGE = -9      /* address beyond what the hardware or the domain can express */
 };
 
-#if defined(__x86_64__)
+#if defined(__x86_64__) || defined(__aarch64__)
 /* Parse DMAR, build contexts, enable translation. Returns the number of units now
    translating (0: no change in behaviour), negative on a rejected table. Call once,
    after pci_init() and before any driver starts DMA. */
@@ -61,7 +61,7 @@ int iommu_fault_poll(void);
 uint32_t iommu_fault_count(const pci_dev_t* dev);
 
 #else
-/* Other architectures have no VT-d: the same calls report "not available" (ARM64 SMMU is separate work). */
+/* Other architectures have no IOMMU support: the same calls report "not available". */
 static inline int iommu_init(void)
 {
     return 0;

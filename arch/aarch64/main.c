@@ -7,6 +7,7 @@
 #include "wx_arm.h"
 #include <stdint.h>
 #include "../../fdt.h"
+#include "../../iommu_smmu.h"
 #include "bootinfo.h"
 #include "fb_arm.h"
 #include "timer.h"
@@ -1072,6 +1073,27 @@ int platform_console_cmd(const char* l, const char* a) {
    Узел pci-host-ecam-generic: reg - окно конфигурации ECAM, bus-range - шины, ranges - окна адресов для BAR
    (3 ячейки адреса шины: тип пространства в старшей - 1 порты, 2 память 32 бита, 3 память 64 бита). Прошивки нет,
    поэтому адреса BAR назначает ядро. Драйверы (virtio, NVMe, AHCI, xHCI) - те же, что на x86-64. */
+/* SMMUv3 из дерева устройств: регистры, карта RID -> StreamID узла PCI (iommu-map) и устройства не-PCI за тем же SMMU (iommus). Решает iommu_init. */
+static void smmu_from_fdt(const void* fdt) {
+    int sm = fdt_find_compatible(fdt, -1, "arm,smmu-v3");
+    int pci = fdt_find_compatible(fdt, -1, "pci-host-ecam-generic");
+    uint64_t base, size;
+    if (sm < 0 || !fdt_node_enabled(fdt, sm) || fdt_reg(fdt, sm, 0, &base, &size) || pci < 0) return;
+    uint32_t ph = 0, l = 0;
+    if (fdt_prop_u32(fdt, sm, "phandle", &ph) != 0) return;
+    smmu_rid_map_t maps[SMMU_MAX_RID_MAPS]; unsigned nm = 0;
+    const uint8_t* im = (const uint8_t*)fdt_prop(fdt, pci, "iommu-map", &l);
+    for (uint32_t o = 0; im && o + 16 <= l && nm < SMMU_MAX_RID_MAPS; o += 16)
+        if (fdt_u32(im + o + 4) == ph) maps[nm++] = (smmu_rid_map_t){ fdt_u32(im + o), fdt_u32(im + o + 8), fdt_u32(im + o + 12) };
+    unsigned foreign = 0; int depth;
+    for (int n = fdt_root(fdt); n >= 0; n = fdt_next_node(fdt, n, &depth)) {
+        uint32_t pl;
+        const uint8_t* io = (const uint8_t*)fdt_prop(fdt, n, "iommus", &pl);
+        if (io && pl >= 4 && fdt_u32(io) == ph) foreign++;
+    }
+    iommu_smmu_register(base, !dma_noncoherent(fdt), foreign, maps, nm);
+}
+
 static void arm_pci_init(const void* fdt) {
     int n = fdt_find_compatible(fdt, -1, "pci-host-ecam-generic");
     if (n < 0 || !fdt_node_enabled(fdt, n)) {
@@ -1411,6 +1433,7 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     kprintf("[KIRA ARM64] cores with a working timer interrupt: %u of %u (idle cores then switch their tick off)\n", (uint64_t)ticking, (uint64_t)started);
     clock_init(cnt_freq / 1000);
     arm_pci_init(fdt);
+    smmu_from_fdt(fdt);      /* SMMUv3 (если есть): регистры и карта потоков; включает его iommu_init при опросе дисков */
     rng_init();              /* генератор случайных чисел: RNDR, virtio-rng, времена прерываний */
     immune_init();
     watchdog_init();

@@ -15,7 +15,7 @@
 #define SMMU_EVTQ_BYTES      (SMMU_QUEUE_ENTRIES * 32u)
 #define SMMU_EVTQ_ALIGN      SMMU_EVTQ_BYTES
 #define SMMU_EVTQ_ALLOC_PAGES ((SMMU_EVTQ_BYTES / SMMU_PAGE_SIZE) + (SMMU_EVTQ_ALIGN / SMMU_PAGE_SIZE) - 1u)
-#define SMMU_REGISTER_MAP_SIZE (2u * SMMU_PAGE_SIZE)
+#define SMMU_REGISTER_MAP_SIZE (32u * SMMU_PAGE_SIZE)   /* страница 0 и страница 1 (очереди событий) лежат через 64 КБ */
 #define SMMU_STRTAB_ENTRIES  256u
 #define SMMU_STRTAB_BYTES    (SMMU_STRTAB_ENTRIES * 64u)
 #define SMMU_STRTAB_PAGES    (SMMU_STRTAB_BYTES / SMMU_PAGE_SIZE)
@@ -42,8 +42,8 @@
 #define SMMU_CMDQ_PROD       0x0098u
 #define SMMU_CMDQ_CONS       0x009cu
 #define SMMU_EVTQ_BASE       0x00a0u
-#define SMMU_EVTQ_PROD       0x10a8u
-#define SMMU_EVTQ_CONS       0x10acu
+#define SMMU_EVTQ_PROD       0x100a8u
+#define SMMU_EVTQ_CONS       0x100acu
 
 #define SMMU_CR0_SMMUEN      (1u << 0)
 #define SMMU_CR0_EVENTQEN    (1u << 2)

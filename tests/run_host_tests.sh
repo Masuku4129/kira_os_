@@ -139,6 +139,10 @@ echo "== VT-d domain (hardware model: IOTLB invalidation after map/unmap, stale 
 $CC $FLAGS -fsanitize=address,undefined -o $T/vtd-domain tests/vtd_domain_test.c drivers/iommu/vtd_domain.c drivers/iommu/intel_vtd.c
 $T/vtd-domain
 
+echo "== ARM SMMUv3: STE, CD, stage-1 page tables, commands, events =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/smmudom tests/smmu_dom_test.c drivers/iommu/smmu_dom.c
+$T/smmudom
+
 echo "== AMD-Vi: IVRS (fuzz), DTE, v1 page tables, commands =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/amdvi tests/amdvi_test.c drivers/iommu/amd_vi.c
 $T/amdvi

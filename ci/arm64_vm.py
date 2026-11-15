@@ -205,6 +205,11 @@ SC = [
                ("cp /bin/plasma /usb0/plasma.bin", [r"том подключён только для чтения"]),
                ("ls /usb0", [r"hello\.txt", r"big\.bin"]),
                ("umount usb0", [])]),
+    # ARM SMMUv3 (QEMU virt,iommu=smmuv3): диск virtio-blk работает через домен устройства с таблицей страниц ядра, запись в невыданную память блокируется
+    dict(name="arm64-smmu", m="virt,gic-version=3,iommu=smmuv3", cpu="cortex-a72", smp=2, mem="1G", disk="virtio-blk-pci,disable-legacy=on,iommu_platform=on",
+         must=[r"SMMUv3 translation enabled", r"pci 0:1\.0 passthrough: unrestricted DMA, NOT isolated", r"pci 0:1\.0 isolated: own translation domain",
+               r"virtio-blk: enforcement check passed", r"Disk virtio-blk, .*DMA isolated by IOMMU", r"\[KIRA FS\] KiraFS mounted"],
+         cmds=[("write /smmu.txt kira-smmu", []), ("cat /smmu.txt", [r"kira-smmu"]), ("disk", [r"\[системный\]"]), ("df", [r"KiraFS"])]),
     dict(name="arm64-power", m="virt,gic-version=3", cpu="cortex-a72", smp=2, mem="512M", disk="virtio-blk-pci",
          must=[r"Processors online: 2 of 2"],
          cmds=[("write /reboot.txt kira-before-reboot", []),
