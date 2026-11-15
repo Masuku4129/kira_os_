@@ -5,6 +5,8 @@
 #include "kdrv.h"
 #include "life.h"
 #include "klog.h"
+#include "wm.h"
+#include "dock.h"
 #include "mind_sys.h"
 #include "buildcmd.h"
 #include "hwprofile.h"
@@ -34,7 +36,14 @@ _Static_assert(SVC_UDP_SENDTO == NET_UDP_SENDTO && SVC_UDP_RECVFROM == NET_UDP_R
 
 static int wire_own_disk(blk_dev_t* d) { return store_detect(d) || kfs_detect(d, KFS_BASE_LBA) == 0; }
 
+static int wire_win_create(const char* title, int w, int h, uint32_t* mem) {
+    return wm_create_user(title, WM_AUTO, WM_AUTO, w, h, mem);
+}
+
 void wire_init(void) {
+    static const gfx_wm_ops_t wm_ops = { wire_win_create, wm_destroy, dock_title, wm_set_title, wm_set_frame_seq, wm_raise,
+                                         wm_visible, wm_invalidate, wm_top };
+    gfx_set_wm_ops(&wm_ops);
     static const mind_sys_env_t mind_env = { display_get_fx, display_set_fx, display_get_stats, display_compositor_stats, gfx_focus_pid, build_mind_tick };
     mind_sys_set_env(&mind_env);
     hw_set_describe_extra(uheap_describe_limits);
