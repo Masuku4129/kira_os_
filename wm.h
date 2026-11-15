@@ -107,6 +107,7 @@ void wm_anim(uint32_t now_ms, unsigned activity);
 void wm_mouse(int dx, int dy, unsigned buttons);
 void wm_mouse_abs(uint16_t ax, uint16_t ay, unsigned buttons); /* планшет/сенсор: абсолютные координаты 0..32767 */   /* относительное движение, бит0 = левая кнопка */
 void wm_cursor(int* x, int* y);
+void wm_last_damage(int* box4);
 int  wm_window_pos(int id, int* x, int* y);        /* левый верхний угол панели */
 int  wm_content_origin(int id, int* x, int* y, int* scale);
 /* Геометрия для проверок и подсказок: центр значка боковой панели, кнопки окна (1 закрыть, 2 свернуть,

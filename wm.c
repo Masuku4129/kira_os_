@@ -38,6 +38,8 @@ static int dragging = -1, drag_ox, drag_oy;
 static int resizing = -1;
 static int capture = -1;
 static int dmg_valid, dx0, dy0, dx1, dy1;
+static int last_dmg[4];
+void wm_last_damage(int* b) { for (int i = 0; i < 4; i++) b[i] = last_dmg[i]; }     /* охватывающая рамка последнего собранного кадра (замеры) */
 static wm_side_item_t side[WM_SIDE_MAX];
 static int side_n, side_hover = -1, side_hover_desk;
 static wm_tab_t tabs[WM_TAB_MAX];
@@ -1662,6 +1664,7 @@ static void run_job(void* ctx, uint32_t i) {
 uint32_t wm_compose_par(void (*present)(int x, int y, int w, int h), uint64_t* pixels) {
     int fs = compose_prepare();
     if (!dmg_valid) return 0;
+    last_dmg[0] = dx0; last_dmg[1] = dy0; last_dmg[2] = dx1; last_dmg[3] = dy1;
     dmg_valid = 0;
     int tw = (scr->w + DTILE - 1) / DTILE, th = (scr->h + DTILE - 1) / DTILE;
     if (tw > TMAX_X) tw = TMAX_X;

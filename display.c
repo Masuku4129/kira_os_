@@ -60,6 +60,7 @@ static struct {
     uint64_t start_ns;
     uint64_t mouse_events;
     uint64_t composed;        // кадры, в которых что-то перерисовывалось
+    int px_box[4];
     uint64_t px_max, big_frames;   // самый большой кадр по точкам и число кадров больше 20000 точек (замер)
     uint64_t max_gap_period;  // худший промежуток за период замера (не сбрасывается Разумом)
     uint64_t late;            // циклы, начавшиеся позже чем через 1,5 бюджета кадра
@@ -670,7 +671,7 @@ static void display_main(void* arg) {
         uint64_t px = 0;
         int cmode = comp_mode(tp0);
         wm_set_runner(cmode ? kpar_run : 0);
-        if (wm_compose_par(fb_present_rect, &px)) { st.composed++; st.pixels += px; if (px > st.px_max) st.px_max = px; if (px > 20000) st.big_frames++; }
+        if (wm_compose_par(fb_present_rect, &px)) { st.composed++; st.pixels += px; if (px > st.px_max) { st.px_max = px; wm_last_damage(st.px_box); } if (px > 20000) st.big_frames++; }
         st.present_ns = clock_ns() - tp0;
         st.ns_comp += st.present_ns;
         comp_note(cmode, st.present_ns, px);
@@ -828,7 +829,7 @@ void display_print_info(void) {
     uart_print(" drawn "); uart_print_dec(st.composed - p_comp);
     uart_print(" late "); uart_print_dec(st.late - p_late);
     { int cx_, cy_; wm_cursor(&cx_, &cy_); uart_print(" cursor "); uart_print_dec((uint64_t)cx_); uart_print(","); uart_print_dec((uint64_t)cy_); }
-    uart_print(" px_max "); uart_print_dec(st.px_max); uart_print(" big_frames "); uart_print_dec(st.big_frames); st.px_max = 0; st.big_frames = 0;
+    uart_print(" px_max "); uart_print_dec(st.px_max); uart_print(" box "); for (int i_ = 0; i_ < 4; i_++) { uart_print_dec((uint64_t)st.px_box[i_]); uart_print(i_ < 3 ? "," : ""); } uart_print(" big_frames "); uart_print_dec(st.big_frames); st.px_max = 0; st.big_frames = 0;
     { static uint64_t p_px; uart_print(" px_per_drawn "); uart_print_dec((st.composed - p_comp) ? (st.pixels - p_px) / (st.composed - p_comp) : 0); p_px = st.pixels; }
     uart_print(" mouse_in "); uart_print_dec(in_n - p_in);
     uart_print(" mouse_used "); uart_print_dec(st.mouse_events - p_mouse);
