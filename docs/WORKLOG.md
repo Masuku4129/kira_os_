@@ -270,3 +270,24 @@
 - Добавлен полный дизайн-контракт `docs/KIRA_DESIGN_SYSTEM.md`; раздел J мастер-плана дополнен подпунктом J.1 и этапами UI-0…UI-5.
 - Зафиксировано как спецификация/направление, не как реализованная функция. Следующий GUI шаг: UI-0 — инвентаризация текущих compositor/window manager, Dock, HUD, launcher и GUI regression tests; затем выбрать минимальный безопасный вертикальный срез реализации без переписывания работающих частей.
 - Коммиты на main: design doc `45a816233490254eb70973ae71ceabc102142aaa`, master plan `143cc1e919bf7340644797c1c053d83fbaa20d55`. Тесты не запускались: изменена только документация.
+
+
+### F-002 complementary firmware PCI Bus Master handoff fix — current-main Draft PR candidate (2026-11-14)
+
+- PR #137 was based on stale ancestor `bbc7f7ab948e72511aed113b69043add10ec8350`; its PCI hardening has been transplanted onto a fresh branch based on current `main`.
+- During PCI enumeration, firmware-enabled `PCI_CMD_MASTER` is now cleared for endpoints, host bridges and non-forwarding bridge-class functions before BAR probing / driver ownership.
+- Bus mastering is preserved only for real PCI-to-PCI bridges (header type 1, class 06/subclass 04) and CardBus bridges (header type 2, class 06/subclass 07), because those functions must forward downstream bus-master transactions.
+- IO/MEM decode bits are preserved; a driver may explicitly enable the bits it owns after its policy checks.
+- Added a host PCI backend regression for host bridge, PCI-to-PCI bridge, ISA bridge, CardBus bridge and endpoint; it verifies the exact classification and explicit owner enable. Wired into `tests/run_host_tests.sh`.
+- This is complementary to PR #161: firmware handoff sanitization prevents inherited bus mastering; PR #161 blocks Ring 3 CAP_DMA/CAP_IRQ while no real per-device IOMMU domain exists.
+- The diagnostic UHCI trace-only edits from old PR #137 were deliberately not transplanted; USB UHCI startup remains a separate investigation.
+- Exact-head CI pending; no PASS claimed.
+
+
+### PR #165 — USB UHCI regression investigation (2026-11-14)
+
+- Exact head `626a21c029a203e3e4634886c4a894d27d8f0ce5`, workflow `43601249166`: host tests and all builds passed; 41 checks succeeded, but `vm (usb-uhci)` failed to reach the console prompt after 90 seconds. The report job consequently failed. No PASS claimed.
+- This is a real regression signal, not dismissed as pre-existing: baseline full CI run `43244194123` on code ancestor `bbc7f7ab948e72511aed113b69043add10ec8350` passed the same `vm (usb-uhci)` scenario (job `131272930217`) and the full matrix.
+- The serial artifact stops after syscall initialization. QEMU guest-error log repeatedly records invalid reads at 0x0, 0x4, 0x8 and 0xC. The earlier PR #137 diagnostic USB trace also produced no USB worker/ UHCI-start trace, so the hang occurs before the USB worker begins.
+- Hypothesis under test: clearing bus mastering before BAR probing disturbs a live firmware-configured controller during enumeration. Moved the clear to immediately after BAR probing, still before any device is exposed to a driver. This preserves the security handoff boundary while avoiding state changes during config/BAR discovery.
+- Fresh exact-head CI is required to determine whether this ordering resolves the UHCI regression. If not, add boot-stage/PCI readback traces and continue root-cause isolation; do not merge this PR while the baseline regression remains.

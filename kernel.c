@@ -155,7 +155,6 @@ void kernel_main(unsigned long magic, unsigned long addr) {
         uart_print(ec_rc == 0 ? "text console on screen" : "serial console only");
         uart_print(").\n");
     }
-
     if (keyboard_init() != 0)       kernel_panic("Keyboard IRQ registration failed");
     mouse_init();   // необязательна: без мыши клавиатура работает как раньше
     fat_set_clock(fat_clock);

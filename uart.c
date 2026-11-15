@@ -157,6 +157,15 @@ void uart_print(const char* str) {
     irq_restore(f);
 }
 
+/* Уже собранная строка должна быть атомарной даже если длиннее LB_SIZE:
+   linebuf по-прежнему обслуживает потоковый вывод, но не разрывает сообщение между CPU. */
+void uart_print_atomic(const char* str) {
+    if (!str || !*str) return;
+    unsigned n = 0;
+    while (str[n]) n++;
+    emit_line(str, n, 0);
+}
+
 // Раз в тик на каждом ядре: хвост строки без перевода строки не должен застрять в буфере.
 void uart_tick_flush(void) {
     percpu_t* c = this_cpu();
