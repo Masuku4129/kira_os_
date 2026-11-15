@@ -221,6 +221,32 @@ jobs:
             ci-out/kcc-tests.log
             ci-out/kcc-selfhost.log
 
+  own-toolchain:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.kcc == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare writable apt archive cache
+        run: sudo mkdir -p /var/cache/apt/archives && sudo chmod 1777 /var/cache/apt/archives
+      - uses: actions/cache@v4
+        with:
+          path: /var/cache/apt/archives/*.deb
+          key: kira-apt-v1-${{ github.job }}-${{ runner.arch }}
+      - name: tools (clang, lld, nasm for reference output; QEMU to boot the kernels)
+        run: sudo apt-get update -q && sudo apt-get install -y -q clang lld nasm qemu-system-x86
+      - name: KAS assembler against nasm, KLink linker against ld.lld, kernel built only by KCC+KAS+KLink boots
+        run: |
+          mkdir -p ci-out
+          set -o pipefail
+          { bash tests/kas_test.sh && bash tests/klink_test.sh && bash tests/kernel_selfbuilt_boot_test.sh; } 2>&1 | tee ci-out/own-toolchain.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kira-own-toolchain
+          path: ci-out/own-toolchain.log
+
   driver-e2e:
     needs: detect-changes
     if: needs.detect-changes.outputs.driver == 'true'
@@ -532,7 +558,7 @@ jobs:
           if-no-files-found: warn
 
   report:
-    needs: [detect-changes, audit, host-tests, kcc-tests, driver-e2e, build, uefi-ovmf, vm, arm64, mind-quality, gui-regression]
+    needs: [detect-changes, audit, host-tests, kcc-tests, own-toolchain, driver-e2e, build, uefi-ovmf, vm, arm64, mind-quality, gui-regression]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -593,6 +619,7 @@ jobs:
           MIND_RESULT: ${{ needs.mind-quality.result }}
           GUI_RESULT: ${{ needs.gui-regression.result }}
           KCC_RESULT: ${{ needs.kcc-tests.result }}
+          OWN_RESULT: ${{ needs.own-toolchain.result }}
           DRIVER_RESULT: ${{ needs.driver-e2e.result }}
           UEFI_RESULT: ${{ needs.uefi-ovmf.result }}
         run: |
@@ -608,6 +635,7 @@ jobs:
               ("Mind quality", "MIND_RESULT"),
               ("GUI regression", "GUI_RESULT"),
               ("KCC compiler suite", "KCC_RESULT"),
+              ("Own toolchain (KAS, KLink, self-built kernel)", "OWN_RESULT"),
               ("Driver installer E2E", "DRIVER_RESULT"),
               ("UEFI OVMF boot", "UEFI_RESULT"),
           ]

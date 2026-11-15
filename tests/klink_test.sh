@@ -132,7 +132,7 @@ if ubuild $T/u "" 2>$T/err; then
             SH=$T/sh; mkdir -p $SH/sb $SH/inc
             for f in kcc/*.c kcc/*.h; do [ "$f" = kcc/main.c ] || cp $f $SH/sb/; done
             cp kcc/selfhost/* $SH/sb/; cp userland/kccrt.c userland/kira.h $SH/sb/
-            cp mind_build.h mind_build.c mind_build_core.c elf.h immune.h sha256.c $SH/sb/; cp elf.c $SH/sb/rootelf.c      # режим @build (см. kcc/selfhost/unity.c)
+            cp mind_build.h mind_build.c mind_build_core.c elf.h immune.h sha256.h sha256.c $SH/sb/; cp elf.c $SH/sb/rootelf.c      # режим @build (см. kcc/selfhost/unity.c)
             sed 's|"../kcc/kcc.h"|"kcc.h"|; s|"../mind_build.h"|"mind_build.h"|' userland/kcc.c > $SH/sb/kcc_main.c
             sed -i 's|"kcc/kcc.h"|"kcc.h"|' $SH/sb/mind_build.c
             sed -i 's|"kccrt/\([a-z]*\.h\)"|<\1>|' $SH/sb/kccrt.c
