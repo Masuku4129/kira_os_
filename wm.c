@@ -1138,7 +1138,7 @@ static void draw_home(surface_t* c, int ox, int oy) {
 
 static void draw_topbar(surface_t* c, int ox, int oy) {
     int y = oy, W = scr->w;
-    ui_vgrad(c, ox, y, W, WM_TOP_H, TH_BAR0, TH_BAR1);
+    ui_round_rect(c, ox, y, W, WM_TOP_H, 0, TH_BAR0, wp_rgb ? 150 : 255);   /* над картинкой-обоями - стекло */
     for (int i = 0; i < W; i++) ui_blend(c, ox + i, y + WM_TOP_H - 1, TH_CYAN, (unsigned)(i < W / 2 ? 30 + i * 60 / W : 90 - i * 60 / W));
     icon_draw(c, ox + 30, y + 20, 30, ICON_BRAIN, TH_CYAN, 1);
     ui_text_smooth(c, ox + 52, y + 8, "ОС Кира", 24, TH_TEXT);
@@ -1206,7 +1206,7 @@ static void draw_side(surface_t* c, int ox, int oy) {
     if (!side_n) return;
     int x = SIDE_X + ox, y = WM_TOP_H + 10 + oy, w = TILE + 12, h = side_panel_h();
     int ts = side_ts, big = ts >= 36;
-    ui_round_rect(c, x, y, w, h, 16, TH_BAR0, 255);
+    ui_round_rect(c, x, y, w, h, 16, TH_BAR0, wp_rgb ? 150 : 255);
     ui_round_frame(c, x, y, w, h, 16, ui_mix(TH_BORDER, TH_CYAN, 60), 255);
     int top = wm_top();
     for (int i = 0; i < side_n; i++) if (side[i].temp && !side[i].bottom) {
