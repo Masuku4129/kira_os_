@@ -173,5 +173,6 @@ kapi kstack.h
 2 gfx2d.*   # программный 2D-рисовальщик без зависимостей: под fb/fbcon/gfxsrv, а не над ними
 8 gfxui.*
 8 brainfx.*
+8 wallpaper.*
 8 usbhid.*
 8 userland/*

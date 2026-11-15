@@ -255,6 +255,10 @@ else
     echo "UI primitives: covered by gui-regression job"
 fi
 
+echo "== wallpaper (picture wallpaper: KWP1 parse, fill-crop scaling) =="
+$CC $FLAGS -Werror -fsanitize=address,undefined -o $T/wallpaper tests/wallpaper_test.c wallpaper.c
+$T/wallpaper
+
 echo "== framegov (frame pacing: decided by the compositor, not by Mind) =="
 $CC $FLAGS -Werror -o $T/framegov tests/framegov_test.c framegov.c
 $T/framegov
@@ -338,14 +342,14 @@ $T/dock
 
 if [ "${KIRA_SKIP_GUI:-0}" != 1 ]; then
     echo "== shell (top bar, side launcher, traffic lights, fullscreen, drag, input, live background, culling) =="
-    $CC $FLAGS -o $T/wm tests/wm_test.c wm.c gfxui.c gfx2d.c font8x16.c icons.c brainfx.c
+    $CC $FLAGS -o $T/wm tests/wm_test.c wm.c gfxui.c gfx2d.c font8x16.c icons.c brainfx.c wallpaper.c
     $T/wm
 else
     echo "Window manager regressions: covered by gui-regression job"
 fi
 
 echo "== display thread end-to-end with apps (preview: /tmp/kira_gfx/*.ppm) =="
-$CC $FLAGS -fsanitize=address,undefined -o $T/disp tests/display_preview.c display.c framegov.c kpar.c wm.c gfxui.c icons.c brainfx.c apps.c fm.c dock.c mind.c mindnet.c rtc.c input.c gfx2d.c font8x16.c klog.c fbcon.c -lm
+$CC $FLAGS -fsanitize=address,undefined -o $T/disp tests/display_preview.c display.c framegov.c kpar.c wm.c gfxui.c icons.c brainfx.c wallpaper.c apps.c fm.c dock.c mind.c mindnet.c rtc.c input.c gfx2d.c font8x16.c klog.c fbcon.c -lm
 # код возврата превью - не через tail (раньше сбой терялся в конвейере)
 for r in "" "1280 720" "1920 1080"; do
     ASAN_OPTIONS=detect_leaks=0 $T/disp $r > $T/disp.out 2>&1; rc=$?

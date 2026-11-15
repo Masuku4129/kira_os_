@@ -2,6 +2,7 @@
 #include "gfxui.h"
 #include "icons.h"
 #include "brainfx.h"
+#include "wallpaper.h"
 #include "theme.h"
 #include "input.h"
 
@@ -281,11 +282,21 @@ static uint32_t accent_of(const win_t* w) {
 
 /* --- фон --- */
 
+static const uint8_t* wp_rgb; static int wp_w, wp_h;      /* обои из картинки (см. wallpaper.h); без них - заставка brainfx */
+
+int wm_wallpaper_set(const uint8_t* kwp, uint64_t len) {
+    const uint8_t* rgb; int w, h;
+    if (wallpaper_parse(kwp, (size_t)len, &w, &h, &rgb)) return -1;
+    wp_rgb = rgb; wp_w = w; wp_h = h;
+    return 0;
+}
+
 static void bg_render(void) {
     int W = scr->w, H = scr->h;
     bg = (uint32_t*)ops.alloc((uint64_t)W * H * 4);
     if (!bg) return;
     bgs.px = bg; bgs.w = W; bgs.h = H; bgs.pitch = W;
+    if (wp_rgb) { wallpaper_scale(bg, W, H, wp_rgb, wp_w, wp_h); return; }
     int area_x = WM_SIDE_W, area_w = W - WM_SIDE_W;
     brain_cx = area_x + area_w / 2;
     brain_cy = WM_TOP_H + (H - WM_TOP_H) / 2;
@@ -668,7 +679,7 @@ void wm_anim(uint32_t now_ms, unsigned activity) {
     anim_ms = now_ms;
     notices_expire(now_ms);
     if (fs_top() >= 0) return;                        /* во весь экран фон не виден */
-    brainfx_anim(now_ms, fx_level, activity, anim_damage);
+    if (!wp_rgb) brainfx_anim(now_ms, fx_level, activity, anim_damage);
 }
 
 void wm_cursor(int* x, int* y) { *x = cx; *y = cy; }
@@ -1437,7 +1448,7 @@ static void compose_rect(int fs, int x0, int y0, int x1, int y1) {
             if (bg) gfx_blit(&clip, 0, 0, &bgs, x0, y0, rw, rh);
             else gfx_rect(&clip, 0, 0, rw, rh, TH_BG0);
             if (fs < 0) {
-                brainfx_draw(&clip, ox, oy, anim_ms);
+                if (!wp_rgb) brainfx_draw(&clip, ox, oy, anim_ms);
                 if (home_open) draw_home(&clip, ox, oy);
             }
             start = 0;

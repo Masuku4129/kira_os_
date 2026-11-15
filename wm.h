@@ -47,6 +47,8 @@ typedef struct {
     void  (*release)(void* ptr, uint64_t bytes);   /* освобождение поверхности, выделенной alloc */
 } wm_ops_t;
 
+/* Обои из файла KWP1 (до wm_init; буфер должен жить всё время работы). 0 - принято, иначе остаётся заставка. */
+int wm_wallpaper_set(const uint8_t* kwp, uint64_t len);
 void wm_init(surface_t* screen, const wm_ops_t* ops);
 int  wm_create(const char* title, int x, int y, int content_w, int content_h, int flags); /* id или -1 */
 /* Как wm_create, но память под содержимое выделяется на cap_w x cap_h: размер можно менять до этого предела. */

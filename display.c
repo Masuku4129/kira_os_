@@ -28,6 +28,7 @@
 #include "console.h"
 #include "dock.h"
 #include "vfs.h"
+#include "kfs.h"
 #include "spinlock.h"
 #include "cpu.h"
 
@@ -673,6 +674,24 @@ static void display_main(void* arg) {
     }
 }
 
+/* Обои: /etc/wallpaper.kwp (формат KWP1, см. wallpaper.h). Нет файла или он испорчен - остаётся заставка. */
+static void load_wallpaper(void) {
+    uint8_t hd[12];
+    if (kfs_read("/etc/wallpaper.kwp", 0, hd, sizeof hd) != (int64_t)sizeof hd) return;
+    uint64_t w = hd[4] | hd[5] << 8 | hd[6] << 16 | (uint64_t)hd[7] << 24, h = hd[8] | hd[9] << 8 | hd[10] << 16 | (uint64_t)hd[11] << 24;
+    if (hd[0] != 'K' || hd[1] != 'W' || hd[2] != 'P' || hd[3] != '1' || w < 2 || h < 2 || w > 4096 || h > 4096) return;
+    uint64_t n = 12 + w * h * 3;
+    uint8_t* buf = (uint8_t*)gfx_alloc_pages(n);
+    if (!buf) return;
+    for (uint64_t off = 0; off < n;) {
+        uint64_t part = n - off > (1u << 20) ? (1u << 20) : n - off;
+        int64_t got = kfs_read("/etc/wallpaper.kwp", off, buf + off, part);
+        if (got <= 0) return;
+        off += (uint64_t)got;
+    }
+    wm_wallpaper_set(buf, n);
+}
+
 static void* wm_alloc(uint64_t bytes) { return gfx_alloc_pages(bytes); }
 static void wm_release(void* ptr, uint64_t bytes) {
     uint64_t pages = (bytes + 4095u) / 4096u;
@@ -688,6 +707,7 @@ int display_init(unsigned long mbi) {
     if (rc != 0 && platform_fb_probe() == 0) rc = 0;            /* ARM: ramfb, simple-framebuffer из дерева устройств */
     if (rc != 0) return rc;
     wm_ops_t ops = { wm_alloc, on_visibility, on_input, on_launch, on_resize, on_tab, on_side_alt, wm_release };
+    load_wallpaper();
     wm_init(fb_surface(), &ops);
     surface_t* fbs = fb_surface();
     w_con = wm_create_ex("Терминал", WM_AUTO, WM_AUTO, CON_W, CON_H, WM_RESIZABLE, fbs->w, fbs->h);   // можно растянуть до размера экрана

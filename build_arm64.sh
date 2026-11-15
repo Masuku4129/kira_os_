@@ -80,7 +80,7 @@ for f in fdt.c bootinfo.c bootinfo_fdt.c percpu.c sched.c scale.c kmutex.c heap.
          experience.c fscmd.c buildcmd.c mind_build_core.c mind_build_grant.c vfs.c fat.c part.c life.c mind.c mindnet.c mind_sys.c devhealth.c klog.c linebuf.c kpar.c clock.c \
          immune.c kobj.c futex.c corefault.c crypto.c pk.c kdrv_sig.c kdrv_state.c rng.c virtio_rng.c $A/rng_arch.c watchdog.c proc.c caps.c syscall.c elf.c progs.c trust.c uheap.c userlog.c fsrv.c uaccess.c \
          virtio_gpu.c virtio_input.c e1000.c virtio_net.c net.c ip6.c ipfrag.c irqwait.c kdrv.c kdrv_fmt.c hda.c audio.c console.c fb.c display.c wm.c gfx2d.c gfxui.c gfxsrv.c framegov.c fbcon.c font8x16.c apps.c explorer.c fm.c dock.c \
-         icons.c brainfx.c input.c rtc.c usb.c usbhid.c usbhub.c usbmsc.c xhci.c \
+         icons.c brainfx.c wallpaper.c input.c rtc.c usb.c usbhid.c usbhub.c usbmsc.c xhci.c \
          $A/main.c $A/wx_arm.c $A/fb_arm.c $A/pmm_arm.c $A/selftest_arm.c $A/vmm_user.c $A/uaccess_arch.c; do
     o=build-arm64/$(basename $f .c).o; $CC $CFLAGS -c $f -o $o; OBJ="$OBJ $o"
 done
@@ -112,6 +112,7 @@ ROOTS_N=$([ -n "$ROOTS_SRC" ] && tools/pem2der "$ROOTS_SRC" tools/roots.der)
 tools/kfstool kira-arm64.disk put /etc/ssl/drivers.index drivers/index.txt >/dev/null
 # Семя опыта Разума (см. build_clang.sh)
 [ -f data/mind_seed.bin ] && tools/kfstool kira-arm64.disk put /etc/mind_seed.bin data/mind_seed.bin >/dev/null
+[ -f data/wallpaper.kwp ] && tools/kfstool kira-arm64.disk put /etc/wallpaper.kwp data/wallpaper.kwp >/dev/null
 if [ "$1" = "--run" ]; then
     exec qemu-system-aarch64 -M virt,gic-version=3 -cpu cortex-a72 -smp 4 -m 1G -serial mon:stdio -kernel kira-arm64.img -drive file=kira-arm64.disk,if=none,id=d0,format=raw -device virtio-blk-pci,drive=d0 \
         -device virtio-gpu-pci -device virtio-keyboard-pci -device virtio-tablet-pci

@@ -17,7 +17,7 @@ COMMON="-ffreestanding -fno-omit-frame-pointer -fno-pic -fno-pie -fno-stack-prot
 # поэтому прерванному потоку не нужно сохранять их при входе в прерывание.
 CFLAGS="$COMMON -mno-mmx -mno-sse -mno-sse2 -I. -Iarch/x86_64"
 
-C_SOURCES="syscall.c percpu.c mem.c sched.c console.c kernel.c pmm.c vmm.c heap.c keyboard.c timer.c mind.c mindnet.c mind_sys.c rtc.c watchdog.c immune.c sha256.c uart.c clock.c klog.c gfx2d.c font8x16.c fb.c fbcon.c display.c wm.c input.c acpi.c proc.c caps.c elf.c trust.c life.c progs.c fsrv.c ata.c store.c experience.c gfxsrv.c gfxui.c icons.c brainfx.c apps.c explorer.c fm.c dock.c usbhid.c usb.c usbhub.c usbmsc.c uhci.c xhci.c kfs.c fat.c part.c vfs.c ahci.c nvme.c uaccess.c devhealth.c kpar.c fscmd.c buildcmd.c mind_build_core.c mind_build_grant.c pci.c virtio.c virtio_blk.c virtio_gpu.c virtio_input.c e1000.c virtio_net.c net.c ip6.c ipfrag.c irqwait.c kdrv.c kdrv_fmt.c hda.c ac97.c sb16.c audio.c blk.c bootmap.c bootinfo.c bootinfo_mb2.c bootinfo_uefi.c mbinfo.c earlycon.c crashdump.c uheap.c userlog.c hwprofile.c ramext.c kmutex.c linebuf.c corefault.c iommu_vtd.c iommu.c drivers/iommu/intel_vtd.c drivers/iommu/vtd_domain.c crypto.c pk.c kdrv_sig.c kdrv_state.c rng.c virtio_rng.c scale.c kobj.c futex.c wx.c framegov.c"
+C_SOURCES="syscall.c percpu.c mem.c sched.c console.c kernel.c pmm.c vmm.c heap.c keyboard.c timer.c mind.c mindnet.c wallpaper.c mind_sys.c rtc.c watchdog.c immune.c sha256.c uart.c clock.c klog.c gfx2d.c font8x16.c fb.c fbcon.c display.c wm.c input.c acpi.c proc.c caps.c elf.c trust.c life.c progs.c fsrv.c ata.c store.c experience.c gfxsrv.c gfxui.c icons.c brainfx.c apps.c explorer.c fm.c dock.c usbhid.c usb.c usbhub.c usbmsc.c uhci.c xhci.c kfs.c fat.c part.c vfs.c ahci.c nvme.c uaccess.c devhealth.c kpar.c fscmd.c buildcmd.c mind_build_core.c mind_build_grant.c pci.c virtio.c virtio_blk.c virtio_gpu.c virtio_input.c e1000.c virtio_net.c net.c ip6.c ipfrag.c irqwait.c kdrv.c kdrv_fmt.c hda.c ac97.c sb16.c audio.c blk.c bootmap.c bootinfo.c bootinfo_mb2.c bootinfo_uefi.c mbinfo.c earlycon.c crashdump.c uheap.c userlog.c hwprofile.c ramext.c kmutex.c linebuf.c corefault.c iommu_vtd.c iommu.c drivers/iommu/intel_vtd.c drivers/iommu/vtd_domain.c crypto.c pk.c kdrv_sig.c kdrv_state.c rng.c virtio_rng.c scale.c kobj.c futex.c wx.c framegov.c"
 # Код, зависящий от процессора x86-64 (вход в ядро, прерывания, APIC, ядра, FPU, системные вызовы): arch/x86_64
 ARCH=arch/x86_64
 ARCH_SOURCES="$ARCH/gdt.c $ARCH/idt.c $ARCH/pic.c $ARCH/apic.c $ARCH/ioapic.c $ARCH/irqmode.c $ARCH/fpu.c $ARCH/syscall_arch.c $ARCH/exceptions.c $ARCH/smp.c $ARCH/percpu_arch.c $ARCH/proc_arch.c $ARCH/uaccess_arch.c $ARCH/msi_arch.c $ARCH/power.c $ARCH/rng_arch.c"
@@ -118,7 +118,7 @@ echo "[*] Инструмент kfstool, манифест доверенных п
 HOSTCC="${HOSTCC:-clang}"
 $HOSTCC -O1 -Wall -DKFS_NO_THREADS -I. -Iarch/x86_64 -o tools/kfstool tools/kfstool.c kfs.c store.c sha256.c
 tools/kfstool manifest $UELF > manifest.h
-rm -f kira.disk; dd if=/dev/zero of=kira.disk bs=1M count=8 2>/dev/null     # образ каждый раз новый: старые файлы не остаются
+rm -f kira.disk; dd if=/dev/zero of=kira.disk bs=1M count=16 2>/dev/null     # образ каждый раз новый: старые файлы не остаются
 tools/kfstool kira.disk init
 for e in $UELF; do
     tools/kfstool kira.disk put /bin/$(basename $e .elf) $e
@@ -167,6 +167,8 @@ ROOTS_N=$([ -n "$ROOTS_SRC" ] && tools/pem2der "$ROOTS_SRC" tools/roots.der)
 tools/kfstool kira.disk put /etc/ssl/drivers.index drivers/index.txt
 # Семя опыта Разума (получено в QEMU workflow mind-train): стартовые веса предвидения и подсказки по рычагам, если своего опыта на диске нет
 [ -f data/mind_seed.bin ] && tools/kfstool kira.disk put /etc/mind_seed.bin data/mind_seed.bin >/dev/null
+# Обои рабочего стола (KWP1; свою картинку - tools/mkwallpaper.py)
+[ -f data/wallpaper.kwp ] && tools/kfstool kira.disk put /etc/wallpaper.kwp data/wallpaper.kwp >/dev/null
 
 echo "[*] Компиляция C..."
 OBJ="boot.o"

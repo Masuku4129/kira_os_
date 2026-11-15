@@ -10,6 +10,16 @@
 #include <string.h>
 #include <setjmp.h>
 #include <sys/stat.h>
+/* Файловая система ядра на хосте: обои /etc/wallpaper.kwp берутся из data/, остальное - нет файла */
+int64_t kfs_read(const char* path, uint64_t off, void* buf, size_t len) {
+    if (strcmp(path, "/etc/wallpaper.kwp")) return -1;
+    FILE* f = fopen("data/wallpaper.kwp", "rb");
+    if (!f) return -1;
+    fseek(f, (long)off, SEEK_SET);
+    size_t n = fread(buf, 1, len, f);
+    fclose(f);
+    return (int64_t)n;
+}
 #include "display.h"
 #include "fb.h"
 #include "klog.h"
@@ -261,7 +271,7 @@ int main(int argc, char** argv) {
 
     if (display_init(0x10000) != 0) { printf("display_init failed\n"); return 1; }
     run(30);
-    CHECK(presents_rect > 10);
+    CHECK(presents_rect > 2);                       /* с картинкой-обоями фон не анимируется: частичных показов меньше */
     save_shot("terminal.ppm");
 
     /* левая панель: закреплённые по умолчанию (файла /var/dock нет) и «+» */
