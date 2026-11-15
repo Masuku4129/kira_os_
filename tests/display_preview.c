@@ -239,7 +239,7 @@ static void move_to(int x, int y, unsigned b) { int cx, cy; wm_cursor(&cx, &cy);
 static void click(int x, int y) { move_to(x, y, 0); wm_mouse(0, 0, 1); wm_mouse(0, 0, 0); }
 static void click_tab(int i) { int x, y; wm_tab_center(i, &x, &y); click(x, y); }
 static void click_side(int i) { int x, y; wm_side_center(i, &x, &y); click(x, y); }
-static void click_in(int id, int x, int y) { int ox, oy, s; wm_content_origin(id, &ox, &oy, &s); click(ox + x, oy + y); }
+static void click_in(int id, int x, int y) { int ox, oy, s; wm_content_origin(id, &ox, &oy, &s); int z = wm_zoom_percent(id); click(ox + x * z / 100, oy + y * z / 100); }   /* x, y - в содержимом; окно может быть уменьшено под Dock */
 
 static char outdir[64] = "/tmp/kira_gfx";
 static void save_shot(const char* name) { char p[128]; snprintf(p, sizeof p, "%s/%s", outdir, name); save_ppm(p); }
@@ -388,7 +388,7 @@ int main(int argc, char** argv) {
     CHECK(dd > 0);
     {
         int ox, oy, sc; wm_content_origin(w_files, &ox, &oy, &sc);
-        move_to(ox + RX1, oy + RY + 18 * dd, 0); wm_mouse(0, 0, 1); wm_mouse(-120, 4, 1); wm_mouse(-60, 4, 1); save_shot("files-drag.ppm"); wm_mouse(0, 0, 0);
+        int z = wm_zoom_percent(w_files); move_to(ox + RX1 * z / 100, oy + (RY + 18 * dd) * z / 100, 0); wm_mouse(0, 0, 1); wm_mouse(-120, 4, 1); wm_mouse(-60, 4, 1); save_shot("files-drag.ppm"); wm_mouse(0, 0, 0);
     }
     run(1);
     CHECK(mfind("/notes.txt") && mfind("/data/notes.txt"));
@@ -455,12 +455,12 @@ int main(int argc, char** argv) {
     { int x, y; wm_side_center(1, &x, &y); move_to(x, y, 0); }
     run(40);
     save_shot("home.ppm");
-    {   /* чистый рабочий стол: обзор скрыт; клик по системной зоне открывает его, второй - закрывает */
+    {   /* карточка состояния видна по умолчанию; клик по капсуле справа сверху скрывает её, второй - возвращает */
         int sx = W - 60, sy = 16;
         extern int wm_home_open(void);
-        CHECK(!wm_home_open());
-        click(sx, sy); run(3); CHECK(wm_home_open()); save_shot("home_overview.ppm");
-        click(sx, sy); run(3); CHECK(!wm_home_open());
+        CHECK(wm_home_open());
+        click(sx, sy); run(3); CHECK(!wm_home_open()); save_shot("home_hidden.ppm");
+        click(sx, sy); run(3); CHECK(wm_home_open());
         wm_launcher_toggle(); run(2); save_shot("launcher.ppm");                 /* пустой запрос: все программы */
         wm_launcher_key(0, 0x0442); wm_launcher_key(0, 0x0435); run(2);          /* «те»: Терминал, Текстовый редактор... */
         CHECK(wm_launcher_active() && wm_launcher_count() >= 1); save_shot("launcher_query.ppm");
@@ -528,11 +528,11 @@ int main(int argc, char** argv) {
         static uint32_t pq[160 * 100]; int many[40], nm = 0;
         for (int i = 0; i < 40; i++) { char nm_[16]; snprintf(nm_, sizeof nm_, "app%d", i); many[nm++] = wm_create_user(nm_, WM_AUTO, WM_AUTO, 160, 100, pq); }
         run(3);
-        { int x, y; int n2 = 0; while (wm_side_center(n2, &x, &y) == 0) n2++; CHECK(n2 <= WM_SIDE_MAX && n2 > base + 5); CHECK(wm_side_tile() < 44); }
+        { int x, y; int n2 = 0; while (wm_side_center(n2, &x, &y) == 0) n2++; CHECK(n2 <= WM_SIDE_MAX && n2 > base + 5); CHECK(wm_side_tile() < 48 || W > 1400); }
         save_shot("dock_many.ppm");
         for (int i = 0; i < nm; i++) wm_destroy(many[i]);
         run(3);
-        { int x, y; int n2 = 0; while (wm_side_center(n2, &x, &y) == 0) n2++; CHECK(n2 == base); CHECK(wm_side_tile() == 44); }
+        { int x, y; int n2 = 0; while (wm_side_center(n2, &x, &y) == 0) n2++; CHECK(n2 == base); CHECK(wm_side_tile() == 48); }
     }
 
     /* терминал растягивается уголком: больше колонок и строк */

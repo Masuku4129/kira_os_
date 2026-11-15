@@ -42,8 +42,8 @@ static void same_as_full(surface_t* scr, const char* what) {
 
 
 /* Док: состояния значка (нет окна / свёрнуто / открыто / в фокусе), щелчки, несколько окон одной программы,
-   сжатие плиток, когда значков много. Полоса слева от плитки: высокая цветная - открыто, короткая тусклая - свёрнуто. */
-static uint32_t ind(surface_t* sc, int i) { int sx, sy; wm_side_center(i, &sx, &sy); frame(); return px(sc, 11, sy); }
+   сжатие плиток, когда значков много. Полоса под плиткой: длинная цветная - открыто, короткая тусклая точка - свёрнуто. */
+static uint32_t ind(surface_t* sc, int i) { int sx, sy; wm_side_center(i, &sx, &sy); frame(); return px(sc, sx, sy + wm_side_tile() / 2 + 4); }
 static void dock_states(void) {
     static char tags[24][8], labels[24][8];
     surface_t sc = { calloc(1024 * 768, 4), 1024, 768, 1024 };
@@ -87,13 +87,13 @@ static void dock_states(void) {
         all[n - 1] = it[5];
         wm_side_set(all, n);
         int ts = wm_side_tile(), py = -1;
-        CHECK(ts >= 26 && ts <= 44);
-        if (n * 54 - 10 > 670) CHECK(ts < 44);
+        CHECK(ts >= 30 && ts <= 48);
+        if (n * 60 - 12 > 940) CHECK(ts < 48);
         for (int i = 0; i < n; i++) {
             int sx, sy; CHECK(wm_side_center(i, &sx, &sy) == 0);
-            CHECK(sy - ts / 2 >= WM_TOP_H + 10 && sy + ts / 2 <= 768 - 10);
-            if (i && !all[i].bottom) CHECK(sy - py >= ts);
-            if (!all[i].bottom) py = sy;
+            CHECK(sx - ts / 2 >= 0 && sx + ts / 2 <= 1024 && sy - ts / 2 > 768 - WM_DOCK_H && sy + ts / 2 <= 768 - 10);
+            if (i) CHECK(sx - py >= ts);
+            py = sx;
         }
         launches = 0; click_side(n / 2);
         CHECK(launches == 1 && last_launch == n / 2);                /* щелчок попадает в сжатую плитку */
@@ -177,9 +177,9 @@ int main(void) {
     CHECK(lit > 1024 * 590);
     CHECK(px(&scr, 512, 20) != px(&scr, 512, 300));
     int sx0, sy0; wm_side_center(0, &sx0, &sy0);
-    CHECK(sx0 < WM_SIDE_W && sy0 > WM_TOP_H);
+    CHECK(sx0 > 200 && sx0 < 824 && sy0 > 768 - WM_DOCK_H);              /* Dock - снизу по центру */
     int sx2, sy2; wm_side_center(2, &sx2, &sy2);
-    CHECK(sy2 > 600);                                                                 /* «внизу» - прижат к низу панели */
+    CHECK(sx2 > sx0 && sy2 == sy0);                                                    /* значки в одну строку */
 
     /* перемещение курсора даёт маленький damage */
     move_to(600, 600, 0); frame();
@@ -272,14 +272,14 @@ int main(void) {
         wm_set_clock("ПЯТНИЦА, 30 ОКТЯБРЯ 2026", "13:05");
         wm_set_meters(home_busy, 4, 37, 91);
         frame();
-        CHECK(px(&scr, 800, 620) != TH_BAR0);                  /* чистый рабочий стол: обзора нет (инвариант 1) */
         extern int wm_home_open(void);
-        click(1024 - 60, 16);                                  /* клик по системной зоне открывает обзор */
-        frame();
-        CHECK(wm_home_open() && px(&scr, 800, 620) == TH_BAR0);
-        click(1024 - 60, 16);
+        CHECK(wm_home_open() && px(&scr, 800, 620) == TH_BAR0);        /* карточка состояния справа снизу видна по умолчанию */
+        click(1024 - 60, 16);                                  /* клик по капсуле справа сверху скрывает её */
         frame();
         CHECK(!wm_home_open() && px(&scr, 800, 620) != TH_BAR0);
+        click(1024 - 60, 16);
+        frame();
+        CHECK(wm_home_open() && px(&scr, 800, 620) == TH_BAR0);
     }
     wm_set_visible(b, 1); wm_set_visible(a, 1);
     CHECK(wm_top() == a);
