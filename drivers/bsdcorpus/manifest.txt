@@ -5,6 +5,10 @@ set ne2k NE2000 (RTL8029, QEMU ne2k_pci): PCI-обвязка + dp8390 + ne2000; 
 set pcn AMD PCnet (QEMU -device pcnet, 1022:2000): один файл dev/pci/if_pcn.c, DMA через bus_dma, MII
 set fxp Intel EtherExpress PRO/100 (QEMU -device i82559er, 8086:1209): PCI-обвязка + fxp.c; DMA через bus_dma, MII, микрокод rcvbundl.h
 set dc DEC 21143 «Tulip» (QEMU -device tulip, 1011:0019): PCI-обвязка + dc.c; DMA через bus_dma, MII
+set sf Adaptec Starfire AIC-6915 (9004:6915, 10/100): PCI-обвязка + aic6915.c; DMA через bus_dma, MII. Только сборка (kcc, clang), на устройстве не проверялся
+set vte RDC R6040 (17f3:6040, 10/100; Vortex86): один файл dev/pci/if_vte.c; DMA через bus_dma, MII. Только сборка, на устройстве не проверялся
+set lii Atheros L2 Fast Ethernet (1969:2048, 10/100): один файл dev/pci/if_lii.c; DMA через bus_dma, MII, MAC из VPD. Только сборка, на устройстве не проверялся
+set mtd Myson MTD803/MTD891 (1516:0800/0803/0891, 10/100): PCI-обвязка + mtd8xx.c; DMA через bus_dma. Только сборка, на устройстве не проверялся
 file ne2k dev/pci/if_ne_pci.c 0887c9eea78ea896e7811ab2c032a30f3d79d83697498b1a2423c9f4940676c0
 file ne2k dev/ic/ne2000.c 70bfd13ca8e80a96095c490d45cd5db10e8aa8f4501f723416bcc6738ed754fd
 file ne2k dev/ic/ne2000var.h 40009a35ea0c5393597a9d448cd3252bb0aa36ae84086b29f04ca99057fd4a1c
@@ -29,3 +33,14 @@ file fxp dev/microcode/fxp/rcvbundl.h b7b2782bcae2e609aec1983dc154d8af963cb0681f
 file dc dev/pci/if_dc_pci.c b48856aee8a841752b1a560512c4f7bce2c3febe7d4adc905578561488cabb6c
 file dc dev/ic/dc.c a670cccb5fb829c99dd39a00da37e7fb4fa804bcd3b8bd7563bc12a621538532
 file dc dev/ic/dcreg.h dbbbb01849b14910a0fad713273a7e8f14260432dbcf4f4826e7e1bcb8b103db
+file sf dev/pci/if_sf_pci.c e97de1a34721b18deb07bb61103401880130ffd6c9f6007e8437f5d5f0711121
+file sf dev/ic/aic6915.c 6ce3a0b57dd54c73b5c5c2bdf9e9779fc05f3674f733359bd2d7fa22ababcfe8
+file sf dev/ic/aic6915.h 7a13dcd9853dae76df63be3f6ace0d6a4aa918a2bc171823128d70e3ca069a2a
+file vte dev/pci/if_vte.c 7c95d6558a93221ef2bf9fd1d9681c1f037be66d27f33724a11ec3d1c63dab02
+file vte dev/pci/if_vtereg.h 1e100981a9c6fdbd73cb20fb3b517f8dcc14aee117f3f734a96da85554148fda
+file lii dev/pci/if_lii.c d6552a13229db3c6779fa46ef1a864d68927e187b50458e71715ffa4f3005337
+file lii dev/pci/if_liireg.h a5bd4039c3ed15206734244f770784a2837cd804d83cdb526b1ba34adf01b9b3
+file mtd dev/pci/if_mtd_pci.c 2767982e7b31af40611f8ca3d619441d2ace1c5c7c6c929b11540b7839db4b4e
+file mtd dev/ic/mtd8xx.c 23358ede4e93d9f5cfd44b0ba73c25a15abc7830dba93f2a357e56b36f4dfac4
+file mtd dev/ic/mtd8xxreg.h 7076361d75b86a19ffa255e84330a69afd2ff54c1333074a1ee3dd00419e3bbc
+file mtd dev/ic/mtd8xxvar.h 1c17672df61df3f71e742543340db4561aafb9dcc11b702d71e0f73d177abadc
