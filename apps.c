@@ -105,7 +105,6 @@ static uint32_t kind_color(int k) {
     case MJ_ANOMALY: case MJ_LIMIT: case MJ_MEMORY: case MJ_STARVE: return TH_AMBER;
     case MJ_RESTORE: return TH_GREEN;
     case MJ_TUNE_TRY: case MJ_TUNE_KEEP: case MJ_TUNE_BACK: return TH_PURPLE;
-    case MJ_FX: return TH_BLUE;
     case MJ_KILL: case MJ_BEHAVIOR: return TH_RED;
     default: return TH_TEXT_DIM;
     }
@@ -364,10 +363,7 @@ static void mind_draw_hardware(surface_t* s, const mind_view_t* v) {
     card(s, 10, 320, 580, 205, "ПОЛИТИКИ РЕСУРСОВ", TH_BLUE);
     p = cat(t, 0, "кадры фоновых окон/с: "); p = cat_u(t, p, v->bg_fps); gfx_text(s, 26, 360, t, TH_TEXT_DIM, -1);
     p = cat(t, 0, "лимит фона при нехватке ЦП: "); p = cat_u(t, p, v->core_cap); cat(t, p, "%"); gfx_text(s, 26, 386, t, TH_TEXT_DIM, -1);
-    if (v->core_res >= 0) {
-        p = cat(t, 0, "зарезервировано ядро "); p = cat_u(t, p, (uint64_t)v->core_res);
-        p = cat(t, p, " для PID "); p = cat_u(t, p, v->core_res_pid); gfx_text(s, 26, 412, t, TH_CYAN, -1);
-    } else gfx_text(s, 26, 412, "резервирование ядра: выключено", TH_TEXT_FAINT, -1);
+    gfx_text(s, 26, 412, "темп кадров и анимацию решает компоновщик", TH_TEXT_FAINT, -1);
     p = cat(t, 0, "композитор, нс/1000 точек: "); p = cat_u(t, p, v->comp_ns_kpx_par);
     p = cat(t, p, " / "); cat_u(t, p, v->comp_ns_kpx_ser); gfx_text(s, 26, 438, t, TH_TEXT_FAINT, -1);
     p = cat(t, 0, "ошибки устройств: "); p = cat_u(t, p, v->dev_errors);

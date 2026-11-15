@@ -1,4 +1,4 @@
-// Хост-тест рычагов 13-30 Разума: проба и оставление по замеру, откат при ухудшении, срочный откат, «не помогает»
+// Хост-тест рычагов 13-23 Разума: проба и оставление по замеру, откат при ухудшении, срочный откат, «не помогает»
 // и возврат после смены нагрузки, бюджет смен, общий откат, режим наблюдения, подсказки из сохранённого опыта и семя.
 // Мир задан функциями: замеры секунды зависят от значений рычагов, как они зависели бы в системе.
 #include <stdio.h>
@@ -16,7 +16,7 @@ static void a_lv(int L, int32_t v) { hook[L] = v; hook_calls[L]++; }
 static uint32_t weight[100], limit[100];
 static void a_w(uint32_t pid, uint32_t w) { weight[pid] = w; }
 static void a_l(uint32_t pid, uint32_t p) { limit[pid] = p; }
-static const mind_act_t act = { 0, a_w, a_l, 0, 0, 0, 0, 0, 0, 0, 0, 0, a_lv };
+static const mind_act_t act = { 0, a_w, a_l, 0, 0, 0, 0, 0, 0, 0, a_lv };
 
 static mind_t M;
 static mind_sample_t S;
@@ -84,7 +84,7 @@ static void w_disk(void) {
 int main(void) {
     /* ---- 18 рычагов: таблица ---- */
     mind_init(&M, 0, 4);
-    CHECK(ML_N == 18);
+    CHECK(ML_N == 11);
     for (int L = 0; L < ML_N; L++) {
         CHECK(mind_lever_name(L)[0] && mind_lever_unit(L) && mind_lever_val(&M, L) == mind_lever_default(L));
         CHECK(mind_lever_state(&M, L) == 0);
@@ -242,6 +242,6 @@ int main(void) {
         CHECK(b.max_same < a.max_same && b.rate_same == a.rate_same);
     }
 
-    printf("%s\n", fails ? "mind levers: FAILED" : "mind levers: 18 levers - win kept after confirmation, worse -> emergency rollback, flat -> marked useless and retried after load change, audio lead and disk run found by measurement, change budget, observe mode, general rollback, hints from saved experience, seed (weights only, trust capped), v2 upgrade passed");
+    printf("%s\n", fails ? "mind levers: FAILED" : "mind levers: 11 levers - win kept after confirmation, worse -> emergency rollback, flat -> marked useless and retried after load change, audio lead and disk run found by measurement, change budget, observe mode, general rollback, hints from saved experience, seed (weights only, trust capped), v2 upgrade passed");
     return fails != 0;
 }

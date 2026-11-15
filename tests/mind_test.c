@@ -24,11 +24,7 @@ static void a_pput(const char* n, const mind_profile_t* p) {
 }
 static int hid_v = -1;
 static void a_hid(int b) { hid_v = b; }
-static int bgfps = -1;
-static void a_bgfps(uint32_t f) { bgfps = (int)f; }
-static int core_on = -1; static uint32_t core_pid; static unsigned core_calls;
-static void a_core(int on, uint32_t pid) { core_on = on; core_pid = pid; core_calls++; }
-static const mind_act_t act = { a_q, a_w, a_l, a_fx, a_trim, a_r, a_kill, a_pget, a_pput, a_hid, a_bgfps, a_core };
+static const mind_act_t act = { a_q, a_w, a_l, a_fx, a_trim, a_r, a_kill, a_pget, a_pput, a_hid };
 static const mind_act_t none = { 0 };
 
 static mind_t M;
@@ -53,7 +49,7 @@ int main(void) {
     CHECK(M.m.mode == MIND_ACT && M.m.fx_user == MIND_FX_AUTO && journal_has("первая жизнь"));
     uint32_t t = 1;
     for (; t <= 200; t++) { base(t); S.load = 10 + t % 5; mind_step(&M, &S, &act); }
-    CHECK(q_now == 4 && fx_now == 3);                            /* при старте применены квант и анимация */
+    CHECK(q_now == 4 && fx_now == MIND_FX_AUTO);                 /* при старте применены квант и настройка анимации (авто - решает компоновщик) */
     CHECK(M.m.norm[MS_LOAD].n == 200 && M.m.norm[MS_LOAD].mean_x100 > 900 && M.m.norm[MS_LOAD].mean_x100 < 1500);
     CHECK(M.m.anomalies == 0 && M.health >= 90 && !strcmp(M.mood, "спокойна"));
     uint32_t a0 = M.m.anomalies;
@@ -100,13 +96,12 @@ int main(void) {
         add_proc(11, "burn", cyc1, 0, 0, 0); add_proc(12, "cube3d", cyc2, 0, 0, 1);
         mind_step(&M, &S, &act);
     }
-    CHECK(limit[11] == 50 && limit[12] == 0 && journal_has("ограничиваю фоновую burn"));
+    CHECK(limit[11] == 0 && limit[12] == 0 && !journal_has("ограничиваю фоновую"));   /* опоздания экрана сами по себе фон не ограничивают */
     for (int k = 0; k < 11; k++, t++) {
         base(t); cyc1 += 450000000ULL; cyc2 += 300000000ULL;
         add_proc(11, "burn", cyc1, 0, 0, 0); add_proc(12, "cube3d", cyc2, 0, 0, 1);
         mind_step(&M, &S, &act);
     }
-    CHECK(limit[11] == 100 && journal_has("burn снова без ограничения"));
     base(t++); mind_step(&M, &S, &act);                           /* обе программы завершились: профили записаны */
     mind_profile_t pb; CHECK(a_pget("burn", &pb) == 0 && pb.runs == 1 && pb.cpu_x10 >= 500 && pb.cpu_x10 <= 900);
 
@@ -114,7 +109,7 @@ int main(void) {
     strcpy(prof_names[nprof], "chat"); profs[nprof++] = (mind_profile_t){ .runs = 5, .sysc = 300, .heap_kb = 1024 };
     uint64_t sc = 0;
     for (int k = 0; k < 7; k++, t++) { base(t); sc += 50000; add_proc(20, "chat", 0, sc, 1024, 0); mind_step(&M, &S, &act); }
-    CHECK(limit[20] == 50 && journal_has("chat ведёт себя необычно: 50000 вызовов/с при обычных 300"));
+    CHECK(limit[20] == (uint32_t)mind_lever_val(&M, ML_ODD_LIMIT) && journal_has("chat ведёт себя необычно: 50000 вызовов/с при обычных 300"));
     for (int k = 0; k < 11; k++, t++) { base(t); sc += 200; add_proc(20, "chat", 0, sc, 1024, 0); mind_step(&M, &S, &act); }
     CHECK(limit[20] == 100 && journal_has("chat снова ведёт себя как обычно"));
     base(t++); add_proc(20, "chat", 0, sc, 64 * 1024, 0); mind_step(&M, &S, &act);
@@ -169,12 +164,12 @@ int main(void) {
     CHECK(q_sets == 0 && killed == 0 && trims == 0 && weight[41] == 0 && limit[40] == 0);
     CHECK(journal_has("(наблюдение) фокус: front") && journal_has("(наблюдение) память занята"));
 
-    /* ---- анимация по запасу времени кадра ---- */
+    /* ---- анимация: Разум только передаёт настройку пользователя; при авто уровень решает компоновщик ---- */
     mind_init(m, 0, 4); fx_now = 99;
     for (t = 1; t <= 4; t++) { base(t); S.late = 12; mind_step(m, &S, &act); }
-    CHECK(fx_now == 2 && journal_has("анимация фона - уровень 2"));
+    CHECK(fx_now == MIND_FX_AUTO && !journal_has("анимация фона"));
     for (t = 5; t <= 40; t++) { base(t); mind_step(m, &S, &act); }
-    CHECK(fx_now == 3);
+    CHECK(fx_now == MIND_FX_AUTO);
     mind_set_fx_user(m, MIND_FX_LOW, &act);
     for (t = 41; t <= 50; t++) { base(t); S.late = 30; mind_step(m, &S, &act); }
     CHECK(fx_now == 1);                                           /* ручной уровень разум не меняет */
@@ -227,7 +222,7 @@ int main(void) {
         CHECK(journal_has("не допущено запусков: 7 (последний: plasma)"));
     }
 
-    /* тактика: экран опаздывает - фон ужимается до предела ядер за доли секунды; спокойно - пределы отпускаются */
+    /* тактика: система ждёт процессор - фон ужимается до предела ядер за доли секунды; спокойно - пределы отпускаются */
     {
         mind_t* d = &M; mind_init(d, 0, 4);
         for (uint32_t t = 1; t <= 3; t++) {
@@ -239,19 +234,19 @@ int main(void) {
         }
         limit[10] = limit[20] = limit[30] = 100;
         static mind_tact_in_t ti; memset(&ti, 0, sizeof ti);
-        ti.cores = 4; ti.window_ms = 25; ti.busy_x10 = 2300; ti.loops = 2; ti.late = 1; ti.nproc = 3;
+        ti.cores = 4; ti.window_ms = 25; ti.busy_x10 = 2300; ti.loops = 2; ti.fg_wait_ms = 30; ti.nproc = 3;
         ti.p[0].pid = 10; ti.p[0].threads = 1; ti.p[0].cpu_x10 = 300;
         ti.p[1].pid = 20; ti.p[1].threads = 2; ti.p[1].cpu_x10 = 1000;
         ti.p[2].pid = 30; ti.p[2].threads = 2; ti.p[2].cpu_x10 = 1000;
         ti.t_ms = 4000; mind_tact_step(d, &ti, &act);
-        /* экран опаздывает, но почти два ядра свободны: дело не в процессоре - фон не трогается */
+        /* система ждёт процессор, но почти два ядра свободны: дело не в нём - фон не трогается */
         CHECK(limit[20] == 100 && limit[30] == 100 && !d->tact_on);
         /* ядра заняты: фон 360% (по 180%), на переднем плане 30%; запас 40%, предел 50% от 4 ядер = 200% -> фону 200%,
            по 100% каждому, по 50% на каждый из двух потоков */
         ti.p[1].cpu_x10 = ti.p[2].cpu_x10 = 1800; ti.busy_x10 = 3900;
         ti.t_ms += 25; mind_tact_step(d, &ti, &act);
-        CHECK(limit[20] == 50 && limit[30] == 50 && limit[10] == 100 && journal_has("тактика: экран опаздывает"));
-        ti.late = 0; ti.fg_wait_ms = 0;
+        CHECK(limit[20] == 50 && limit[30] == 50 && limit[10] == 100 && journal_has("тактика: система ждёт процессор"));
+        ti.fg_wait_ms = 0;
         ti.p[1].cpu_x10 = ti.p[2].cpu_x10 = 1000; ti.busy_x10 = 2300;
         for (int k = 0; k < 15; k++) { ti.t_ms += 25; mind_tact_step(d, &ti, &act); }
         CHECK(limit[20] == 50);                                  /* 0,4 с спокойствия ещё не прошли */
@@ -263,61 +258,21 @@ int main(void) {
         ti.t_ms += 25; mind_tact_step(d, &ti, &act);
         CHECK(limit[20] == 100 && !d->tact_on);
         /* наблюдение: записывает, но не применяет */
-        mind_set_mode(d, MIND_OBSERVE, &act); ti.late = 2; ti.t_ms += 25; mind_tact_step(d, &ti, &act);
+        mind_set_mode(d, MIND_OBSERVE, &act); ti.fg_wait_ms = 30; ti.t_ms += 25; mind_tact_step(d, &ti, &act);
         CHECK(limit[20] == 100 && journal_has("(наблюдение) тактика"));
         mind_tact_step(d, &ti, &none);
     }
 
-    /* темп фоновых окон: экран опаздывает - ступени 30, 15, 8, 4 кадров/с через 200 мс; спокойно - обратно */
-    {
-        mind_t* d = &M; mind_init(d, 0, 4); bgfps = -1;
-        static mind_tact_in_t ti; memset(&ti, 0, sizeof ti);
-        ti.cores = 4; ti.window_ms = 25; ti.loops = 2; ti.late = 1; ti.busy_x10 = 1000;
-        for (ti.t_ms = 1000; ti.t_ms <= 1000 + 25 * 40; ti.t_ms += 25) mind_tact_step(d, &ti, &act);
-        CHECK(bgfps == 4 && mind_bg_fps(d) == 4 && journal_has("фоновые окна не чаще 4 кадров/с"));
-        ti.late = 0;
-        uint32_t t0 = ti.t_ms;
-        for (; ti.t_ms <= t0 + 900; ti.t_ms += 25) mind_tact_step(d, &ti, &act);
-        CHECK(bgfps == 4);                                     /* спокойно меньше секунды - не отпускает */
-        for (; ti.t_ms <= t0 + 4000; ti.t_ms += 25) mind_tact_step(d, &ti, &act);
-        CHECK(bgfps == 0 && journal_has("фоновые окна снова без предела"));
-        ti.late = 1; ti.t_ms += 25; mind_tact_step(d, &ti, &act);   /* снова опоздание - сразу первая ступень */
-        CHECK(bgfps == 30);
-        mind_set_mode(d, MIND_OBSERVE, &act);
-        CHECK(bgfps == 0);                                     /* наблюдение: всё возвращается */
-    }
-
-    /* ядро фокуса: экран опаздывает на 4 ядрах при фоне - ядро отдаётся окну в фокусе, повторяется каждый такт
-       (новые потоки фона), после 3 с спокойствия возвращается; на двух ядрах и в наблюдении - не отдаётся */
+    /* кадрами экрана Разум не управляет: опоздания экрана при простаивающих ядрах и без ожидания процессора
+       не рождают ни пределов фона, ни смены анимации (темп фоновых окон и анимацию решает компоновщик) */
     {
         mind_t* d = &M; mind_init(d, 0, 4);
-        for (uint32_t t = 1; t <= 3; t++) {
-            base(t);
-            add_proc(10, "editor", (uint64_t)t * 300000000ull, t * 50, 100, 1);
-            add_proc(20, "render", (uint64_t)t * 1000000000ull, t * 50, 100, 0);
-            mind_step(d, &S, &act);
-        }
         static mind_tact_in_t ti; memset(&ti, 0, sizeof ti);
-        ti.cores = 4; ti.window_ms = 25; ti.busy_x10 = 1500; ti.loops = 2; ti.late = 1; ti.nproc = 2;
-        ti.p[0].pid = 10; ti.p[0].threads = 1; ti.p[0].cpu_x10 = 300;
-        ti.p[1].pid = 20; ti.p[1].threads = 1; ti.p[1].cpu_x10 = 1000;
-        core_on = -1; ti.t_ms = 4000; mind_tact_step(d, &ti, &act);
-        CHECK(core_on == 1 && core_pid == 10 && mind_core_reserved_pid(d) == 10 && journal_has("ядро отдано окну в фокусе"));
-        unsigned calls = core_calls; ti.t_ms += 25; mind_tact_step(d, &ti, &act);
-        CHECK(core_calls == calls + 1 && core_on == 1);           /* повтор каждый такт */
-        ti.late = 0;
-        for (int k = 0; k < 100; k++) { ti.t_ms += 25; mind_tact_step(d, &ti, &act); }
-        CHECK(core_on == 1);                                      /* 2,5 с спокойствия - ещё держит */
-        for (int k = 0; k < 30; k++) { ti.t_ms += 25; mind_tact_step(d, &ti, &act); }
-        CHECK(core_on == 0 && mind_core_reserved_pid(d) == 0 && journal_has("ядро фокуса снова общее"));
-        ti.cores = 2; ti.late = 1; core_on = -1; ti.t_ms += 25; mind_tact_step(d, &ti, &act);
-        CHECK(core_on == -1 && mind_core_reserved_pid(d) == 0);   /* двух ядер мало */
-        ti.cores = 4; ti.t_ms += 25; mind_tact_step(d, &ti, &act);
-        CHECK(core_on == 1);
-        mind_set_mode(d, MIND_OBSERVE, &act);
-        CHECK(core_on == 0 && mind_core_reserved_pid(d) == 0);
-        ti.t_ms += 25; mind_tact_step(d, &ti, &act);
-        CHECK(mind_core_reserved_pid(d) == 0);                    /* наблюдение: не отдаёт */
+        ti.cores = 4; ti.window_ms = 25; ti.loops = 2; ti.late = 1; ti.busy_x10 = 3900; ti.nproc = 1;
+        ti.p[0].pid = 20; ti.p[0].threads = 8; ti.p[0].cpu_x10 = 3000;
+        limit[20] = 100;
+        for (ti.t_ms = 1000; ti.t_ms <= 1000 + 25 * 80; ti.t_ms += 25) mind_tact_step(d, &ti, &act);
+        CHECK(limit[20] == 100 && !d->tact_on && !journal_has("опаздывает"));
     }
 
     /* предвидение: в этом мире тяжёлый фон в эту секунду означает опоздания экрана в следующую. Модель учится,
@@ -342,21 +297,21 @@ int main(void) {
                d->m.net.n, d->m.net.pos, mnet_precision(&d->m.net), mnet_recall(&d->m.net), mnet_trusted(&d->m.net),
                d->m.net.w[3] / 655, d->m.net.w[9] / 655, d->m.forecasts);
         CHECK(mnet_trusted(&d->m.net) && d->m.net.w[3] > 0);
-        CHECK(d->m.forecasts > 0 && journal_has("предвижу опоздание экрана"));
-        /* опасная секунда: без единого опоздавшего кадра тактика ужимает фон заранее */
+        CHECK(journal_has("предвижу опоздание экрана") && journal_has("только наблюдение"));
+        /* опасная секунда: предвидение только наблюдает - фон не ужимается, кадрами занимается компоновщик */
         d->pre_skip = 0;
         cyc += 3000000000ull; base(t); S.load = 85;
         add_proc(10, "editor", (uint64_t)t * 100000000ull, t * 50, 100, 1);
         add_proc(20, "render", cyc, t * 50, 100, 0);
         mind_step(d, &S, &act);
-        CHECK(d->risk_q16 > MNET_ONE / 2 && d->pre_until_ms > t * 1000);
+        CHECK(d->risk_q16 > MNET_ONE / 2);
         limit[20] = 100;
         static mind_tact_in_t ti; memset(&ti, 0, sizeof ti);
         ti.cores = 4; ti.window_ms = 25; ti.busy_x10 = 3100; ti.loops = 2; ti.late = 0; ti.nproc = 2;
         ti.p[0].pid = 10; ti.p[0].threads = 1; ti.p[0].cpu_x10 = 100;
         ti.p[1].pid = 20; ti.p[1].threads = 8; ti.p[1].cpu_x10 = 3000;     /* 8 потоков: предел на поток ниже прежних 50% */
         ti.t_ms = t * 1000 + 100; mind_tact_step(d, &ti, &act);
-        CHECK(limit[20] < 100 && journal_has("упреждение"));
+        CHECK(limit[20] == 100 && !d->tact_on);
         /* модель переживает перезагрузку; опыт прежнего формата (без модели) читается и дополняется */
         mind_model_t sv = d->m; mind_model_seal(&sv);
         mind_model_t back;
@@ -404,11 +359,10 @@ int main(void) {
         static mind_t Q; mind_init(&Q, 0, 4);
         for (uint32_t u = 1; u <= 240; u++) {
             base(u); S.audio_mixed = 4800; for (int c = 0; c < 4; c++) S.busy[c] = 40; S.runnable = 4;
-            Q.bg_fps_level = 1;                                   /* фон всё время ужат: рычагам темпа фона (22, 23) всегда есть что пробовать */
             mind_step(&Q, &S, &act);
         }
         unsigned tr = 0, wn = 0, bk = 0; mind_lever_stats(&Q, ML_AUDIO_LEAD, &tr, &wn, &bk);
-        CHECK(tr >= 1);                                           /* опережение звука (нужда 40) получило пробу, хотя рычаги темпа фона (нужда 50) нужнее */
+        CHECK(tr >= 1);                                           /* опережение звука (нужда 40) получило пробу, при любых других нуждах */
     }
 
     printf("%s\n", fails ? "mind: FAILED" : "mind: norms and anomalies, health, quantum self-tuning (both directions, no contention), focus and background limit, behaviour vs profile, memory pressure, starvation, observe mode, animation, model persistence, device errors, input immunity, launch admission, fast tactics (core cap, background frame rate), foresight model (learns, earns trust, acts ahead, persists, upgrades v1) passed");

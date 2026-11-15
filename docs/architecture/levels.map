@@ -144,6 +144,7 @@ kapi kstack.h
 6 userlog.*
 6 gfxsrv.*
 6 display.*
+6 framegov.*
 6 fbcon.*
 6 console.*
 6 services/*
