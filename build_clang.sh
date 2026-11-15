@@ -105,9 +105,16 @@ for app in demo atk-mem atk-priv atk-sys atk-gs; do
     ld.lld $ULINK -o userland/$app.elf userland/$app.o
     UELF="$UELF userland/$app.elf"
 done
+# Rust (no_std): userland/rust/*.rs -> ELF для Ring 3 (docs/architecture/FORMATS_AND_LANGUAGES.md). Нет rustc - сборка идёт без Rust-программ.
+if command -v rustc >/dev/null 2>&1; then
+    userland/rust/build.sh
+    for src in userland/rust/*.rs; do UELF="$UELF userland/$(basename $src .rs).elf"; done
+else
+    echo "[!] rustc не найден: Rust-программы (userland/rust) не собраны"
+fi
 
 # Пользовательская сборка (--android или KIRA_RELEASE=1): тестовые и учебные программы на диск не кладутся (CI собирает полный набор).
-TESTPROGS="burn mt ipc udpecho melody demo fpu atk-cap atk-mem atk-priv atk-sys atk-gs atk-jmp"
+TESTPROGS="burn mt ipc udpecho melody demo rsdemo fpu atk-cap atk-mem atk-priv atk-sys atk-gs atk-jmp"
 RELEASE=0; case " $* " in *" --android "*) RELEASE=1 ;; esac; [ -n "$KIRA_RELEASE" ] && RELEASE=1
 if [ "$RELEASE" = 1 ]; then
     KEEP=""; for e in $UELF; do n=$(basename $e .elf); case " $TESTPROGS " in *" $n "*) ;; *) KEEP="$KEEP $e" ;; esac; done

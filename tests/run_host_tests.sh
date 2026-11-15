@@ -255,6 +255,17 @@ else
     echo "UI primitives: covered by gui-regression job"
 fi
 
+echo "== cbor (RFC 8949: векторы, детерминированность, строгий режим, фаззинг) =="
+$CC $FLAGS -Werror -Wextra -fsanitize=address,undefined -o $T/cbor tests/cbor_test.c cbor.c
+$T/cbor
+
+echo "== cas (RFC 6962 дерево Меркла, пути включения, CAS, файлы кусками) =="
+$CC $FLAGS -Werror -Wextra -fsanitize=address,undefined -o $T/cas tests/cas_test.c cas.c sha256.c
+$T/cas
+echo "== zstd (RFC 8878: эталонные кадры уровней 1-19, контрольные суммы, порча, усечение) =="
+$CC $FLAGS -Werror -Wextra -fsanitize=address,undefined -o $T/zstdt tests/zstd_test.c zstd.c sha256.c
+$T/zstdt
+
 echo "== wallpaper (picture wallpaper: KWP1 parse, fill-crop scaling) =="
 $CC $FLAGS -Werror -fsanitize=address,undefined -o $T/wallpaper tests/wallpaper_test.c wallpaper.c
 $T/wallpaper

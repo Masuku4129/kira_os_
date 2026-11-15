@@ -20,6 +20,10 @@
 | FDT (devicetree) | описание платформы ARM64 | 1 | `fdt.c`, `bootinfo_fdt.c` | РАБОТАЕТ | host-тесты, ARM64 VM |
 | ACPI (RSDP/XSDT/MADT/MCFG/DMAR) | платформа x86-64 | 1 | `acpi.c`, `iommu_vtd.c` | ЧАСТИЧНО: AML `_PRT` не разбирается | host-тесты |
 | ISO9660 + El Torito (BIOS/UEFI) | установочный образ | 0 | `tools/mkiso_own.sh` | РАБОТАЕТ | `boot-bios` |
+| CBOR (RFC 8949) | сообщения и манифесты | 3 | `cbor.c` | РАБОТАЕТ | `tests/cbor_test.c` |
+| Дерево Меркла + хранилище по содержимому | целостность, дедупликация | 3 | `cas.c` | РАБОТАЕТ (библиотека, к KiraFS не подключена) | `tests/cas_test.c` |
+| Zstandard (RFC 8878), декодер | сжатые образы и блоки | 3 | `zstd.c` | РАБОТАЕТ (только распаковка, без словарей) | `tests/zstd_test.c`, 37 эталонных кадров |
+| Обои KWP1 | фон рабочего стола | 8 | `wallpaper.c` | РАБОТАЕТ | `tests/wallpaper_test.c` |
 | Рецепт драйвера BSD (`drvget.rec`) | сборка драйверов на устройстве | 6 | `userland/drvget*.c`, `tools/bsd_recipe.py` | РАБОТАЕТ | `drvget-bsd-*` |
 | PE/COFF (Windows) | совместимость | 7 | — | СПЕЦИФИКАЦИЯ (`docs/architecture`, ветка architecture) | — |
 | Linux ELF (динамический, glibc ABI) | совместимость | 7 | — | СПЕЦИФИКАЦИЯ | — |
@@ -34,7 +38,9 @@
 | WebAssembly (из C через wasm-ld) | `userland/wasm/build.sh` | wasm32 | РАБОТАЕТ | `tests/wasm_*` |
 | KAS (собственный ассемблер), KLink (компоновщик) | в `kas/`, `klink/` | x86-64 | ЧАСТИЧНО: есть код и тесты, в сборку ОС не входят | `tests/kas_*`, `tests/klink/*` |
 | KIL (язык инструкций для человека и ИИ) | — | — | СПЕЦИФИКАЦИЯ | — |
-| Rust, Zig, C (wasm32-wasi) | clang/rustc на хосте → `.wasm` | wasm32 | РАБОТАЕТ для консольных программ через WASI-подмножество; Rust не проверялся | `wasitest` (C) |
+| Rust, Zig, C (wasm32-wasi) | clang/rustc на хосте → `.wasm` | wasm32 | РАБОТАЕТ для консольных программ через WASI-подмножество; Rust no_std для Ring 3 — `userland/rust/rsdemo.rs` (хост-цель, сценарий «isolation»); wasm32-цель Rust не проверялась | `wasitest` (C) |
 | Python, JS на устройстве | — | — | НЕ НАЧАТО: нужен рантайм (интерпретатор) в виде WASM-модуля или нативно | — |
 
 Правило: поддержка нового формата или языка считается добавленной, когда есть (1) загрузчик/компилятор в сборке, (2) тест с отрицательными случаями (битый вход), (3) строка в этой таблице с реальным именем теста.
+
+План по остальным обязательным технологиям — `REQUIRED_TECH_PLAN.md`.

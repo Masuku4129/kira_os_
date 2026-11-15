@@ -46,7 +46,9 @@ void wire_init(void) {
     gfx_set_wm_ops(&wm_ops);
     static const mind_sys_env_t mind_env = { display_get_fx, display_set_fx, display_get_stats, display_compositor_stats, gfx_focus_pid, build_mind_tick };
     mind_sys_set_env(&mind_env);
+#if defined(__x86_64__)   /* профиль железа (CPUID) есть только на x86-64; на ARM64 ядро его не строит */
     hw_set_describe_extra(uheap_describe_limits);
+#endif
     static const syscall_services_t services = {
         gfx_sys_create, gfx_sys_present, gfx_sys_event, fsrv_syscall, net_sys, net_udp_sys, kdrv_sys };
     syscall_set_services(&services);
