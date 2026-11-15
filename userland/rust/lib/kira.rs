@@ -29,9 +29,10 @@ pub const K_FOREVER: u64 = 0xFFFF_FFFF;
 #[inline(always)]
 pub fn syscall(n: u64, a: u64, b: u64, c: u64) -> i64 {
     let r: i64;
-    // Договор x86-64: номер в rax, аргументы rdi/rsi/rdx; ядро портит rcx, r11 и r8-r10.
+    // Договор Киры (как ksys в userland/kira.h): номер в rax, аргументы rdi/rsi/rdx; ядро портит rdi, rsi, rdx, rcx, r11 и r8-r10.
+    // Входные регистры обязаны быть объявлены изменяемыми: иначе компилятор считает их сохранёнными и (зависит от версии rustc) портит код.
     unsafe {
-        asm!("syscall", inlateout("rax") n as i64 => r, in("rdi") a, in("rsi") b, in("rdx") c,
+        asm!("syscall", inlateout("rax") n as i64 => r, inlateout("rdi") a => _, inlateout("rsi") b => _, inlateout("rdx") c => _,
              lateout("rcx") _, lateout("r11") _, lateout("r8") _, lateout("r9") _, lateout("r10") _,
              options(nostack));
     }

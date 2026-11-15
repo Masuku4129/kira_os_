@@ -236,6 +236,8 @@ jobs:
           key: kira-apt-v1-${{ github.job }}-${{ runner.arch }}
       - name: tools (clang, lld, nasm for reference output; QEMU to boot the kernels)
         run: sudo apt-get update -q && sudo apt-get install -y -q clang lld nasm qemu-system-x86
+      - name: manifest.h for progs.c (same step as the image build; git ignores the generated file)
+        run: ./build_clang.sh --no-run 2>&1 | tail -3
       - name: KAS assembler against nasm, KLink linker against ld.lld, kernel built only by KCC+KAS+KLink boots
         run: |
           mkdir -p ci-out

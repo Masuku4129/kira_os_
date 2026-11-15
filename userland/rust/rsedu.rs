@@ -25,7 +25,7 @@ fn check(name: &str, ok: bool, failed: &mut u32) { say(name); write(if ok { " ok
 fn run() -> u32 {
     let mut failed = 0;
     let Some(info) = drv_info() else { say("info refused (FAIL)\n"); return 1; };
-    write("rsedu: device "); put_hex(info.vendor as u64); write(":"); put_hex(info.device as u64);
+    say("device "); put_hex(info.vendor as u64); write(":"); put_hex(info.device as u64);
     write(", rights "); put_hex(info.granted as u64); write(if info.flags & KDRV_INFO_MSI != 0 { ", MSI\n" } else { ", no MSI\n" });
     let m = match Mmio::map(0, 0, BAR_LEN) { Ok(m) => m, Err(e) => { say("mmio rc="); put_i64(e); write("\n"); return 1; } };
     let id = m.read32(ID);
