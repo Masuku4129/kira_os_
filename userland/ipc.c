@@ -78,7 +78,7 @@ static int server(i64 port) {
             u32 wfrom = 0;
             i64 wr = k_port_recv(w2, m, sizeof m, 0);
             (void)wfrom;
-            if (wr != 4 || m[0] != 'w' || m[1] != '2') { say("ipc server: FAIL w2 message\n"); return 1; }
+            if ((u32)wr != 4 || m[0] != 'w' || m[1] != '2') { say("ipc server: FAIL w2 message\n"); return 1; }
             waited2++;
             continue;
         }
@@ -94,7 +94,7 @@ static int server(i64 port) {
         else { rejected++; ol = msg_make(o, sizeof o, "err", E_NOOP, 1); }
         if (reply < 0 || !ol || k_port_send(reply, o, ol) != 0) { say("ipc server: FAIL reply\n"); return 1; }
     }
-    while (k_port_recv(w2, m, sizeof m, 0) == 4) waited2++;     /* ушедшие вслед за «done» (порт 0 в наборе имеет приоритет) */
+    while ((u32)k_port_recv(w2, m, sizeof m, 0) == 4) waited2++;     /* ушедшие вслед за «done» (порт 0 в наборе имеет приоритет) */
     int ok = got == N && rejected == 3 && waited2 == 2 && page[2] == 0x434C4945;   /* три испорченных сообщения клиента отвергнуты */                  /* клиент записал свою метку */
     say("ipc server: "); say_u(got); say(" requests answered, "); say_u(rejected); say(" malformed rejected, client mark in shared memory ");
     say(page[2] == 0x434C4945 ? "seen" : "MISSING"); say(ok ? " - PASS\n" : " - FAIL\n");
