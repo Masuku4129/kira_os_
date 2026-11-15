@@ -60,6 +60,7 @@ static struct {
     uint64_t start_ns;
     uint64_t mouse_events;
     uint64_t composed;        // кадры, в которых что-то перерисовывалось
+    uint64_t max_gap_period;  // худший промежуток за период замера (не сбрасывается Разумом)
     uint64_t late;            // циклы, начавшиеся позже чем через 1,5 бюджета кадра
     uint64_t worst_gap_ns;    // самый большой промежуток между началами циклов
     uint64_t worst_busy_ns;   // самый тяжёлый цикл
@@ -595,6 +596,7 @@ static void display_main(void* arg) {
         if (st.last_t0 && t0) {
             uint64_t gap = t0 - st.last_t0;
             if (gap > st.worst_gap_ns) st.worst_gap_ns = gap;
+            if (gap > st.max_gap_period) st.max_gap_period = gap;
             if (gap > FRAME_NS + FRAME_NS / 2) st.late++;
         }
         st.last_t0 = t0;
@@ -824,10 +826,11 @@ void display_print_info(void) {
     uart_print(" frames "); uart_print_dec(df);
     uart_print(" drawn "); uart_print_dec(st.composed - p_comp);
     uart_print(" late "); uart_print_dec(st.late - p_late);
+    { static uint64_t p_px; uart_print(" px_per_drawn "); uart_print_dec((st.composed - p_comp) ? (st.pixels - p_px) / (st.composed - p_comp) : 0); p_px = st.pixels; }
     uart_print(" mouse_in "); uart_print_dec(in_n - p_in);
     uart_print(" mouse_used "); uart_print_dec(st.mouse_events - p_mouse);
     uart_print(" mouse_lost "); uart_print_dec(drop_n - p_drop);
-    uart_print(" worst_gap_us "); uart_print_dec(st.worst_gap_ns / 1000);
+    uart_print(" worst_gap_us "); uart_print_dec(st.max_gap_period / 1000);
     uart_print(" worst_cycle_us "); uart_print_dec(st.worst_busy_ns / 1000);
     uart_print(" busy_avg_us "); uart_print_dec(df ? (st.busy_ns - p_busy) / df / 1000 : 0);
     uart_print(" gfx_avg_us "); uart_print_dec(df ? (st.ns_gfx - p_gfx) / df / 1000 : 0);
@@ -837,7 +840,7 @@ void display_print_info(void) {
     uart_print("\n\n");
     p_frames = st.frames; p_comp = st.composed; p_late = st.late; p_mouse = st.mouse_events; p_t = nowp; p_busy = st.busy_ns;
     p_gfx = st.ns_gfx; p_mm = st.ns_mouse; p_mid = st.ns_mid; p_cmp = st.ns_comp; p_in = in_n; p_drop = drop_n;
-    st.worst_gap_ns = 0; st.worst_busy_ns = 0;
+    st.max_gap_period = 0; st.worst_busy_ns = 0;
 }
 
 void display_panic_flush(void) {

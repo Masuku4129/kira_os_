@@ -295,6 +295,14 @@ ALL = [
         {"sleep": 5}, {"cmd": "fb", "must": [r"\[PERIOD\] ms \d+ frames \d+"]},
         {"cmd": "status", "must": [r"."]},
     ], smp=2, mem="512M"),
+    sc("stall-load", "замер: 4 ядра на 2 реальных, нагрузка burn и мышь; худшие паузы цикла дисплея, ожидание замка планировщика, Разум", [
+        {"log": BOOT_LOG},
+        {"sleep": 6}, {"cmd": "fb"},
+        {"cmd": "test burn"}, {"sleep": 2},
+        {"mouse": {"seconds": 15, "hz": 250, "step": 10}}, {"cmd": "fb", "must": [r"\[PERIOD\] ms \d+ frames \d+"]},
+        {"sleep": 10}, {"cmd": "fb", "must": [r"\[PERIOD\] ms \d+ frames \d+"]},
+        {"cmd": "ai", "must": [r"."]},
+    ], smp=4, mem="512M"),
     sc("wasm-speed", "WebAssembly: JIT x86-64 - плазма wgfx на стенде укладывается в порог по времени (до JIT на этом стенде было 1257 мс)", [
         {"log": BOOT_LOG},
         {"cmd": "wasm /wasm/wgfx.wasm"}, {"sleep": 6},

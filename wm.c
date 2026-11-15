@@ -81,7 +81,9 @@ static const char* const cursor_art[CUR_H] = {
 #define DTILE 64
 #define TMAX_X 160                       /* экран до 10240 точек в ширину */
 #define TMAX_Y 160
-static uint8_t tdirty[TMAX_Y][TMAX_X];
+/* В плитке помнится не флаг, а рамка изменённого внутри неё: курсор (12x19 точек) перерисовывает свои точки, а не плитку 64x64. */
+typedef struct { int16_t x0, y0, x1, y1; } tbox_t;       /* x1 <= x0 - плитка чистая */
+static tbox_t tdirty[TMAX_Y][TMAX_X];
 
 static void damage(int x0, int y0, int x1, int y1) {
     if (x0 < 0) x0 = 0;
@@ -94,7 +96,20 @@ static void damage(int x0, int y0, int x1, int y1) {
         if (ty1 >= TMAX_Y) ty1 = TMAX_Y - 1;
         if (tx1 >= TMAX_X) tx1 = TMAX_X - 1;
         for (int ty = y0 / DTILE; ty <= ty1; ty++)
-            for (int tx = x0 / DTILE; tx <= tx1; tx++) tdirty[ty][tx] = 1;
+            for (int tx = x0 / DTILE; tx <= tx1; tx++) {
+                tbox_t* b = &tdirty[ty][tx];
+                int ax = tx * DTILE > x0 ? tx * DTILE : x0, ay = ty * DTILE > y0 ? ty * DTILE : y0;
+                int bx = (tx + 1) * DTILE < x1 ? (tx + 1) * DTILE : x1, by = (ty + 1) * DTILE < y1 ? (ty + 1) * DTILE : y1;
+                if (tx == TMAX_X - 1 && x1 > bx) bx = x1;               /* край экрана шире карты: последняя плитка берёт остаток */
+                if (ty == TMAX_Y - 1 && y1 > by) by = y1;
+                if (b->x1 <= b->x0) { b->x0 = (int16_t)ax; b->y0 = (int16_t)ay; b->x1 = (int16_t)bx; b->y1 = (int16_t)by; }
+                else {
+                    if (ax < b->x0) b->x0 = (int16_t)ax;
+                    if (ay < b->y0) b->y0 = (int16_t)ay;
+                    if (bx > b->x1) b->x1 = (int16_t)bx;
+                    if (by > b->y1) b->y1 = (int16_t)by;
+                }
+            }
     }
     if (!dmg_valid) { dx0 = x0; dy0 = y0; dx1 = x1; dy1 = y1; dmg_valid = 1; return; }
     if (x0 < dx0) dx0 = x0;
@@ -1581,7 +1596,7 @@ static void tiles_clear(void) {
     int tw = (scr->w + DTILE - 1) / DTILE, th = (scr->h + DTILE - 1) / DTILE;
     if (tw > TMAX_X) tw = TMAX_X;
     if (th > TMAX_Y) th = TMAX_Y;
-    for (int y = 0; y < th; y++) for (int x = 0; x < tw; x++) tdirty[y][x] = 0;
+    for (int y = 0; y < th; y++) for (int x = 0; x < tw; x++) tdirty[y][x] = (tbox_t){ 0, 0, 0, 0 };
 }
 
 /* Одна охватывающая область (проверки и простые случаи). */
@@ -1624,11 +1639,18 @@ uint32_t wm_compose_par(void (*present)(int x, int y, int w, int h), uint64_t* p
     uint64_t px = 0;
     for (int ty = 0; ty < th; ty++) {
         for (int tx = 0; tx < tw; ) {
-            if (!tdirty[ty][tx]) { tx++; continue; }
-            int a = tx;
-            while (tx < tw && tdirty[ty][tx]) tdirty[ty][tx++] = 0;
-            job_t j = { (int16_t)(a * DTILE), (int16_t)(ty * DTILE), (int16_t)(tx * DTILE > scr->w ? scr->w : tx * DTILE),
-                        (int16_t)((ty + 1) * DTILE > scr->h ? scr->h : (ty + 1) * DTILE) };
+            if (tdirty[ty][tx].x1 <= tdirty[ty][tx].x0) { tx++; continue; }
+            job_t j = { tdirty[ty][tx].x0, tdirty[ty][tx].y0, tdirty[ty][tx].x1, tdirty[ty][tx].y1 };
+            while (tx < tw && tdirty[ty][tx].x1 > tdirty[ty][tx].x0) {            /* полоса подряд идущих грязных плиток: рамка - объединение их рамок */
+                const tbox_t* b = &tdirty[ty][tx];
+                if (b->x0 < j.x0) j.x0 = b->x0;
+                if (b->y0 < j.y0) j.y0 = b->y0;
+                if (b->x1 > j.x1) j.x1 = b->x1;
+                if (b->y1 > j.y1) j.y1 = b->y1;
+                tdirty[ty][tx++] = (tbox_t){ 0, 0, 0, 0 };
+            }
+            if (j.x1 > scr->w) j.x1 = (int16_t)scr->w;
+            if (j.y1 > scr->h) j.y1 = (int16_t)scr->h;
             /* та же полоса столбцов, что у строки выше, - одно задание выше ростом (меньше заданий, меньше накладных) */
             if (njobs && jobs[njobs - 1].x0 == j.x0 && jobs[njobs - 1].x1 == j.x1 && jobs[njobs - 1].y1 == j.y0 &&
                 jobs[njobs - 1].y1 - jobs[njobs - 1].y0 < 4 * DTILE) jobs[njobs - 1].y1 = j.y1;
