@@ -5,6 +5,8 @@
 #include "kdrv.h"
 #include "life.h"
 #include "klog.h"
+#include "hwprofile.h"
+#include "uheap.h"
 #include "blk.h"
 #include "kfs.h"
 #include "store.h"
@@ -31,6 +33,7 @@ _Static_assert(SVC_UDP_SENDTO == NET_UDP_SENDTO && SVC_UDP_RECVFROM == NET_UDP_R
 static int wire_own_disk(blk_dev_t* d) { return store_detect(d) || kfs_detect(d, KFS_BASE_LBA) == 0; }
 
 void wire_init(void) {
+    hw_set_describe_extra(uheap_describe_limits);
     static const syscall_services_t services = {
         gfx_sys_create, gfx_sys_present, gfx_sys_event, fsrv_syscall, net_sys, net_udp_sys, kdrv_sys };
     syscall_set_services(&services);

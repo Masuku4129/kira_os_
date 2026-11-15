@@ -204,6 +204,7 @@ void kernel_main(unsigned long magic, unsigned long addr) {
     }
     ramext_init();
     bootmap_harden();               /* окно раннего отображения строилось до NXE: без NX */
+    wire_init();                 // проводка между уровнями: раньше описания железа, дисков и USB
     if (vmm_enforce_wx() != 0)      kernel_panic("W^X for kernel memory could not be enforced");
     acpi_set_map_hook(acpi_map);
     if (uefi_rsdp_override) acpi_init_rsdp(uefi_rsdp_override);
@@ -220,7 +221,6 @@ void kernel_main(unsigned long magic, unsigned long addr) {
     watchdog_init();
     console_init();
     proc_init(hw_get()->cpus, hw_get()->ram_kb);
-    wire_init();
     syscall_init();
     experience_init();   // опыт прошлых жизней: если есть диск, организм вспоминает
     fs_init();           // файловая система на том же диске (после хранилища опыта)

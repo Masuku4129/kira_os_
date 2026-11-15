@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include "console.h"
 #include "hwprofile.h"
+#include "uheap.h"
 #include "input.h"
 #include "proc.h"
 #include "progs.h"
@@ -129,6 +130,7 @@ static int has(const char* s) { return strstr(out, s) != 0; }
 static void reset(void) { outn = 0; out[0] = 0; sern = 0; serial[0] = 0; }
 
 int main(void) {
+    hw_set_describe_extra(uheap_describe_limits);   /* как wire_init в ядре */
     feed("");                                           /* первый вызов показывает приглашение */
     CHECK(has("кира> "));
     /* hw: профиль железа печатается командой, без запуска программ */
