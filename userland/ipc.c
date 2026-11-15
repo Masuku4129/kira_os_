@@ -59,12 +59,29 @@ static int server(i64 port) {
     page[0] = 0x4B495241;                                       /* метка для клиента */
     __atomic_store_n(&page[1], 1, __ATOMIC_RELEASE);
     k_futex_wake(&page[1], 1);
+    i64 w2 = k_port_open("kira.test.w2", KOPEN_CREATE | KOPEN_PUBLIC);           /* второй порт для ожидания сразу двух */
+    i64 w3 = k_port_open("kira.test.w3", KOPEN_CREATE);
+    if (w2 < 0 || w3 < 0) { say("ipc server: FAIL wait ports\n"); return 1; }
+    { int ht[1] = { (int)w3 }; i64 tr = k_port_wait(ht, 1, 3); int bad[2] = { (int)w3, (int)w3 }; i64 dup = k_port_wait(bad, 2, 0);
+      if (tr != KE_TIMEOUT || dup != KE_ARG) { say("ipc server: FAIL wait timeout/args\n"); return 1; } }
     if (server_att(0)) return 1;
     say("ipc server: waiting on port kira.test\n");
+    u32 waited2 = 0;
     i64 reply = -1;
     u32 got = 0, rejected = 0;
     u8 m[64], o[32];
     for (;;) {
+        int hs[2] = { (int)port, (int)w2 };
+        i64 ready = k_port_wait(hs, 2, 1000);                      /* ждём оба порта сразу */
+        if (ready < 0) { say("ipc server: FAIL wait "); say_u((u64)-ready); say("\n"); return 1; }
+        if (ready == 1) {                                          /* сообщение во втором порту: забираем и считаем */
+            u32 wfrom = 0;
+            i64 wr = k_port_recv(w2, m, sizeof m, 0);
+            (void)wfrom;
+            if (wr != 4 || m[0] != 'w' || m[1] != '2') { say("ipc server: FAIL w2 message\n"); return 1; }
+            waited2++;
+            continue;
+        }
         i64 r = k_port_recv(port, m, sizeof m, 1000);            /* 10 с */
         if (r < 0) { say("ipc server: FAIL receive "); say_u((u64)-r); say("\n"); return 1; }
         char op[8]; uint64_t n = 0;
@@ -77,9 +94,12 @@ static int server(i64 port) {
         else { rejected++; ol = msg_make(o, sizeof o, "err", E_NOOP, 1); }
         if (reply < 0 || !ol || k_port_send(reply, o, ol) != 0) { say("ipc server: FAIL reply\n"); return 1; }
     }
-    int ok = got == N && rejected == 3 && page[2] == 0x434C4945;   /* три испорченных сообщения клиента отвергнуты */                  /* клиент записал свою метку */
+    while (k_port_recv(w2, m, sizeof m, 0) == 4) waited2++;     /* ушедшие вслед за «done» (порт 0 в наборе имеет приоритет) */
+    int ok = got == N && rejected == 3 && waited2 == 2 && page[2] == 0x434C4945;   /* три испорченных сообщения клиента отвергнуты */                  /* клиент записал свою метку */
     say("ipc server: "); say_u(got); say(" requests answered, "); say_u(rejected); say(" malformed rejected, client mark in shared memory ");
     say(page[2] == 0x434C4945 ? "seen" : "MISSING"); say(ok ? " - PASS\n" : " - FAIL\n");
+    say("ipc server: wait on two ports: messages from both seen, timeout and duplicate refused ");
+    say(waited2 == 2 ? "(PASS)\n" : "(FAIL)\n");
     k_shm_unmap((void*)page);
     return ok ? 0 : 1;
 }
@@ -143,8 +163,11 @@ static int client(void) {
     if (client_att(reply)) return 1;
     while (!__atomic_load_n(&page[1], __ATOMIC_ACQUIRE)) k_futex_wait(&page[1], 0, 100);   /* futex через общую память */
     if (page[0] != 0x4B495241) { say("ipc client: FAIL shared memory content\n"); return 1; }
+    i64 w2 = -1;
+    for (int i = 0; i < 100 && w2 < 0; i++) { w2 = k_port_open("kira.test.w2", 0); if (w2 < 0) k_sleep(1); }
     u64 t0 = k_clock_ns();
-    int bad = 0;
+    int bad = w2 < 0;
+    if (!bad && k_port_send(w2, "w2!!", 4) != 0) bad = 1;                              /* до запросов: сервер ждёт оба порта */
     for (u32 i = 0; i < N && !bad; i++) {
         u8 m[32], r[32]; u32 p = msg_make(m, sizeof m, "ping", i, 1);
         if (!p || k_port_send(port, m, p) != 0) { bad = 1; break; }
@@ -165,6 +188,8 @@ static int client(void) {
         if (rr < 0 || cbor_check(r, (u32)rr, 1) != CBOR_OK || cbor_map_find(r, (u32)rr, "code", &it, 0) != CBOR_OK ||
             it.type != CBOR_UINT || it.val != junk_code[j]) bad = 1;
     }
+    if (!bad && k_port_send(w2, "w2??", 4) != 0) bad = 1;                              /* и после: тот же ожидающий */
+    k_sleep(2);
     u64 us = (k_clock_ns() - t0) / 1000;
     page[2] = 0x434C4945;
     { u8 d[16]; u32 dl = msg_make(d, sizeof d, "done", 0, 0); k_port_send(port, d, dl); }

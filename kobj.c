@@ -6,7 +6,9 @@
 #include "spinlock.h"
 #include "timer.h"
 
-typedef struct waiter { thread_t* t; struct waiter* next; int queued; } waiter_t;
+/* Набор ожидания (port_wait): один поток ждёт сразу несколько портов. Порядок замков: замок порта -> замок набора. */
+typedef struct wset { spinlock_t lk; thread_t* t; int fired; } wset_t;
+typedef struct waiter { thread_t* t; struct waiter* next; int queued; wset_t* set; } waiter_t;
 typedef struct { uint32_t pid, len; uint8_t* data; kobj_t* att; } msg_t;   /* att - вложенный объект (ссылка принадлежит очереди) */
 
 typedef struct {
@@ -334,11 +336,20 @@ int port_send_att(kobj_t* o, uint32_t from_pid, const void* data, uint32_t len, 
     if (att) p->att_count++;
     p->qh++;
     __atomic_add_fetch(&msgs_total, 1, __ATOMIC_RELAXED);
-    waiter_t* w = p->waiters;                     // будим одного ждущего: сообщение одно
-    if (w) {
-        p->waiters = w->next;
+    // Будим всех, кто лишь смотрит на порт (набор ожидания), и одного, кто заберёт сообщение: сообщение одно.
+    for (waiter_t** pp = &p->waiters; *pp; ) {
+        waiter_t* w = *pp;
+        *pp = w->next;
         w->queued = 0;
+        if (w->set) {
+            uint64_t sf = spin_lock_irqsave(&w->set->lk);
+            w->set->fired = 1;
+            sched_wake_waiter(w->set->t);
+            spin_unlock_irqrestore(&w->set->lk, sf);
+            continue;
+        }
         sched_wake_waiter(w->t);
+        break;
     }
     spin_unlock_irqrestore(&p->lk, f);
     return 0;
@@ -351,6 +362,16 @@ unsigned port_queued(kobj_t* o) {
     port_t* p = (port_t*)o;
     uint64_t f = spin_lock_irqsave(&p->lk);
     unsigned n = p->qh - p->qt;
+    spin_unlock_irqrestore(&p->lk, f);
+    return n;
+}
+
+unsigned port_waiters(kobj_t* o) {
+    if (!o || o->type != KOBJ_PORT) return 0;
+    port_t* p = (port_t*)o;
+    unsigned n = 0;
+    uint64_t f = spin_lock_irqsave(&p->lk);
+    for (waiter_t* w = p->waiters; w; w = w->next) n++;
     spin_unlock_irqrestore(&p->lk, f);
     return n;
 }
@@ -385,7 +406,7 @@ int64_t port_recv_att(kobj_t* o, void* kbuf, uint32_t cap, uint64_t timeout, uin
         else if (timeout != ~0ULL && waited >= timeout) rc = KE_TIMEOUT;
         if (rc) { spin_unlock_irqrestore(&p->lk, f); return rc; }
 
-        waiter_t w = { (thread_t*)sched_current(), 0, 1 };
+        waiter_t w = { (thread_t*)sched_current(), 0, 1, 0 };
         waiter_t** pp = &p->waiters;
         while (*pp) pp = &(*pp)->next;
         *pp = &w;
@@ -396,6 +417,57 @@ int64_t port_recv_att(kobj_t* o, void* kbuf, uint32_t cap, uint64_t timeout, uin
             for (pp = &p->waiters; *pp; pp = &(*pp)->next) if (*pp == &w) { *pp = w.next; break; }
         }
         spin_unlock_irqrestore(&p->lk, f);
+    }
+}
+
+// Ждать, пока в одном из портов появится сообщение (не забирая его): индекс первого готового порта, KE_TIMEOUT, KE_AGAIN (срок 0, ничего нет), KE_INTR.
+int64_t port_wait(kobj_t** ports, unsigned n, uint64_t timeout, int (*stop)(void)) {
+    if (!ports || n == 0 || n > PORT_WAIT_MAX) return KE_ARG;
+    for (unsigned i = 0; i < n; i++) if (!ports[i] || ports[i]->type != KOBJ_PORT) return KE_ARG;
+    for (unsigned i = 0; i < n; i++) for (unsigned j = i + 1; j < n; j++) if (ports[i] == ports[j]) return KE_ARG;
+    uint64_t start = timer_get_ticks();
+    for (;;) {
+        wset_t set = { SPINLOCK_INIT, (thread_t*)sched_current(), 0 };
+        waiter_t w[PORT_WAIT_MAX];
+        unsigned reg_n2 = 0;
+        int64_t ready = -1;
+        for (unsigned i = 0; i < n && ready < 0; i++) {
+            port_t* p = (port_t*)ports[i];
+            uint64_t f = spin_lock_irqsave(&p->lk);
+            if (p->qh != p->qt) ready = i;
+            else if (timeout != 0) {
+                w[i] = (waiter_t){ set.t, 0, 1, &set };
+                waiter_t** pp = &p->waiters;
+                while (*pp) pp = &(*pp)->next;
+                *pp = &w[i];
+                reg_n2 = i + 1;
+            }
+            spin_unlock_irqrestore(&p->lk, f);
+        }
+        int64_t rc = ready;
+        int slept_once = 0;
+        if (rc < 0) {
+            uint64_t waited = timer_get_ticks() - start;
+            if (timeout == 0) rc = KE_AGAIN;
+            else if (stop && stop()) rc = KE_INTR;
+            else if (timeout != ~0ULL && waited >= timeout) rc = KE_TIMEOUT;
+            else {
+                uint64_t f = spin_lock_irqsave(&set.lk);
+                if (set.fired) spin_unlock_irqrestore(&set.lk, f);           // сообщение пришло, пока мы вставали в очереди: не спим
+                else {
+                    sched_wait_and_unlock(&set.lk, timeout == ~0ULL ? ~0ULL : timeout - waited);
+                    irq_restore(f);
+                }
+                slept_once = 1;
+            }
+        }
+        for (unsigned i = 0; i < reg_n2; i++) {          // уходим из очередей, где остались (замок порта синхронизирует с отправителем, который нас уже снял)
+            port_t* p = (port_t*)ports[i];
+            uint64_t f = spin_lock_irqsave(&p->lk);
+            if (w[i].queued) for (waiter_t** pp = &p->waiters; *pp; pp = &(*pp)->next) if (*pp == &w[i]) { *pp = w[i].next; break; }
+            spin_unlock_irqrestore(&p->lk, f);
+        }
+        if (!slept_once) return rc;                      // готов порт или ошибка; после сна проверяем всё заново
     }
 }
 

@@ -47,6 +47,7 @@ static userlog_t ulog;
 #define SYS_PORT_OPEN     17 // (имя, длина, флаги KOPEN_*) -> дескриптор
 #define SYS_PORT_SEND     18 // (дескриптор | вложение << 32, данные, длина до PORT_MSG_MAX) -> 0 / KE_FULL; вложение - дескриптор порта или памяти (0 - нет)
 #define SYS_PORT_RECVA    59 // (дескриптор, указатель на kport_recv_t) -> длина сообщения; у получателя появляется дескриптор вложения (att, 0 - нет)
+#define SYS_PORT_WAIT     60 // (указатель на массив int32 дескрипторов портов, число 1..8, срок_10мс) -> индекс первого порта с сообщением (сообщение остаётся в очереди)
 #define SYS_PORT_RECV     19 // (дескриптор, буфер, ёмкость | срок_10мс << 32; срок 0xFFFFFFFF - без срока) -> длина | pid отправителя << 32
 #define SYS_SHM_OPEN      20 // (имя, длина, страниц | флаги << 32) -> дескриптор
 #define SYS_SHM_MAP       21 // (дескриптор) -> адрес
@@ -133,7 +134,7 @@ static uint32_t cap_needed(uint64_t nr) {
     case SYS_UDP_OPEN: case SYS_UDP_SEND: case SYS_UDP_RECV: case SYS_UDP_CLOSE: case SYS_UDP_SENDTO: case SYS_UDP_RECVFROM: return CAP_UDP;
     case SYS_SND_OPEN: case SYS_SND_WRITE: case SYS_SND_CLOSE: case SYS_SND_VOLUME: return CAP_SND;
     case SYS_SND_RECORD: return CAP_REC;
-    case SYS_PORT_OPEN: case SYS_PORT_SEND: case SYS_PORT_RECV: case SYS_PORT_RECVA: case SYS_SHM_OPEN: case SYS_SHM_MAP: return CAP_IPC;
+    case SYS_PORT_OPEN: case SYS_PORT_SEND: case SYS_PORT_RECV: case SYS_PORT_RECVA: case SYS_PORT_WAIT: case SYS_SHM_OPEN: case SYS_SHM_MAP: return CAP_IPC;
     case SYS_THREAD_CREATE: return CAP_THREAD;
     case SYS_JIT: return CAP_JIT;
     case SYS_STDIN: return CAP_STDIN;
@@ -280,6 +281,23 @@ static uint64_t dispatch(uint64_t nr, uint64_t a1, uint64_t a2, uint64_t a3) {
         if (n >= 0 && copy_to_user(a2, &rq, sizeof rq) != 0) n = KE_ARG;   /* и здесь вложение уже у получателя: закроет при выходе процесса */
         kfree(kb);
         return (uint64_t)n;
+    }
+    case SYS_PORT_WAIT: {
+        int32_t hs[PORT_WAIT_MAX];
+        kobj_t* os[PORT_WAIT_MAX];
+        if (a2 == 0 || a2 > PORT_WAIT_MAX) return (uint64_t)(int64_t)KE_ARG;
+        if (copy_from_user(hs, a1, a2 * sizeof hs[0]) != 0) return (uint64_t)(int64_t)KE_ARG;
+        unsigned n = 0;
+        int64_t rc = 0;
+        for (; n < a2; n++) {
+            int handle;
+            if (!syscall_handle((uint64_t)(int64_t)hs[n], &handle)) { rc = KE_BADH; break; }
+            os[n] = proc_handle_get(handle, KOBJ_PORT);
+            if (!os[n]) { rc = KE_BADH; break; }
+        }
+        if (!rc) rc = port_wait(os, n, ticks_from_10ms(a3), proc_dying);
+        for (unsigned i = 0; i < n; i++) kobj_release(os[i]);
+        return (uint64_t)rc;
     }
     case SYS_PORT_RECV: {
         int handle;

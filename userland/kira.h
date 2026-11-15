@@ -135,7 +135,9 @@ static inline i64 k_port_recv(i64 h, void* buf, u32 cap, u32 timeout) { return k
 /* Разделяемая память: страницы обнулены при создании; отображение - адрес в программе. */
 /* Вложение: дескриптор порта или памяти едет с сообщением (att, 0 - нет); получатель принимает его новым дескриптором. */
 typedef struct { u64 buf; u32 cap, timeout; u32 from; int att; } kport_recv_t;
-enum { K_PORT_RECVA = 59 };
+enum { K_PORT_RECVA = 59, K_PORT_WAIT = 60 };
+/* Ждать сразу несколько портов (до 8, срок в 10 мс, 0xFFFFFFFF - без срока): индекс первого порта с сообщением (оно остаётся в очереди - забрать k_port_recv) или ошибка */
+static inline i64 k_port_wait(const int* hs, u32 n, u32 timeout) { return ksys(K_PORT_WAIT, (u64)hs, (u64)n, (u64)timeout); }
 static inline i64 k_port_send_att(i64 h, i64 att, const void* data, u64 len) { return ksys(K_PORT_SEND, (u64)h | ((u64)att << 32), (u64)data, len); }
 /* -> длина сообщения или ошибка; *from - pid отправителя, *att - дескриптор вложения (0 - нет) */
 static inline i64 k_port_recv_att(i64 h, void* buf, u32 cap, u32 timeout, u32* from, int* att) {

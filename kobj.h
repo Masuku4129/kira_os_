@@ -74,6 +74,11 @@ int     port_send_att(kobj_t* port, uint32_t from_pid, const void* data, uint32_
 // att_out получает вложение (ссылка у вызывающего) или 0; с att_out == 0 вложение отбрасывается.
 int64_t port_recv_att(kobj_t* port, void* kbuf, uint32_t cap, uint64_t timeout_ticks, uint32_t* from_pid, int (*stop)(void), kobj_t** att_out);
 unsigned port_queued(kobj_t* port);
+// Ждать сразу несколько портов (ввод-вывод без опроса): индекс первого порта с сообщением (сообщение остаётся в очереди - забирать port_recv),
+// KE_AGAIN (срок 0, пусто), KE_TIMEOUT, KE_INTR, KE_ARG (нет портов, больше PORT_WAIT_MAX, не порт, повтор).
+#define PORT_WAIT_MAX 8
+unsigned port_waiters(kobj_t* port);     // число ждущих на порту (проверки и диагностика)
+int64_t port_wait(kobj_t** ports, unsigned n, uint64_t timeout_ticks, int (*stop)(void));
 
 // Разделяемая память (страницы обнулены при создании)
 int      shm_open_in(const char* name, uint32_t pages, int flags, uint32_t owner_pid, uint32_t dom, kobj_t** out);

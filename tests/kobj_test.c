@@ -281,6 +281,28 @@ int main(void) {
     kobj_release(srv);
     CHECK(pages_live == live0 && kobj_count() == objs0);
     }
-    printf("%s\n", fails ? "FAILED" : "kobj: names, handles, ports (order, overflow, wait/timeout/wake, kill), shared memory, futex, domains, attachments passed");
+    /* ожидание нескольких портов сразу */
+    {
+    kobj_t *a, *b, *c, *ws[3];
+    char wb[8]; uint32_t wf;
+    CHECK(port_open_in("wt.a", KOPEN_CREATE, 60, DOM_SYSTEM, &a) == 0 && port_open_in("wt.b", KOPEN_CREATE, 60, DOM_SYSTEM, &b) == 0 && port_open_in("wt.c", KOPEN_CREATE, 60, DOM_SYSTEM, &c) == 0);
+    ws[0] = a; ws[1] = b; ws[2] = c;
+    CHECK(port_wait(ws, 3, 0, 0) == KE_AGAIN);                                          /* пусто, срок 0 */
+    CHECK(port_wait(ws, 0, 0, 0) == KE_ARG && port_wait(0, 1, 0, 0) == KE_ARG && port_wait(ws, 9, 0, 0) == KE_ARG);
+    { kobj_t* d[2] = { a, a }; CHECK(port_wait(d, 2, 0, 0) == KE_ARG); }                   /* повтор порта */
+    CHECK(port_send(b, 7, "x", 1) == 0);
+    CHECK(port_wait(ws, 3, 0, 0) == 1);                                                  /* готов второй */
+    CHECK(port_wait(ws, 3, 0, 0) == 1 && port_queued(b) == 1);                           /* сообщение осталось в очереди */
+    CHECK(port_recv(b, wb, sizeof wb, 0, &wf, 0) == 1 && wf == 7);
+    uint64_t t0 = fake_ticks;
+    CHECK(port_wait(ws, 3, 50, 0) == KE_TIMEOUT && fake_ticks >= t0 + 50);               /* никто не разбудил */
+    for (int i = 0; i < 3; i++) CHECK(port_waiters(ws[i]) == 0);                 /* из очередей ушли */
+    g_port = c; woken = 0; while_asleep = send_hello;                                     /* пока спим, другой поток шлёт в третий порт */
+    CHECK(port_wait(ws, 3, ~0ULL, 0) == 2 && woken >= 1);
+    CHECK(port_recv(c, wb, sizeof wb, 0, &wf, 0) >= 0);
+    for (int i = 0; i < 3; i++) CHECK(port_waiters(ws[i]) == 0);
+    kobj_release(a); kobj_release(b); kobj_release(c);
+    }
+    printf("%s\n", fails ? "FAILED" : "kobj: names, handles, ports (order, overflow, wait/timeout/wake, kill), wait on several ports, shared memory, futex, domains, attachments passed");
     return fails != 0;
 }
