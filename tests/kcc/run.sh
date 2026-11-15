@@ -27,6 +27,11 @@ $T/context_test || note "KCC per-compilation context isolation failed"
 kc() { $T/kcc -I $INC -I kcc/include -S-ir -o $T/out.ir "$1" 2>$T/err; rc=$?; }
 lineinfo() { grep -Eq '^[^:]+:[0-9]+: error: .+' $T/err; }
 
+# Формат KIRA IR зафиксирован: вывод kcc -S-ir для образца совпадает с эталоном (docs/architecture/KIRA_IR.md). Правка формата - осознанная: меняется и sample.ir.
+total=$((total+1))
+$T/kcc -I $INC -I kcc/include -S-ir -o $T/golden.ir tests/kcc/ir_golden/sample.c 2>$T/err || note "ir_golden: kcc не собрал образец: $(head -c 200 $T/err)"
+diff -u tests/kcc/ir_golden/sample.ir $T/golden.ir >$T/gdiff || note "формат KIRA IR изменился против tests/kcc/ir_golden/sample.ir: $(head -c 400 $T/gdiff)"
+
 for f in tests/kcc/ok/*.c tests/kcc/gnu/*.c; do
     total=$((total+1)); std=c99; case $f in */gnu/*) std=gnu99;; esac
     kc $f
