@@ -25,6 +25,7 @@ int      vfs_stat(const char* path, kfs_stat_t* st);
 int      vfs_list(const char* path, kfs_list_cb cb, void* ctx);   /* в корне - ещё и каталоги томов */
 int64_t  vfs_read(const char* path, uint64_t off, void* buf, size_t len);
 int      vfs_write(const char* path, const void* data, size_t len);
+int      vfs_clone(const char* src, const char* dst);        /* COW-копия файла на системном томе (данные не копируются); на съёмных - KFS_ERR_INVAL */
 int      vfs_mkdir(const char* path);
 int      vfs_unlink(const char* path);
 int      vfs_any(void);                                      /* есть хоть одна файловая система */

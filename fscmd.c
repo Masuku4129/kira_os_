@@ -264,6 +264,10 @@ void fscmd_cp(const char* arg) {
     if (r) { fail(src, r); return; }
     if (st.type != KFS_FILE) { fail(src, KFS_ERR_ISDIR); return; }
     if (st.size != (size_t)st.size) { fail(src, KFS_ERR_FBIG); return; }
+    if (vfs_clone(src, dp) == 0) {                                          /* оба пути на системном диске: данные не копируются */
+        uart_print(src); uart_print(" -> "); uart_print(dp); uart_print(": "); uart_print_dec(st.size); uart_print(" байт (общие блоки, место не занято)\n");
+        return;
+    }
     uint8_t* buf = (uint8_t*)kmalloc(st.size ? (size_t)st.size : 1);
     if (!buf) { uart_print("cp: не хватает памяти\n"); return; }
     int64_t got = vfs_read(src, 0, buf, (size_t)st.size);

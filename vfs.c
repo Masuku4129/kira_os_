@@ -132,6 +132,11 @@ int vfs_write(const char* path, const void* data, size_t len) {
     vl_unlock(&lk[n]);
     return r;
 }
+int vfs_clone(const char* src, const char* dst) {              /* COW-копия внутри системного тома KiraFS */
+    const char* r1; const char* r2;
+    if (route(src, &r1) >= 0 || route(dst, &r2) >= 0) return KFS_ERR_INVAL;
+    return kfs_clone(src, dst);
+}
 int vfs_mkdir(const char* path) {
     const char* rest; int n = route(path, &rest);
     if (n < 0) return kfs_mkdir(path);

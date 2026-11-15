@@ -85,6 +85,9 @@ static struct {
     uint32_t pc_no; uint32_t pc[PTRS];   /* кэш одного блока указателей */
     uint8_t blk[KFS_BLOCK];              /* рабочий блок */
     uint32_t lvl[4][PTRS];               /* блоки указателей при обходе и построении дерева */
+    /* Общее содержимое (COW-копии): файл, чьё дерево блоков делят несколько инодов. Ключ - первый блок данных (он принадлежит
+       только этому содержимому), refs - сколько инодов его держат (>= 2). Строится при монтировании, на диске не хранится. */
+    struct { uint32_t first, refs; } *sh; uint32_t sh_n, sh_cap;
 } fs;
 
 /* --- сектора --- */
@@ -258,7 +261,38 @@ static int walk_blocks(const inode_t* in, blk_cb cb, void* ctx) {
 }
 
 static int free_cb(void* c, uint32_t b, int meta) { (void)c; (void)meta; set_free(b); return 0; }
-static void free_inode_blocks(const inode_t* in) { walk_blocks(in, free_cb, 0); }   /* повреждённое дерево - вернёт fsck */
+
+/* --- общее содержимое файлов --- */
+static int first_data_block(const inode_t* in, uint32_t* out) {
+    if (in->type != KFS_FILE || !in->size) return -1;
+    return bmap(in, 0, out) ? -1 : 0;
+}
+static int sh_find(uint32_t first) { for (uint32_t i = 0; i < fs.sh_n; i++) if (fs.sh[i].first == first) return (int)i; return -1; }
+static int sh_add(uint32_t first) {                              /* ещё одна ссылка на содержимое */
+    int k = sh_find(first);
+    if (k >= 0) { fs.sh[k].refs++; return 0; }
+    if (fs.sh_n == fs.sh_cap) {
+        uint32_t nc = fs.sh_cap ? fs.sh_cap * 2 : 64;
+        void* p = kalloc((size_t)nc * 8);
+        if (!p) return KFS_ERR_NOSPC;
+        if (fs.sh_n) copy(p, fs.sh, (size_t)fs.sh_n * 8);
+        kfree_(fs.sh); fs.sh = p; fs.sh_cap = nc;
+    }
+    fs.sh[fs.sh_n].first = first; fs.sh[fs.sh_n].refs = 2; fs.sh_n++;
+    return 0;
+}
+/* Снять одну ссылку. 1 - содержимое всё ещё нужно другим инодам (блоки освобождать нельзя). */
+static int sh_release(uint32_t first) {
+    int k = sh_find(first);
+    if (k < 0) return 0;
+    if (--fs.sh[k].refs < 2) fs.sh[k] = fs.sh[--fs.sh_n];       /* остался один владелец: обычный файл */
+    return 1;
+}
+static void free_inode_blocks(const inode_t* in) {                /* повреждённое дерево - вернёт fsck */
+    uint32_t f;
+    if (first_data_block(in, &f) == 0 && sh_release(f)) return;
+    walk_blocks(in, free_cb, 0);
+}
 
 /* Сколько блоков указателей нужно файлу из nb блоков. */
 static uint64_t meta_blocks(uint64_t nb) {
@@ -624,13 +658,34 @@ static int mount_scan(void) {
             progressed = 1;
         }
     }
-    /* 3. занятые блоки; перекрёстные ссылки - повод убрать инод целиком */
+    /* 3. занятые блоки. Файлы с одним и тем же деревом блоков - COW-копии: блоки считаются один раз, ссылки запоминаются.
+       Любые другие перекрёстные ссылки - повод убрать инод целиком. */
+    uint32_t nf = 0;
+    for (uint32_t i = 1; i < fs.inode_count; i++) if (fs.itype[i] == KFS_FILE) nf++;
+    uint32_t tcap = 16; while (tcap < 2 * nf + 1) tcap <<= 1;
+    uint32_t* tk = (uint32_t*)kalloc((size_t)tcap * 4);       /* первый блок + 1 (0 - пусто) */
+    uint32_t* to = (uint32_t*)kalloc((size_t)tcap * 4);       /* инод-владелец */
+    if (!tk || !to) { kfree_(tk); kfree_(to); kfree_(visited); return KFS_ERR_NOSPC; }
     for (uint32_t i = 1; i < fs.inode_count && !r; i++) {
         if (!fs.itype[i]) continue;
         if (!visited[i]) { fs.itype[i] = 0; r = clear_inode(i); continue; }   /* потеряшка: недоделанная операция */
         inode_t* ip = iget(i);
         if (!ip) { r = KFS_ERR_IO; break; }
         inode_t in = *ip;
+        uint32_t first = 0, slot = 0; int have_first = first_data_block(&in, &first) == 0;
+        if (have_first) {
+            slot = first * 2654435761u & (tcap - 1);
+            while (tk[slot] && tk[slot] != first + 1) slot = (slot + 1) & (tcap - 1);
+            if (tk[slot]) {                                     /* такой блок уже занят файлом to[slot] */
+                inode_t* op = iget(to[slot]);
+                if (!op) { r = KFS_ERR_IO; break; }
+                inode_t own = *op;
+                int same = own.size == in.size && own.indirect == in.indirect && own.dind == in.dind && own.tind == in.tind;
+                for (int d = 0; d < NDIRECT && same; d++) same = own.direct[d] == in.direct[d];
+                if (same) { r = sh_add(first); continue; }
+                fs.itype[i] = 0; r = clear_inode(i); continue;  /* пересечение без полного совпадения - порча */
+            }
+        }
         mark_t m = { 0, 0 };
         int w = walk_blocks(&in, mark_cb, &m);
         if (w == KFS_ERR_IO) { r = w; break; }
@@ -639,8 +694,9 @@ static int mount_scan(void) {
             walk_blocks(&in, unmark_cb, &u);                     /* снять отмеченное этим инодом (до столкновения) */
             fs.itype[i] = 0;
             r = clear_inode(i);
-        }
+        } else if (have_first) { tk[slot] = first + 1; to[slot] = i; }
     }
+    kfree_(tk); kfree_(to);
     kfree_(visited);
     if (r) return r;
     fs.free_inodes = 0;
@@ -703,6 +759,7 @@ static int grow_volume(void) {
 }
 
 static void release_mem(void) {
+    kfree_(fs.sh); fs.sh = 0; fs.sh_n = fs.sh_cap = 0;
     kfree_(fs.used); fs.used = 0;
     kfree_(fs.itype); fs.itype = 0;
 }
@@ -913,6 +970,36 @@ static int kfs_write_impl(const char* path, const void* data, size_t len) {
     return 0;
 }
 
+static int kfs_clone_impl(const char* src, const char* dst) {
+    uint32_t sp, sino, dp, dino; char sl[KFS_NAME_MAX + 1], dl[KFS_NAME_MAX + 1];
+    int r = resolve(src, &sp, sl, &sino);
+    if (r) return r;
+    if (!sino) return KFS_ERR_NOENT;
+    if (fs.itype[sino] != KFS_FILE) return KFS_ERR_ISDIR;
+    if ((r = resolve(dst, &dp, dl, &dino))) return r;
+    if (!dl[0] || dino) return KFS_ERR_EXIST;
+    if (fs.itype[dp] != KFS_DIR) return KFS_ERR_NOTDIR;
+    inode_t* sip = iget(sino);
+    if (!sip) return KFS_ERR_IO;
+    inode_t base = *sip;
+    uint32_t first = 0; int shared = first_data_block(&base, &first) == 0;
+    uint32_t slot = alloc_inode();
+    if (!slot) return KFS_ERR_NOSPC;
+    inode_t* in = iget(slot);
+    if (!in) return KFS_ERR_IO;
+    *in = base; in->gen = 1;                                     /* то же дерево блоков: данные не копируются */
+    if (shared && (r = sh_add(first))) { zero(in, sizeof *in); fs.itype[slot] = 0; return r; }
+    r = write_inode(slot);
+    if (!r) r = flush();
+    if (!r) { fs.free_inodes--; r = dir_add(dp, dl, slot); if (r) fs.free_inodes++; }
+    if (r) {                                                     /* инод не появился в каталоге: отменяем и ссылку */
+        in = iget(slot); if (in) { zero(in, sizeof *in); write_inode(slot); flush(); }
+        fs.itype[slot] = 0;
+        if (shared) sh_release(first);
+    }
+    return r;
+}
+
 static int kfs_mkdir_impl(const char* path) {
     uint32_t parent, ino; char leaf[KFS_NAME_MAX + 1];
     int r = resolve(path, &parent, leaf, &ino);
@@ -981,7 +1068,7 @@ static int kfs_list_impl(const char* path, kfs_list_cb cb, void* ctx) {
 
 static void kfs_info_impl(kfs_info_t* o) {
     o->total_blocks = fs.total_blocks; o->free_blocks = fs.free_blocks; o->inodes = fs.inode_count;
-    o->free_inodes = fs.free_inodes; o->repaired = fs.repaired;
+    o->free_inodes = fs.free_inodes; o->repaired = fs.repaired; o->shared = fs.sh_n;
 }
 
 const char* kfs_strerror(int e) {
@@ -1017,6 +1104,7 @@ int kfs_format(blk_dev_t* dev, uint64_t base) { KFS_LOCK(); int r = kfs_format_i
 int kfs_stat(const char* path, kfs_stat_t* st) { KFS_LOCK(); int r = kfs_stat_impl(path, st); KFS_UNLOCK(); return r; }
 int64_t kfs_read(const char* path, uint64_t off, void* buf, size_t len) { KFS_LOCK(); int64_t r = kfs_read_impl(path, off, buf, len); KFS_UNLOCK(); return r; }
 int kfs_write(const char* path, const void* data, size_t len) { KFS_LOCK(); int r = kfs_write_impl(path, data, len); KFS_UNLOCK(); return r; }
+int kfs_clone(const char* src, const char* dst) { KFS_LOCK(); int r = kfs_clone_impl(src, dst); KFS_UNLOCK(); return r; }
 int kfs_mkdir(const char* path) { KFS_LOCK(); int r = kfs_mkdir_impl(path); KFS_UNLOCK(); return r; }
 int kfs_unlink(const char* path) { KFS_LOCK(); int r = kfs_unlink_impl(path); KFS_UNLOCK(); return r; }
 int kfs_list(const char* path, kfs_list_cb cb, void* ctx) { KFS_LOCK(); int r = kfs_list_impl(path, cb, ctx); KFS_UNLOCK(); return r; }
