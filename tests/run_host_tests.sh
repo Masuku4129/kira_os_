@@ -7,6 +7,9 @@ FLAGS="-O1 -g -Wall -Werror -DKIRA_HOST_TEST -I. -Iarch/x86_64 -no-pie"
 SSE="-msse2 -mfpmath=sse -fno-math-errno"
 T=$(mktemp -d)
 
+echo "== уровни архитектуры (docs/architecture/levels.map) =="
+python3 ci/check_layers.py
+
 echo "== process PID allocator (no wrap/reuse for private IPC principals) =="
 $CC $FLAGS -o $T/proc-pid tests/proc_pid_test.c
 $T/proc-pid
