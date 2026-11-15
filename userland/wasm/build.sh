@@ -18,3 +18,8 @@ wasm-ld --no-entry --export=_start -z stack-size=65536 --initial-memory=262144 b
 # тот же wmix без оптимизации: много local.tee/local.set и пересылок через память - другие формы кода для предкомпилятора
 clang $WF -O0 -c userland/wasm/wmix.c -o build-wasm/wmix0.o
 wasm-ld --no-entry --export=kmain -z stack-size=65536 --initial-memory=262144 build-wasm/wmix0.o build-wasm/kwlib.o -o build-wasm/wmix0.wasm
+# Python (MicroPython) под WASI: build-wasm/python.wasm. Нужны cmake, ninja, git и доступ к github.com (исходники по закреплённым коммитам, tools/mpy_kira/pins.txt).
+# KIRA_NO_PYTHON=1 - пропустить. Без инструментов образ собирается без python (команда python скажет об этом).
+if [ "${KIRA_NO_PYTHON:-0}" != 1 ]; then
+    tools/mp_wasm.sh || echo "[ПРЕДУПРЕЖДЕНИЕ] Python не собран (нужны cmake, ninja, git, clang с wasm32, lld и github.com); образ будет без /wasm/python.wasm"
+fi

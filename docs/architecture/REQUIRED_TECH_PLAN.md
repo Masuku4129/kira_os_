@@ -15,8 +15,9 @@
 | Assembly | РАБОТАЕТ | NASM для ядра x86-64, `kcc/asm_*.c`; AArch64 — `arch/arm64` |
 | Rust (no_std) | РАБОТАЕТ | `userland/rust/lib/kira.rs` (системные вызовы, вход, паника, DMA/MMIO-обёртки; unsafe только там), драйвер Ring 3 `rsedu.rs` для устройства edu без unsafe в коде драйвера (сценарий `drv-edu`, включая выход за BAR = паника, код 101), программа `rsdemo.rs`. Сборка требует core для x86-64; на ARM-хосте шаг пропускается, ОС собирается без Rust |
 | KCC | ЗАЛОЖЕНО | подмножество C; самосборка KCC и ядро, собранное только KCC+KAS+KLink, проверяются в CI (задание own-toolchain) |
-| WASM | РАБОТАЕТ | `userland/wasm.c`, WASI-подмножество: fd_write, clock_time_get (монотонные), random_get (ядерный RNG), args/environ (пусты), proc_exit. Нет: fd_read (у приложений нет стандартного ввода), файлы WASI |
-| Python, Bash | ОТЛОЖЕНО | причина: нет libc под wasm32 (в песочнице и в системе), нет файлового WASI и стандартного ввода у приложений; исходники MicroPython получить можно, собрать без своей libc нельзя. Bash — оболочка уровня 7 на C, не Bash в WASM. Порядок: стандартный ввод и файловый WASI → мини-libc → интерпретатор |
+| WASM | РАБОТАЕТ | `userland/wasm.c` (+ `userland/wasi_host.h`): WASI preview1 целиком (файлы в песочнице `/data/wasm`, args, часы, random_get, poll_oneoff, fd_read со стандартным вводом консоли — `K_STDIN`/`CAP_STDIN`), собственные setjmp/longjmp/spill для C-кода. JIT x86-64 — для модулей без setjmp, остальные — интерпретатор (как на ARM64) |
+| Python | РАБОТАЕТ | MicroPython v1.24.1 как `/wasm/python.wasm` (`tools/mp_wasm.sh`, `tools/wasi_sysroot.sh`, `tools/mpy_kira/`; wasi-libc и compiler-rt по закреплённым коммитам, `tools/mpy_kira/pins.txt`). Команда консоли `python` (REPL, `python файл.py`, `python -c код`), файлы — в `/data/wasm`. Сценарий стенда `python` |
+| Bash | В РАБОТЕ | оболочка `ksh` (интерпретатор скриптов под WASM, не Bash): переменные, подстановки, if/while/for/case, функции, встроенные команды |
 | SPARK Ada, Zig | РЕШЕНИЕ | не вводятся, обоснование и условия возврата — в `ADR-0001-ir-mlir-zig-spark.md` |
 
 ## 2. Архитектура

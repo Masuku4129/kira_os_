@@ -9,6 +9,7 @@
 int  prog_run(const char* name);        /* pid (>0) или отрицательный код: -1 нет файла/ошибка, -2 отказ иммунитета, -3 не принят как ELF */
 void prog_request(const char* name);
 int  prog_run_args(const char* name, const char* args);   /* запуск с аргументами (run имя аргументы) */
+int  prog_run_file_args(const char* name, const char* grant, const char* args);   /* программа с правом читать файл grant и аргументами (python) */
 void prog_request_file(const char* name, const char* file);   /* программа с правом читать файл file */    /* из любого потока: запуск будет выполнен в prog_poll */
 int  prog_run_local(const char* file);  /* runlocal: /data/kcc/<файл> как local-<имя> без прав (явная команда пользователя) */
 int  prog_run_local_image(const char* file, uint8_t* image, size_t size);   /* уже проверенный образ (build run), без повторного чтения файла */

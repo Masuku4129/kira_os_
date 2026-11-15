@@ -66,6 +66,8 @@ int prog_run_args(const char* n, const char* a) {
     if (!strcmp(n, "kcc")) { snprintf(cc_args, sizeof cc_args, "%s", a); return 5; }
     return prog_run(n);
 }
+static char py_grant[64], py_args[64];
+int prog_run_file_args(const char* n, const char* g, const char* a) { (void)n; snprintf(py_grant, sizeof py_grant, "%s", g); snprintf(py_args, sizeof py_args, "%s", a ? a : ""); return 7; }
 int prog_run_local(const char* f) { snprintf(local_file, sizeof local_file, "%s", f); return 6; }
 void kdrv_cmd(const char* a) { (void)a; }
 void prog_list(void) {}
@@ -166,6 +168,11 @@ int main(void) {
     CHECK(!cc_args[0] && has("использование: cc исходник результат"));
     reset(); feed("cc a b c\n");
     CHECK(!cc_args[0] && has("использование: cc"));
+    /* python: модуль /wasm/python.wasm выдаётся программе wasm правом чтения, остаток строки - её аргументы */
+    reset(); feed("python -c print(1+1)\n");
+    CHECK(!strcmp(py_grant, "/wasm/python.wasm") && !strcmp(py_args, "-c print(1+1)"));
+    py_args[0] = 'x'; reset(); feed("python\n");
+    CHECK(!py_args[0] && has("интерактивный режим"));
     reset(); feed("runlocal hello\n");
     CHECK(!strcmp(local_file, "hello"));
     local_file[0] = 0; reset(); feed("runlocal\n");

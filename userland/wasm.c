@@ -6,6 +6,11 @@
    расширение знака (0xC0-0xC4), memory.copy/fill.
    Импорт модуля "kira": write(ptr,len), sleep(ticks), ticks()->i64, exit(code), gfx_create(w,h)->i32,
    gfx_present(ptr) (пиксели 0x00RRGGBB из памяти модуля), gfx_event(ptr)->i32 (16 байт: type,a,b,c).
+   Импорт модуля "kira" для интерпретаторов и сборщиков мусора внутри модуля (в режиме JIT не поддерживается: модуль с ними идёт в интерпретаторе):
+   setjmp(buf)->i32 и longjmp(buf, v): нелокальный переход по снимку состояния ИНТЕРПРЕТАТОРА (не памяти модуля): таблица снимков хранится у интерпретатора,
+   в buf (8 байт) лежит только номер и счётчик поколения, поэтому испорченный buf не может увести выполнение за пределы кадра; снимок годен, пока жив его
+   кадр (иначе ловушка). spill(buf, n)->i32: записывает в память модуля значения всех живых локальных и операндов (по два слова на значение), чтобы сборщик
+   мусора модуля видел указатели, живущие только в локальных переменных WASM (в линейной памяти их нет); возвращает число слов или -1, если не влезло.
    Импорт модуля "wasi_snapshot_preview1": WASI 0.1 целиком (wasi_host.h) - аргументы, стандартный ввод, файлы в песочнице /data/wasm, часы,
    случайные байты, ожидание по часам; что не поддержано, отвечает ENOSYS/ENOTSUP, а не ложным успехом (границы описаны в wasi_host.h).
    Запуск: wasm /путь/к/модулю.wasm (или двойной щелчок по .wasm в Проводнике). */
@@ -65,12 +70,13 @@ static int to_int(double x, int bits, int sgn, u64* out) {
 static double u64_to_d(u64 v) { if (!(v >> 63)) return (double)(i64)v; double h = (double)(i64)((v >> 1) | (v & 1)); return h + h; }
 static float u64_to_f(u64 v) { if (!(v >> 63)) return (float)(i64)v; float h = (float)(i64)((v >> 1) | (v & 1)); return h + h; }
 
-#define MAXF 1024
+#define MAXF 4096
 #define MAXT 128
 #define MAXG 64
-#define VSTK (64 * 1024)
-#define DEPTH 400
-#define MAXMEM (2u << 20)                     /* память модуля - до 2 МБ (32 страницы WASM) */
+#define VSTK (524288)
+#define DEPTH 4000
+#define MAXMEM (32u << 20)                    /* память модуля - до 32 МБ (512 страниц WASM): столько модуль может объявить как максимум */
+#define DEFMEM (2u << 20)                     /* модуль без объявленного максимума получает 2 МБ */
 
 static void say(const char* s) { k_write(s, k_strlen(s)); }
 static void say_u(u64 v) { char t[21]; int i = 20; t[i] = 0; do { t[--i] = (char)('0' + v % 10); v /= 10; } while (v); say(t + i); }
@@ -107,9 +113,9 @@ static u64 globals[MAXG]; static u32 nglobals;
 static u32 entry = ~0u;
 static const u8* mod; static u32 modlen;
 
-enum { IMP_WRITE, IMP_SLEEP, IMP_TICKS, IMP_EXIT, IMP_GFX_CREATE, IMP_GFX_PRESENT, IMP_GFX_EVENT,
+enum { IMP_WRITE, IMP_SLEEP, IMP_TICKS, IMP_EXIT, IMP_GFX_CREATE, IMP_GFX_PRESENT, IMP_GFX_EVENT, IMP_SETJMP, IMP_LONGJMP, IMP_SPILL,
        IMP_WASI_FIRST };                                                      /* с этого номера - wasi_snapshot_preview1: IMP_WASI_FIRST + IW_* (wasi_host.h) */
-static const char* const imp_names[IMP_WASI_FIRST] = { "write", "sleep", "ticks", "exit", "gfx_create", "gfx_present", "gfx_event" };
+static const char* const imp_names[IMP_WASI_FIRST] = { "write", "sleep", "ticks", "exit", "gfx_create", "gfx_present", "gfx_event", "setjmp", "longjmp", "spill" };
 
 static u32 leb_u(const u8** p, const u8* end) {
     u32 r = 0;
@@ -160,6 +166,9 @@ static int import_signature_valid(u32 id, const ftype_t* t) {
     case IMP_GFX_CREATE: return t->np == 2 && t->nr == 1 && t->p[0] == i32t && t->p[1] == i32t;
     case IMP_GFX_PRESENT: return t->np == 1 && t->nr <= 1 && t->p[0] == i32t;                 /* kw_gfx_present возвращает int (0) */
     case IMP_GFX_EVENT: return t->np == 1 && t->nr == 1 && t->p[0] == i32t;
+    case IMP_SETJMP: return t->np == 1 && t->nr == 1 && t->p[0] == i32t;                      /* int setjmp(jmp_buf) */
+    case IMP_LONGJMP: return t->np == 2 && t->nr == 0 && t->p[0] == i32t && t->p[1] == i32t;   /* void longjmp(jmp_buf, int) */
+    case IMP_SPILL: return t->np == 2 && t->nr == 1 && t->p[0] == i32t && t->p[1] == i32t;     /* int spill(void* buf, int cap_words) */
     default: return 0;
     }
 }
@@ -641,7 +650,7 @@ static int load(void) {
                      table = (u32*)alloc(4ull * (ntable + 1)); for (u32 i = 0; i < ntable; i++) table[i] = ~0u; }
         } else if (id == 5) {                                     /* память */
             u32 n = leb_u(&s, se);
-            if (n) { u8 fl = *s++; mem_pages = leb_u(&s, se); mem_max = (fl & 1) ? leb_u(&s, se) : MAXMEM / 65536; }
+            if (n) { u8 fl = *s++; mem_pages = leb_u(&s, se); mem_max = (fl & 1) ? leb_u(&s, se) : DEFMEM / 65536; }
         } else if (id == 6) {                                     /* глобальные */
             u32 n = leb_u(&s, se);
             for (u32 i = 0; i < n && !trapped; i++) { s++; s++; if (nglobals == MAXG) { trap("too many globals"); return -1; } globals[nglobals++] = const_expr(&s, se); }
@@ -665,7 +674,7 @@ static int load(void) {
         } else if (id == 10) {                                    /* код */
             u32 n = leb_u(&s, se);
             if (n != nfuncdecl) { trap("function and code counts differ"); return -1; }
-            if (mem_max == 0) mem_max = MAXMEM / 65536;
+            if (mem_max == 0) mem_max = DEFMEM / 65536;
             ccap = 2 * sz + 8 * n + 16;                           /* не больше двух слов на байт кода + запас на функцию */
             code = (u32*)alloc(4ull * ccap);
             if (!code) { trap("no memory for compiled code"); return -1; }
@@ -684,7 +693,7 @@ static int load(void) {
         } else if (id == 11) {                                    /* данные - после выделения памяти */
             if (!mem) {
                 if (mem_max * 65536ull > MAXMEM) mem_max = MAXMEM / 65536;
-                if (mem_pages > mem_max) { trap("module needs more memory than 2 MB"); return -1; }
+                if (mem_pages > mem_max) { trap("module needs more memory than 32 MB"); return -1; }
                 mem = (u8*)alloc((u64)mem_max * 65536);
                 if (!mem) { trap("no memory for the module"); return -1; }
             }
@@ -703,7 +712,7 @@ static int load(void) {
     }
     if (!trapped && !mem) {
         if (mem_max * 65536ull > MAXMEM) mem_max = MAXMEM / 65536;
-        if (mem_pages > mem_max) { trap("module needs more memory than 2 MB"); return -1; }
+        if (mem_pages > mem_max) { trap("module needs more memory than 32 MB"); return -1; }
         mem = (u8*)alloc((u64)(mem_max ? mem_max : 1) * 65536);
     }
     if (!trapped && entry == ~0u) trap("no exported main/_start");
@@ -716,6 +725,11 @@ static int load(void) {
 /* ---------- выполнение ---------- */
 static u64* vs; static u32 sp;                   /* стек значений (sp - индекс вершины между вызовами execute) */
 static int exit_req, exit_code;
+/* Снимки для setjmp: уровень кадра (0 - корень), fp, функция, высота стека значений и позиция кода после вызова. Стек снимков: при новом setjmp
+   снимки кадров ниже по стеку вызовов, чем текущий (они уже вернулись), отбрасываются, как и снимки той же буферной ячейки. */
+#define NJMP 2048
+typedef struct { u32 level, fp_idx, fn, s_idx, pc_idx, gen, buf; } jmp_t;
+static jmp_t jmps[NJMP]; static u32 njmp, jmp_gen;
 static u32* fb; static u32 fbw, fbh;
 static struct { const u32* pc; u64* fp; const func_t* f; } cs[DEPTH + 2];
 
@@ -955,6 +969,49 @@ static void execute(u32 fi0) {
         case OP_CALL: fi = w >> 16;
         do_call: {
             const func_t* c = &funcs[fi]; const ftype_t* t = &types[c->type];
+            if (c->import && c->imp_id == IMP_SETJMP) {
+                u32 bp = (u32)s[-1];
+                if ((u64)bp + 8 > ml) { trap("memory access out of bounds"); return; }
+                u32 fidx = (u32)(cur - funcs);
+                u32 fpi = (u32)(fp - vs);
+                u32 k = 0;                                           /* снимки вернувшихся кадров и этой же ячейки - прочь (порядок по уровню сохраняется) */
+                for (u32 i = 0; i < njmp; i++)
+                    if ((int)jmps[i].level < depth || (jmps[i].level == (u32)depth && jmps[i].fn == fidx && jmps[i].fp_idx == fpi && jmps[i].buf != bp)) jmps[k++] = jmps[i];
+                njmp = k;
+                if (njmp == NJMP) { trap("setjmp: too many live snapshots"); return; }
+                jmp_t* j = &jmps[njmp++];
+                j->level = (u32)depth; j->fp_idx = fpi; j->fn = fidx; j->s_idx = (u32)(s - 1 - vs); j->pc_idx = (u32)(pc - cb); j->buf = bp; j->gen = ++jmp_gen;
+                st32(m + bp, njmp - 1); st32(m + bp + 4, j->gen);
+                s[-1] = 0;                                           /* первый возврат: 0 */
+                continue;
+            }
+            if (c->import && c->imp_id == IMP_LONGJMP) {
+                u32 bp = (u32)s[-2], val = (u32)s[-1];
+                if ((u64)bp + 8 > ml) { trap("memory access out of bounds"); return; }
+                u32 idx = ld32(m + bp), gen = ld32(m + bp + 4);
+                if (idx >= njmp || jmps[idx].gen != gen || jmps[idx].buf != bp) { trap("longjmp: buffer was not set by setjmp or its frame is gone"); return; }
+                const jmp_t j = jmps[idx];
+                if ((int)j.level > depth) { trap("longjmp: target frame is gone"); return; }
+                const func_t* tf; u64* tfp;
+                if ((int)j.level == depth) { tf = cur; tfp = fp; } else { tf = cs[j.level].f; tfp = cs[j.level].fp; }
+                if ((u32)(tf - funcs) != j.fn || (u32)(tfp - vs) != j.fp_idx) { trap("longjmp: target frame is gone"); return; }
+                depth = (int)j.level; cur = tf; fp = tfp;
+                s = vs + j.s_idx; *s++ = val ? val : 1;              /* setjmp вернулся ещё раз: v, но не 0 */
+                pc = cb + j.pc_idx;
+                njmp = idx + 1;                                      /* глубже лежащие снимки принадлежат ушедшим кадрам */
+                ml = (u64)mem_pages * 65536; IBUD;
+                continue;
+            }
+            if (c->import && c->imp_id == IMP_SPILL) {
+                u32 bp = (u32)s[-2], cap = (u32)s[-1];
+                u64 live = (u64)(s - 2 - vs);                          /* значения всех кадров: локальные и операнды */
+                if ((u64)bp + 4ull * cap > ml) { trap("memory access out of bounds"); return; }
+                u64 need = live * 2;
+                s -= 1;
+                if (need > cap) s[-1] = 0xFFFFFFFFu;
+                else { for (u64 i = 0; i < live; i++) { st32(m + bp + 8 * i, (u32)vs[i]); st32(m + bp + 8 * i + 4, (u32)(vs[i] >> 32)); } s[-1] = (u32)need; }
+                continue;
+            }
             if (c->import) {
                 s = host_call(c->imp_id, t, s);
                 if (trapped || exit_req) { sp = (u32)(s - vs); return; }

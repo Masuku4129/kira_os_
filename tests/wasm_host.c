@@ -107,6 +107,14 @@ int main(int argc, char** argv) {
     fseek(f, 0, SEEK_END); g_len = ftell(f); fseek(f, 0, SEEK_SET);
     g_data = malloc((size_t)g_len); if (fread(g_data, 1, (size_t)g_len, f) != (size_t)g_len) return 2; fclose(f);
     g_path = argv[1];
+    if (getenv("WASM_FILE")) {                                     /* файл в песочницу модуля (имя без каталога), например скрипт для python.wasm */
+        const char* pf = getenv("WASM_FILE"); const char* bn = strrchr(pf, '/'); bn = bn ? bn + 1 : pf;
+        FILE* q = fopen(pf, "rb"); if (!q) return 2;
+        fseek(q, 0, SEEK_END); long qn = ftell(q); fseek(q, 0, SEEK_SET);
+        u8* qb = malloc((size_t)qn + 1); if (fread(qb, 1, (size_t)qn, q) != (size_t)qn) return 2; fclose(q);
+        if (k_file_write(bn, qb, (u64)qn)) return 2;
+        free(qb);
+    }
 #ifdef WASM_FUEL
     if (g_count) { g_quiet = 1; int r = wasm_main(); printf("wasm: %llu instructions executed\n", (1ull << 62) - wasm_fuel); return r; }
 #endif

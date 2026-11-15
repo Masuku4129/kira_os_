@@ -60,6 +60,14 @@ static int prog_run_ex(const char* name, const char* grant, const char* args);
 int prog_run(const char* name) { return prog_run_ex(name, 0, 0); }
 int prog_run_args(const char* name, const char* args) { return prog_run_ex(name, 0, args && *args ? args : 0); }
 static int local_launch_signed(const char* path, const char* name, uint8_t* image, size_t size);
+int prog_run_file_args(const char* name, const char* grant, const char* args) {
+    kfs_stat_t st;
+    if (grant && (kfs_stat(grant, &st) || st.type != KFS_FILE)) {
+        uart_print("[PROG] "); uart_print(grant); uart_print(": нет в образе (Python собирается при сборке: нужны cmake, ninja, git, lld и github.com, см. userland/wasm/build.sh)\n");
+        return -1;
+    }
+    return prog_run_ex(name, grant, args && *args ? args : 0);
+}
 static int prog_run_grant(const char* name, const char* grant) { return prog_run_ex(name, grant, 0); }
 
 static int prog_run_ex(const char* name, const char* grant, const char* args) {

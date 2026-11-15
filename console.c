@@ -406,6 +406,11 @@ static void cmd_wasm(const char* a) {                       /* модуль WebA
     if (!a || *a != '/') { uart_print("wasm /путь/модуль.wasm: программа WebAssembly (одна для x86-64 и ARM64), модули - в /wasm\n"); return; }
     prog_request_file("wasm", a);
 }
+static void cmd_python(const char* a) {                     /* Python (MicroPython) - модуль WebAssembly /wasm/python.wasm в песочнице программы wasm */
+    while (a && *a == ' ') a++;
+    if (!*a) uart_print("python: интерактивный режим; выход - Ctrl+D. Скрипты: python файл.py (файл в /data/wasm), код: python -c print(1+1)\n");
+    (void)prog_run_file_args("wasm", "/wasm/python.wasm", a);
+}
 static void cmd_view(const char* a) {                       /* то же, что двойной щелчок в Проводнике */
     while (a && *a == ' ') a++;
     if (!a || *a != '/') { uart_print("view /путь/к/файлу: просмотр (текст, PNG, BMP, PPM, шестнадцатерично)\n"); return; }
@@ -595,6 +600,7 @@ static const cmd_t cmds[] = {
     { "poweroff",  0,   "выключить машину (опыт и диски сохраняются; ACPI S5 / PSCI)", cmd_poweroff },
     { "reboot",    0,   "перезагрузить машину (опыт и диски сохраняются)", cmd_reboot },
     { "wasm",      0,   "wasm /путь.wasm: программа WebAssembly (один файл для x86-64 и ARM64; модули в /wasm)", cmd_wasm },
+    { "python",    0,   "Python (MicroPython): python - REPL; python файл.py (файл в /data/wasm); python -c код", cmd_python },
     { "view",      0,   "view /путь: просмотр файла (текст, PNG, BMP, PPM, двоичный) - как двойной щелчок в Проводнике", cmd_view },
     { "paint",     'b', "приложение Ring 3: холст (мышь, клавиши 1-8, c - очистить)", cmd_paint },
     { "run",       0,   "запустить программу с диска: run имя (/bin/имя, проверка иммунитетом)", cmd_run },
