@@ -113,7 +113,10 @@ blk_dev_t* virtio_blk_probe(void) {
     const pci_dev_t* pd = pci_find(VIRTIO_VENDOR, 0x1042);     /* virtio-blk, современный */
     if (!pd) pd = pci_find(VIRTIO_VENDOR, 0x1001);              /* «переходный»: тот же прибор, но с capabilities 1.0 */
     if (!pd) return 0;
-    int isolated = 0, canary_pending = 0;
+    int isolated = 0;
+#ifndef KIRA_HOST_TEST
+    int canary_pending = 0;
+#endif
 #ifndef KIRA_HOST_TEST
     /* До включения bus mastering (virtio_attach): устройство получает свой домен VT-d без единого отображения. */
     isolated = iommu_isolate_device(pd) == 0;
