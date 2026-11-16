@@ -801,18 +801,22 @@ void mind_sys_print(const char* what) {
         uart_print(v->comp_par ? "параллельно на всех ядрах" : "на одном ядре");
         uart_print(" (цена 1000 точек: параллельно "); uart_print_dec(v->comp_ns_kpx_par); uart_print(" нс, на одном ядре ");
         uart_print_dec(v->comp_ns_kpx_ser); uart_print(" нс; 0 - ещё не мерили)");
-        {   /* общий замок планировщика: доля времени ядер в очереди за ним (с запуска) */
-            uint64_t w = 0, tot = 0, cont = 0, taken = 0;
-            for (unsigned c = 0; c < sched_cpu_count(); c++) {
-                uint64_t wc, cc, tk, total;
+        {   /* замки планировщика (очереди ядер, таблица потоков): доля времени ядер в ожидании (с запуска) */
+            uint64_t w = 0, tot = 0, cont = 0, taken = 0, stalls = 0, maxw = 0, steals = 0;
+            for (unsigned c = 0; c < percpu_count(); c++) {
+                uint64_t wc, cc, tk, total, st, mw;
                 if (sched_cpu_stats(c, 0, &total, 0) != 0) continue;
                 sched_lock_stats(c, &wc, &cc, &tk);
-                w += wc; tot += total; cont += cc; taken += tk;
+                sched_lock_stalls(c, &st, &mw);
+                w += wc; tot += total; cont += cc; taken += tk; stalls += st; if (mw > maxw) maxw = mw;
+                steals += sched_cpu_steals(c);
             }
             uint64_t pm = tot ? w * 1000 / tot : 0;
             uart_print("\n[MIND] замок планировщика: ядра ждут его "); uart_print_dec(pm / 10); uart_print(",");
             uart_print_dec(pm % 10); uart_print("% времени; взятий с ожиданием "); uart_print_dec(cont);
             uart_print(" из "); uart_print_dec(taken);
+            uart_print("; затяжных ожиданий "); uart_print_dec(stalls); uart_print(", самое долгое "); uart_print_dec(maxw); uart_print(" мкс");
+            uart_print("; взято с чужих очередей "); uart_print_dec(steals);
         }
         uart_print("\n[MIND] подробнее: ai why (журнал), ai norms (нормы), ai procs (программы), ai model (веса), ai levers (рычаги), ai act | ai observe, ai fx auto|0..3\n\n");
     }

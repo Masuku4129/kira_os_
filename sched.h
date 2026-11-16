@@ -142,8 +142,15 @@ void sched_wake_proc(void* proc);
 void sched_set_wake_tick(thread_t* t, uint64_t tick);
 void sched_wake(thread_t* t);
 unsigned sched_cpu_count(void);
-/* Общий замок планировщика на ядре cpu: такты ожидания, взятий с ожиданием, всего взятий (с запуска). */
-void sched_lock_stats(unsigned cpu, uint64_t* wait_cycles, uint64_t* contended, uint64_t* taken);          // ядер, участвующих в планировании
+/* Замки планировщика (очереди ядер и таблица потоков), взятые ядром cpu: такты ожидания, взятий с ожиданием, всего
+   взятий (с запуска). */
+void sched_lock_stats(unsigned cpu, uint64_t* wait_cycles, uint64_t* contended, uint64_t* taken);
+/* Затяжные ожидания замков планировщика ядром cpu (дольше 10 мс: обычно держателя вытеснил хозяин виртуальной машины)
+   и самое долгое ожидание в микросекундах. */
+void sched_lock_stalls(unsigned cpu, uint64_t* stalls, uint64_t* max_wait_us);
+/* Сколько потоков ядро cpu взяло из чужих очередей (кража работы) с запуска. */
+uint64_t sched_cpu_steals(unsigned cpu);
+// ядер, участвующих в планировании
 int sched_thread_alive(uint32_t id);     // поток с таким id существует и не завершён
 // Можно ли сейчас уснуть: планировщик работает, прерывания включены, не обработчик прерывания, спин-замков нет.
 int sched_can_sleep(void);

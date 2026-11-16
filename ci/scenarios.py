@@ -108,7 +108,7 @@ ALL = [
     sc("smp", "проверка ядер: расчёт, замок, вытеснение на всех ядрах", [
         {"log": [r"Processors online: 8"]},
         {"cmd": "test smp", "must": [r"started \d+ worker"]},
-        {"sleep": 15},
+        {"expect": r"RESULT: (PASS|FAIL)", "timeout": 100},   # 8 ядер спорят за один билетный замок: на 2 настоящих ядрах хозяина это от 2 с до нескольких минут
         {"log": [r"RESULT: PASS"]},
         {"log_forbid": [r"RESULT: FAIL", r"MOVED to another core", r"LOST UPDATES"]},
         {"responsive": "status", "within": 3},
@@ -437,6 +437,17 @@ ALL = [
         {"expect": r"cube3d: bench speedup x\d+\.\d+", "timeout": 150},
         {"log_forbid": NO_ERR},
     ], smp=4, mem="1G", mttcg=True),
+    sc("sched-scale", "планировщик на 8 ядрах: плазма x8 + burnall x3 + опрос ps/smp, замеры замков очередей (ai), отклик консоли", [
+        {"log": BOOT_LOG},
+        *[{"send": "plasma"} for _ in range(8)],
+        {"send": "burnall"}, {"sleep": 5}, {"send": "burnall"}, {"sleep": 5}, {"send": "burnall"}, {"sleep": 6},
+        {"responsive": "status", "within": 3},
+        {"cmd": "ps", "must": [r"plasma"], "timeout": 20},
+        {"cmd": "smp", "timeout": 20},
+        {"cmd": "ai", "must": [r"замок планировщика: ядра ждут его \d+,\d% времени; взятий с ожиданием \d+ из \d+; затяжных ожиданий \d+"], "timeout": 20},
+        {"responsive": "status", "within": 3},
+        {"log_forbid": NO_ERR + [r"KERNEL PANIC", r"Watchdog"]},
+    ], smp=8, mem="2G"),
     sc("power-off", "выключение: ACPI S5 из FADT/DSDT (_S5) - машина выключается сама, без -no-reboot-уловок", [
         {"log": BOOT_LOG},
         {"exit": "poweroff", "within": 20},
