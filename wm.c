@@ -1161,21 +1161,52 @@ static void blit_scaled(surface_t* c, int dx, int dy, int dw, int dh, const surf
         }
         return;
     }
+    /* Уменьшение: усреднение по площади точными долями (как при делении на dw, dh), но без деления на каждую точку:
+       границы исходных столбцов идут по шагам (частное и остаток), веса строк считаются один раз на строку,
+       итоговое деление на общую площадь - умножением на обратную величину (точно: сумма*площадь < 2^64). */
+    enum { SC_ROWS = 64 };
+    uint64_t tot = (uint64_t)sw * (uint64_t)sh;
+    uint64_t inv = 0xFFFFFFFFFFFFFFFFull / tot + 1;               /* floor(n/tot) == (n*inv)>>64 для n*tot < 2^64 */
+    long n0 = (long)(xa - dx) * sw;
+    int q0 = (int)(n0 / dw); long r0 = n0 - (long)q0 * dw;           /* левая граница: x0 / dw */
+    long n1 = n0 + sw - 1;
+    int q1 = (int)(n1 / dw); long r1 = n1 - (long)q1 * dw;           /* правая граница: (x0 + sw - 1) / dw */
     for (int j = ya; j < yb; j++) {
         long y0 = (long)(j - dy) * sh, y1 = y0 + sh;              /* строка назначения покрывает [y0, y1) в долях 1/dh строки источника */
         int ry0 = (int)(y0 / dh), ry1 = (int)((y1 - 1) / dh);
         if (ry1 >= sh) ry1 = sh - 1;
+        int nry = ry1 - ry0 + 1;
         uint32_t* dp = &c->px[(long)j * c->pitch];
-        for (int i = xa; i < xb; i++) {
-            long x0 = (long)(i - dx) * sw, x1 = x0 + sw;
-            int rx0 = (int)(x0 / dw), rx1 = (int)((x1 - 1) / dw);
+        uint64_t wyv[SC_ROWS]; const uint32_t* sps[SC_ROWS];
+        int fast = nry <= SC_ROWS;
+        if (fast)
+            for (int k = 0; k < nry; k++) {
+                long ry = ry0 + k;
+                long ya0 = ry * dh > y0 ? ry * dh : y0;
+                long ya1 = (ry + 1) * dh < y1 ? (ry + 1) * dh : y1;
+                wyv[k] = (uint64_t)(ya1 - ya0);
+                sps[k] = src->px + ry * src->pitch;
+            }
+        int qa = q0, qb = q1; long ra = r0, rb = r1;
+        long x0 = n0;
+        for (int i = xa; i < xb; i++, x0 += sw) {
+            long x1 = x0 + sw;
+            int rx0 = qa, rx1 = qb;
             if (rx1 >= sw) rx1 = sw - 1;
+            ra += sw; while (ra >= dw) { ra -= dw; qa++; }
+            rb += sw; while (rb >= dw) { rb -= dw; qb++; }
             uint64_t sr = 0, sg = 0, sb = 0;
-            for (int ry = ry0; ry <= ry1; ry++) {
-                long ya0 = (long)ry * dh > y0 ? (long)ry * dh : y0;
-                long ya1 = (long)(ry + 1) * dh < y1 ? (long)(ry + 1) * dh : y1;
-                uint64_t wy = (uint64_t)(ya1 - ya0);
-                const uint32_t* sp = src->px + (long)ry * src->pitch;
+            for (int k = 0; k < nry; k++) {
+                uint64_t wy;
+                const uint32_t* sp;
+                if (fast) { wy = wyv[k]; sp = sps[k]; }
+                else {
+                    long ry = ry0 + k;
+                    long ya0 = ry * dh > y0 ? ry * dh : y0;
+                    long ya1 = (ry + 1) * dh < y1 ? (ry + 1) * dh : y1;
+                    wy = (uint64_t)(ya1 - ya0);
+                    sp = src->px + ry * src->pitch;
+                }
                 for (int rx = rx0; rx <= rx1; rx++) {
                     long xa0 = (long)rx * dw > x0 ? (long)rx * dw : x0;
                     long xa1 = (long)(rx + 1) * dw < x1 ? (long)(rx + 1) * dw : x1;
@@ -1184,8 +1215,10 @@ static void blit_scaled(surface_t* c, int dx, int dy, int dw, int dh, const surf
                     sr += wgt * ((p >> 16) & 255); sg += wgt * ((p >> 8) & 255); sb += wgt * (p & 255);
                 }
             }
-            uint64_t tot = (uint64_t)sw * (uint64_t)sh;
-            dp[i] = (uint32_t)((sr / tot) << 16 | (sg / tot) << 8 | (sb / tot));
+            uint32_t R = (uint32_t)(((unsigned __int128)sr * inv) >> 64);
+            uint32_t G = (uint32_t)(((unsigned __int128)sg * inv) >> 64);
+            uint32_t B = (uint32_t)(((unsigned __int128)sb * inv) >> 64);
+            dp[i] = R << 16 | G << 8 | B;
         }
     }
 }

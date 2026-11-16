@@ -389,6 +389,9 @@ if [ "${KIRA_SKIP_GUI:-0}" != 1 ]; then
     echo "== shell (top bar, side launcher, traffic lights, fullscreen, drag, input, live background, culling) =="
     $CC $FLAGS -o $T/wm tests/wm_test.c wm.c gfxui.c gfx2d.c font8x16.c icons.c brainfx.c wallpaper.c
     $T/wm
+    echo "== уменьшение окна: быстрая версия = прямое усреднение по площади =="
+    $CC $FLAGS -o $T/blit_scaled tests/blit_scaled_test.c gfxui.c gfx2d.c font8x16.c icons.c brainfx.c wallpaper.c
+    $T/blit_scaled
 else
     echo "Window manager regressions: covered by gui-regression job"
 fi
