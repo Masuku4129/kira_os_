@@ -1314,42 +1314,51 @@ void sched_snapshot_stats(uint64_t* n, uint64_t* hold_us, uint64_t* max_us) {
     *n = snap_n; *hold_us = snap_hold * 1000 / khz; *max_us = snap_hold_max * 1000 / khz;
 }
 
+/* Копия таблицы потоков. Замок таблицы держится не на весь обход, а по порциям SNAP_CHUNK потоков: создание, выход и пробуждение потоков
+   (им нужен тот же замок) ждут не дольше одной порции, а не всей таблицы. Каждая запись читается целиком под замком, поэтому она
+   согласована сама с собой; между порциями таблица может измениться - для статистики и списка процессов это не важно. */
+#define SNAP_CHUNK 24
 unsigned sched_snapshot(thread_info_t* out, unsigned max) {
     uint64_t now_t = timer_get_ticks();
     unsigned n = 0;
-    uint64_t f = irq_save();
-    slk_lock(&tbl_lock, TBL_LOCK_ID);
-    uint64_t now = rdtsc();
-    uint64_t held_from = now;
-    for (unsigned i = 0; i < thread_hi && n < max; i++) {
-        const thread_t* t = &threads[i];
-        thread_state_t st = get_state(t);
-        if (st == THREAD_UNUSED) continue;
-        thread_info_t* o = &out[n++];
-        o->id = t->id;
-        str_copy(o->name, t->name, SCHED_NAME_LEN);
-        o->state = st;
-        o->prio = t->prio;
-        uint64_t extra = 0;
-        for (unsigned c = 0; c < percpu_count(); c++)
-            if (percpu_table[c].current == t) extra = now - percpu_table[c].last_switch_tsc;   // идёт прямо сейчас
-        o->cpu_cycles = t->cpu_cycles + extra;
-        o->switches_in = t->switches_in;
-        o->cpu = t->last_cpu;
-        o->pid = t->pid;
-        o->weight = t->weight;
-        /* ready_since мог быть записан уже после замера now_t (поток встал в очередь, пока шёл обход): без запрета
-           разность ушла бы в огромное число («ждал процессор 2542620637 мс») */
-        uint64_t rs = t->ready_since;
-        o->waiting = (st == THREAD_READY && t->prio > PRIO_IDLE && now_t > rs) ? now_t - rs : 0;
+    for (unsigned base = 0; n < max; base += SNAP_CHUNK) {
+        uint64_t f = irq_save();
+        slk_lock(&tbl_lock, TBL_LOCK_ID);
+        uint64_t now = rdtsc();
+        uint64_t held_from = now;
+        unsigned hi = thread_hi;
+        unsigned end = base + SNAP_CHUNK < hi ? base + SNAP_CHUNK : hi;
+        for (unsigned i = base; i < end && n < max; i++) {
+            const thread_t* t = &threads[i];
+            thread_state_t st = get_state(t);
+            if (st == THREAD_UNUSED) continue;
+            thread_info_t* o = &out[n++];
+            o->id = t->id;
+            str_copy(o->name, t->name, SCHED_NAME_LEN);
+            o->state = st;
+            o->prio = t->prio;
+            uint64_t extra = 0;
+            for (unsigned c = 0; c < percpu_count(); c++)
+                if (percpu_table[c].current == t) extra = now - percpu_table[c].last_switch_tsc;   // идёт прямо сейчас
+            o->cpu_cycles = t->cpu_cycles + extra;
+            o->switches_in = t->switches_in;
+            o->cpu = t->last_cpu;
+            o->pid = t->pid;
+            o->weight = t->weight;
+            /* ready_since мог быть записан уже после замера now_t (поток встал в очередь, пока шёл обход): без проверки
+               разность ушла бы в огромное число («ждал процессор 2542620637 мс») */
+            uint64_t rs = t->ready_since;
+            o->waiting = (st == THREAD_READY && t->prio > PRIO_IDLE && now_t > rs) ? now_t - rs : 0;
+        }
+        {
+            uint64_t held = rdtsc() - held_from;
+            snap_n++; snap_hold += held;
+            if (held > snap_hold_max) snap_hold_max = held;
+        }
+        slk_unlock(&tbl_lock);
+        irq_restore(f);
+        if (end >= hi) break;
     }
-    {
-        uint64_t held = rdtsc() - held_from;
-        snap_n++; snap_hold += held;
-        if (held > snap_hold_max) snap_hold_max = held;
-    }
-    slk_unlock(&tbl_lock);
-    irq_restore(f);
     return n;
 }
 
