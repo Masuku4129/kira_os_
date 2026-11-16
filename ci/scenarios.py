@@ -433,6 +433,10 @@ ALL = [
         {"log_forbid": NO_ERR + [r"virtio-(rng|gpu): .*NOT isolated", r"virtio-gpu found but did not start", r"virtio-gpu stopped answering"]},
     ], smp=2, mem="1G", machine="q35", extra=["-device", "intel-iommu,aw-bits=48", "-device", "virtio-rng-pci,disable-legacy=on,iommu_platform=on",
                                              "-device", "virtio-keyboard-pci,disable-legacy=on,iommu_platform=on", "-device", "virtio-gpu-pci,disable-legacy=on,iommu_platform=on"], vga="none"),
+    sc("nvme-iommu", "NVMe под VT-d (q35): свой домен, проверка принуждения, система читает и пишет диск через выданные буферы", BASIC + [
+        {"log": [r"\[KIRA IOMMU\] nvme: enforcement check passed", r"\[KIRA NVMe\] nvme0n1", r"NVMe .*completion by interrupt"]}] + DISK_IRQ + [
+        {"log_forbid": NO_ERR + [r"nvme: .*NOT isolated", r"could not grant buffers"]}],
+       disk="nvme", machine="q35", smp=2, mem="1G", extra=["-device", "intel-iommu,aw-bits=48"]),
     sc("net-e1000-iommu", "e1000 под VT-d (q35): свой домен, проверка принуждения, кольца выданы устройству, DHCP и ping работают", [
         {"log": BOOT_LOG}, {"sleep": 8},
         {"log": [r"\[KIRA IOMMU\] e1000: enforcement check passed", r"\[KIRA NET\] e1000 \(8086:"]},

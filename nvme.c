@@ -4,6 +4,10 @@
 #include "uart.h"
 #include "kmutex.h"
 #include "msi.h"
+#ifndef KIRA_HOST_TEST
+#include "iommu.h"
+#include "pmm.h"
+#endif
 
 /* NVMe: регистры в памяти (BAR0), очереди команд и завершений в памяти, «дверные звонки» по смещению 0x1000 с шагом
    из CAP.DSTRD. Порядок по спецификации NVMe 1.4: выключить контроллер (CC.EN = 0, ждать CSTS.RDY = 0), очереди
@@ -238,6 +242,11 @@ static void nvme_irq(void* ctx) { irqwait_fire(&((nvme_ctl_t*)ctx)->iw); }
 
 static void ctl_init(const pci_dev_t* pd, int ci) {
     if (pd->bar[0].io || !pd->bar[0].base || pd->bar[0].size < 0x2000) { uart_print("[KIRA NVMe] controller without BAR0: skipped\n"); return; }
+    int iso = 0;
+    (void)iso;
+#ifndef KIRA_HOST_TEST
+    iso = iommu_isolate_device(pd) == 0;                                /* свой домен VT-d без отображений - до включения bus mastering */
+#endif
     pci_enable(pd, PCI_CMD_MEM | PCI_CMD_MASTER | PCI_CMD_INTX_OFF);
     nvme_ctl_t* c = &ctls[ci];
     for (unsigned i = 0; i < sizeof *c; i++) ((uint8_t*)c)[i] = 0;
@@ -275,6 +284,31 @@ static void ctl_init(const pci_dev_t* pd, int ci) {
 
     w32(rg, R_CC, r32(rg, R_CC) & ~1u);                                 /* выключить */
     if (wait_rdy(c, 0)) { uart_print("[KIRA NVMe] controller does not stop\n"); return; }
+#ifndef KIRA_HOST_TEST
+    if (iso) {
+        /* Проверка принуждения IOMMU: очередь команд указывает на невыданную память, звонок в дверной колокольчик - контроллер идёт за командой
+           и должен получить отказ (запись нарушения). Не получил - изоляция не объявляется, домен снимается. */
+        uint64_t cp; void* cm = virtio_dma_alloc(PAGE, &cp);
+        int seen = 0;
+        if (cm) {
+            uint32_t before = iommu_fault_count(pd);
+            w32(rg, R_AQA, (uint32_t)(QN - 1) << 16 | (QN - 1));
+            w64(rg, R_ASQ, cp); w64(rg, R_ACQ, cp);
+            w32(rg, R_CC, (6u << 16) | (4u << 20) | 1u);
+            if (wait_rdy(c, 1) == 0) {
+                w32(rg, 0x1000, 1);                                     /* хвост очереди администратора: одна команда */
+                for (uint32_t i = 0; i < 200000 && !seen; i++) { (void)iommu_fault_poll(); seen = iommu_fault_count(pd) > before; if (!seen) cpu_relax(); }
+            }
+            w32(rg, R_CC, r32(rg, R_CC) & ~1u);
+            (void)wait_rdy(c, 0);
+            pmm_free_contiguous(cp, 1);
+        }
+        if (seen) uart_print("[KIRA IOMMU] nvme: enforcement check passed - DMA to memory that was not granted is blocked.\n");
+        else { uart_print("[KIRA IOMMU] nvme: no DMA fault seen in the enforcement check: isolation NOT confirmed, device stays passthrough.\n"); iommu_release_device(pd); iso = 0; }
+        if (iso && (iommu_map(pd, c->mem_phys, c->mem_phys, 5 * PAGE, IOMMU_R | IOMMU_W) || iommu_map(pd, c->buf_phys, c->buf_phys, BOUNCE, IOMMU_R | IOMMU_W) ||
+                    iommu_map(pd, c->prp_phys, c->prp_phys, PAGE, IOMMU_R | IOMMU_W))) { uart_print("[KIRA NVMe] could not grant buffers to the controller\n"); return; }
+    }
+#endif
     w32(rg, R_AQA, (uint32_t)(QN - 1) << 16 | (QN - 1));
     w64(rg, R_ASQ, c->q[0].sq_phys);
     w64(rg, R_ACQ, c->q[0].cq_phys);
