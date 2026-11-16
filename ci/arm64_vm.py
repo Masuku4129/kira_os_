@@ -355,16 +355,42 @@ def host_resolves(name="example.com"):
     except OSError: return False
 
 
-def hermetic_hosts(d):
-    """Проверка «dns example.com» спрашивает имя у хозяина через QEMU (libslirp зовёт getaddrinfo хозяина). Без выхода в
-    интернет хозяин имя не знает, и гость честно получает «такого имени нет»: падение стендовое, не ядра. Тогда QEMU
-    запускается в своём пространстве монтирования, где /etc/hosts дополнен адресом example.com; гость по-прежнему
-    обязан сам отправить DNS-запрос и разобрать ответ. Возвращает приставку команды (или [], если хозяин имя знает)."""
-    if host_resolves() or not shutil.which("unshare"): return []
-    hosts = os.path.join(d, "hosts")
-    with open("/etc/hosts") as f: txt = f.read()
-    open(hosts, "w").write(txt + "\n93.184.216.34 example.com\n")
-    return ["unshare", "-m", "sh", "-c", 'mount --bind "$0" /etc/hosts && exec "$@"', hosts]
+FAKE_DNS_ADDR = "93.184.216.34"
+
+
+def fake_dns_server():
+    """Маленький DNS-ответчик на 127.0.0.1:53: на запрос A отвечает FAKE_DNS_ADDR, на остальные типы - пустой ответ. Нужен, когда
+    у хозяина нет интернета (QEMU user пересылает запросы гостя на DNS из /etc/resolv.conf хозяина)."""
+    import threading
+    srv = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); srv.bind(("127.0.0.1", 53)); srv.settimeout(0.5)
+    stop = threading.Event()
+    def loop():
+        while not stop.is_set():
+            try: q, addr = srv.recvfrom(512)
+            except socket.timeout: continue
+            except OSError: break
+            if len(q) < 12: continue
+            end = 12
+            while end < len(q) and q[end]: end += q[end] + 1
+            qsec = q[12:end + 5]; qtype = struct.unpack(">H", q[end + 1:end + 3])[0] if end + 3 <= len(q) else 0
+            hdr = q[:2] + struct.pack(">HHHHH", 0x8180, 1, 1 if qtype == 1 else 0, 0, 0)
+            ans = b"\xc0\x0c" + struct.pack(">HHIH", 1, 1, 60, 4) + socket.inet_aton(FAKE_DNS_ADDR) if qtype == 1 else b""
+            srv.sendto(hdr + qsec + ans, addr)
+        srv.close()
+    t = threading.Thread(target=loop, daemon=True); t.start()
+    return lambda: (stop.set(), t.join(2))
+
+
+def hermetic_dns(d):
+    """Проверка «dns example.com»: у хозяина без интернета имя не разрешается, и гость честно получает «такого имени нет» -
+    падение стендовое, не ядра. Тогда QEMU запускается в своём пространстве монтирования, где /etc/resolv.conf указывает
+    на локальный ответчик (fake_dns_server); гость по-прежнему сам шлёт DNS-запрос и разбирает ответ. Возвращает
+    (приставка команды, функция остановки); если хозяин имя знает - ([], None)."""
+    if host_resolves() or not shutil.which("unshare"): return [], None
+    rc = os.path.join(d, "resolv.conf"); open(rc, "w").write("nameserver 127.0.0.1\n")
+    try: stop = fake_dns_server()
+    except OSError: return [], None
+    return ["unshare", "-m", "sh", "-c", 'mount --bind "$0" /etc/resolv.conf && exec "$@"', rc], stop
 
 
 def run(sc, out):
@@ -419,7 +445,9 @@ def run(sc, out):
         args += ["-audiodev", "none,id=snd0", "-device", "intel-hda", "-device", "hda-duplex,audiodev=snd0"]
         args += ["-device", "virtio-gpu-pci", "-device", "virtio-keyboard-pci", "-device", "virtio-tablet-pci",
                  "-qmp", f"unix:{qmp_path},server=on,wait=off"]
-    if sc.get("net"): args = hermetic_hosts(d) + args
+    stop_dns = None
+    if sc.get("net"):
+        pre, stop_dns = hermetic_dns(d); args = pre + args
     p = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     log = b""; t0 = time.time(); err = None
     print("[ARM64] scenario starting: " + sc["name"], flush=True)
@@ -537,6 +565,7 @@ def run(sc, out):
                     if re.search(rx, text): err = f"в журнале «{rx}»"; break
     finally:
         p.kill(); p.wait()
+        if stop_dns: stop_dns()
         open(os.path.join(d, "serial.log"), "wb").write(log)
         for im in ("disk.img", "flash.img", "vars.fd"):
             if os.path.exists(os.path.join(d, im)): os.unlink(os.path.join(d, im))
