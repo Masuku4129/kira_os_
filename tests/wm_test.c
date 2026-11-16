@@ -41,6 +41,52 @@ static void same_as_full(surface_t* scr, const char* what) {
 }
 
 
+
+/* Перерисовка только изменившихся полос содержимого (wm_invalidate_diff) даёт ту же картинку, что полная перерисовка:
+   случайные правки строк и столбцов, обычное и уменьшенное окно, сокрытие/показ, изменение размера. */
+static void diff_invalidate(void) {
+    surface_t sc = { calloc(1024 * 768, 4), 1024, 768, 1024 };
+    wm_ops_t ops = { al, nt, inp, lc, rz, tb, 0, rel };
+    wm_init(&sc, &ops);
+    wm_side_set(0, 0);
+    int ids[2];
+    ids[0] = wm_create("diff1", 100, 80, 300, 200, WM_CLOSABLE);
+    ids[1] = wm_create_ex("diff2", 450, 100, 700, 560, WM_RESIZABLE | WM_ZOOMABLE, 900, 700);   /* не помещается: уменьшается */
+    unsigned seed = 12345;
+    for (int n = 0; n < 2; n++) {
+        surface_t* c = wm_content(ids[n]);
+        for (int j = 0; j < c->h; j++) for (int i = 0; i < c->w; i++) c->px[j * c->pitch + i] = (uint32_t)((i * 3 + j * 5) & 0xFFFFFF);
+        wm_invalidate_diff(ids[n]);
+    }
+    same_as_full(&sc, "diff: первая отрисовка");
+    for (int it = 0; it < 150; it++) {
+        int n = it & 1;
+        surface_t* c = wm_content(ids[n]);
+        int edits = 1 + (int)(seed = seed * 1103515245u + 12345u) % 4;
+        for (int e = 0; e < edits; e++) {
+            seed = seed * 1103515245u + 12345u; int y0 = (int)(seed >> 8) % c->h;
+            seed = seed * 1103515245u + 12345u; int x0 = (int)(seed >> 8) % c->w;
+            seed = seed * 1103515245u + 12345u; int h = 1 + (int)(seed >> 8) % 12;
+            seed = seed * 1103515245u + 12345u; int w = 1 + (int)(seed >> 8) % 40;
+            seed = seed * 1103515245u + 12345u; uint32_t col = (seed >> 4) & 0xFFFFFF;
+            for (int j = y0; j < y0 + h && j < c->h; j++) for (int i = x0; i < x0 + w && i < c->w; i++) c->px[j * c->pitch + i] = col;
+        }
+        if (it % 37 == 36) { wm_set_visible(ids[n], 0); c->px[5 * c->pitch + 7] ^= 0x123456; wm_invalidate_diff(ids[n]); wm_set_visible(ids[n], 1); }
+        wm_invalidate_diff(ids[n]);
+        same_as_full(&sc, "diff: правки");
+    }
+    /* Смена окна в фокусе (создание, сокрытие, закрытие) не оставляет свечения и стекла прежнего вида. */
+    int extra = wm_create("focus", 20, 600, 200, 100, WM_CLOSABLE);
+    same_as_full(&sc, "фокус: новое окно");
+    wm_set_visible(extra, 0);
+    same_as_full(&sc, "фокус: окно скрыто");
+    wm_set_visible(extra, 1);
+    wm_destroy(extra);
+    same_as_full(&sc, "фокус: окно закрыто");
+    wm_destroy(ids[0]); wm_destroy(ids[1]);
+    free(sc.px);
+}
+
 /* Док: состояния значка (нет окна / свёрнуто / открыто / в фокусе), щелчки, несколько окон одной программы,
    сжатие плиток, когда значков много. Полоса под плиткой: длинная цветная - открыто, короткая тусклая точка - свёрнуто. */
 static uint32_t ind(surface_t* sc, int i) { int sx, sy; wm_side_center(i, &sx, &sy); frame(); return px(sc, sx, sy + wm_side_tile() / 2 + 4); }
@@ -523,8 +569,9 @@ int main(void) {
     }
 
     dock_states();
+    diff_invalidate();
     responsive_topbar();
     printf("wm: shell top bar (responsive tabs and fitted app windows at 640x480, 800x600, 1024x768, 1280x720, 1920x1080; clock and meters), side launcher, traffic-light buttons, z-order, damage, drag, "
-           "fullscreen, pinned, app and kernel input, zoom, owner resize, live background, culling = full redraw, dock states / cycling / compression passed\n");
+           "fullscreen, pinned, app and kernel input, zoom, owner resize, live background, culling = full redraw, partial content redraw = full, dock states / cycling / compression passed\n");
     return 0;
 }

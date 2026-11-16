@@ -250,7 +250,24 @@ static void click_side(int i) { int x, y; wm_side_center(i, &x, &y); click(x, y)
 static void click_in(int id, int x, int y) { int ox, oy, s; wm_content_origin(id, &ox, &oy, &s); int z = wm_zoom_percent(id); click(ox + x * z / 100, oy + y * z / 100); }   /* x, y - в содержимом; окно может быть уменьшено под Dock */
 
 static char outdir[64] = "/tmp/kira_gfx";
-static void save_shot(const char* name) { char p[128]; snprintf(p, sizeof p, "%s/%s", outdir, name); save_ppm(p); }
+static void save_shot(const char* name) {
+    /* Показанный кадр (собранный по изменённым местам, с отсечением и частичной перерисовкой окон) обязан совпадать
+       с кадром, собранным заново целиком. */
+    int fx, fy, fw, fh;
+    wm_compose(&fx, &fy, &fw, &fh);                          /* события могли прийти после последнего кадра: показываем то, что собрано по ним */
+    size_t n = (size_t)screen.w * (size_t)screen.h;
+    uint32_t* snap = malloc(n * 4);
+    for (int j = 0; j < screen.h; j++) memcpy(snap + (size_t)j * screen.w, screen.px + (long)j * screen.pitch, (size_t)screen.w * 4);
+    if (getenv("KIRA_SAVE_INC")) { char q[140]; snprintf(q, sizeof q, "%s/%s.inc", outdir, name); save_ppm(q); }
+    wm_set_culling(0); wm_invalidate_all(); wm_compose(&fx, &fy, &fw, &fh); wm_set_culling(1);
+    long bad = 0, first = -1;
+    for (int j = 0; j < screen.h; j++)
+        for (int i = 0; i < screen.w; i++)
+            if (snap[(size_t)j * screen.w + i] != screen.px[(long)j * screen.pitch + i]) { if (first < 0) first = (long)j * screen.w + i; bad++; }
+    if (bad) { printf("FAIL %s: показанный кадр отличается от полной перерисовки на %ld точек (первая %ld,%ld)\n", name, bad, first % screen.w, first / screen.w); fails++; }
+    free(snap);
+    char p[128]; snprintf(p, sizeof p, "%s/%s", outdir, name); save_ppm(p);
+}
 
 int main(int argc, char** argv) {
     int W = argc > 2 ? atoi(argv[1]) : 1024, H = argc > 2 ? atoi(argv[2]) : 768;   /* разрешение: аргументы */

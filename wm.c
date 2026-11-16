@@ -25,6 +25,8 @@ typedef struct {
     char tag[16];
     surface_t content;
     const volatile uint32_t* seq;
+    uint32_t* shadow;                 /* копия содержимого, как его видит композитор (для wm_invalidate_diff) */
+    int shadow_ok, sh_w, sh_h;
 } win_t;
 
 static surface_t* scr;
@@ -157,6 +159,13 @@ static void geom(const win_t* w, int* ox, int* oy, int* dw, int* dh) {
 static void damage_win(const win_t* w) {
     if (w->full) damage(0, 0, scr->w, scr->h);
     else damage(w->x - WM_GLOW, w->y - WM_GLOW, w->x + outer_w(w) + WM_GLOW, w->y + outer_h(w) + WM_GLOW);
+}
+/* Свечение и стеклянность рамки зависят от того, какое окно в фокусе: сменился верхний - перерисовать оба. */
+static void focus_moved(int prev_top) {
+    int now = wm_top();
+    if (now == prev_top) return;
+    if (prev_top >= 0 && win[prev_top].used) damage_win(&win[prev_top]);
+    if (now >= 0) damage_win(&win[now]);
 }
 static void damage_cursor(void) { damage(cx, cy, cx + CUR_W, cy + CUR_H); }
 static void damage_top(void) { damage(0, 0, scr->w, WM_TOP_H); }
@@ -500,6 +509,7 @@ static int create_in(const char* title, int x, int y, int cw, int ch, int flags,
     int id = -1;
     for (int i = 0; i < WM_MAX_WIN; i++) if (!win[i].used) { id = i; break; }
     if (id < 0) return -1;
+    int prev_top = wm_top();
     if (!mem) {
         /* Окна ядра должны иметь парный alloc/release: иначе закрытие окна
            навсегда теряло бы выделенные страницы. Память Ring 3 приходит извне. */
@@ -510,6 +520,7 @@ static int create_in(const char* title, int x, int y, int cw, int ch, int flags,
     }
     win_t* w = &win[id];
     w->used = 1; w->visible = 1; w->full = 0; w->seq = 0;
+    w->shadow = 0; w->shadow_ok = 0; w->sh_w = w->sh_h = 0;
     w->closable = (flags & WM_CLOSABLE) != 0; w->pinned = (flags & WM_PINNED) != 0; w->user = user;
     w->input = (flags & WM_INPUT) != 0;
     str_copy(w->title, title, sizeof(w->title));
@@ -530,6 +541,7 @@ static int create_in(const char* title, int x, int y, int cw, int ch, int flags,
         zorder[0] = id; zcount++;
     } else zorder[zcount++] = id;
     damage_win(w);
+    focus_moved(prev_top);
     damage_side();
     damage_top();
     return id;
@@ -560,12 +572,15 @@ void wm_set_frame_seq(int id, const volatile uint32_t* seq) {
 
 void wm_destroy(int id) {
     if (id < 0 || id >= WM_MAX_WIN || !win[id].used) return;
+    int prev_top = wm_top();
     damage_win(&win[id]);
     win_t* w = &win[id];
     uint32_t* owned = w->user ? 0 : w->content.px;
     uint64_t owned_bytes = (uint64_t)(unsigned)w->cap_w * (uint64_t)(unsigned)w->cap_h * sizeof(uint32_t);
     w->used = 0; w->visible = 0;
     if (owned && ops.release) ops.release(owned, owned_bytes);
+    if (w->shadow && ops.release) ops.release(w->shadow, owned_bytes);
+    w->shadow = 0; w->shadow_ok = 0;
     int j = 0;
     for (int i = 0; i < zcount; i++) if (zorder[i] != id) zorder[j++] = zorder[i];
     zcount = j;
@@ -573,6 +588,7 @@ void wm_destroy(int id) {
     if (resizing == id) resizing = -1;
     if (capture == id) capture = -1;
     if (light_hover == id) light_hover = -1;
+    focus_moved(prev_top);
     damage_side();
     damage_top();
 }
@@ -660,9 +676,12 @@ void wm_set_visible(int id, int v) {
     if (id < 0 || id >= WM_MAX_WIN || !win[id].used) return;
     v = v != 0;
     if (win[id].visible == v) return;
+    int prev_top = wm_top();
     win[id].visible = v;
+    win[id].shadow_ok = 0;                     /* пока окно было скрыто, содержимое могло уйти от копии */
     if (v) wm_raise(id);
     damage_win(&win[id]);
+    focus_moved(prev_top);
     damage_side();
     damage_top();
 }
@@ -712,6 +731,60 @@ void wm_invalidate(int id) {
     win_t* w = &win[id];
     int ox, oy, dw, dh; geom(w, &ox, &oy, &dw, &dh);
     damage(ox, oy, ox + dw, oy + dh);
+}
+
+
+/* Перерисовать только то, что изменилось в содержимом окна. Приложения ядра (Разум, Монитор, Проводник, Настройки)
+   рисуют окно целиком каждый раз, а меняется обычно пара строк; без сравнения композитор пересобирал бы весь
+   прямоугольник окна (сотни тысяч точек, ~60 нс на точку). Здесь содержимое сравнивается с копией того, что уже
+   показано, и в композитор уходят только изменившиеся полосы строк, каждая со своими границами по x.
+   Если копии нет, размер окна менялся или окно было скрыто - перерисовывается всё окно, как раньше. */
+#define DIFF_GAP 6                 /* неизменные строки меньше этого не разрывают полосу */
+void wm_invalidate_diff(int id) {
+    if (id < 0 || id >= WM_MAX_WIN || !win[id].used) return;
+    win_t* w = &win[id];
+    if (!w->visible) { w->shadow_ok = 0; return; }
+    int cw = w->content.w, ch = w->content.h;
+    if (!w->shadow && ops.alloc && ops.release)
+        w->shadow = (uint32_t*)ops.alloc((uint64_t)w->cap_w * (uint64_t)w->cap_h * sizeof(uint32_t));
+    uint32_t* sh = w->shadow;
+    int spitch = w->cap_w;
+    if (!sh) { wm_invalidate(id); return; }
+    if (!w->shadow_ok || w->sh_w != cw || w->sh_h != ch) {          /* нечего сравнивать: всё окно */
+        for (int j = 0; j < ch; j++) __builtin_memcpy(sh + (long)j * spitch, w->content.px + (long)j * w->content.pitch, (size_t)cw * 4);
+        w->shadow_ok = 1; w->sh_w = cw; w->sh_h = ch;
+        wm_invalidate(id);
+        return;
+    }
+    int ox, oy, dw, dh; geom(w, &ox, &oy, &dw, &dh);
+    int scaled = dw != cw || dh != ch;
+    int bs = -1, be = 0, bx0 = 0, bx1 = 0;                           /* текущая полоса: строки [bs,be), столбцы [bx0,bx1) */
+    for (int j = 0; j <= ch; j++) {
+        int x0 = 0, x1 = 0, diff = 0;
+        if (j < ch) {
+            const uint32_t* a = w->content.px + (long)j * w->content.pitch;
+            uint32_t* b = sh + (long)j * spitch;
+            int i = 0;
+            while (i < cw && a[i] == b[i]) i++;
+            if (i < cw) {
+                int k = cw - 1;
+                while (a[k] == b[k]) k--;
+                x0 = i; x1 = k + 1; diff = 1;
+                __builtin_memcpy(b + i, a + i, (size_t)(x1 - x0) * 4);
+            }
+        }
+        if (diff) {
+            if (bs < 0) { bs = j; bx0 = x0; bx1 = x1; }
+            else { if (x0 < bx0) bx0 = x0; if (x1 > bx1) bx1 = x1; }
+            be = j + 1;
+        }
+        if (bs >= 0 && (j == ch || (!diff && j - be >= DIFF_GAP))) {   /* полоса закончилась */
+            int m = scaled ? 1 : 0;
+            damage(ox + bx0 * dw / cw - m, oy + bs * dh / ch - m,
+                   ox + (bx1 * dw + cw - 1) / cw + m, oy + (be * dh + ch - 1) / ch + m);
+            bs = -1;
+        }
+    }
 }
 
 void wm_invalidate_rows(int id, int y0, int y1) {
@@ -1609,7 +1682,8 @@ static void compose_rect(int fs, int x0, int y0, int x1, int y1) {
             }
             if (above_hits) continue;
             if (x0 >= ccx && y0 >= ccy && x1 <= ccx + cw && y1 <= ccy + ch) { start = k; content_only = 1; }
-            else if (x0 >= wn->x + PANEL_R && y0 >= wn->y + PANEL_R &&
+            else if ((wn->full || !wp_rgb) &&                       /* рамка окна полупрозрачна (стекло над живым фоном): под ней нужно рисовать нижние слои */
+                     x0 >= wn->x + PANEL_R && y0 >= wn->y + PANEL_R &&
                      x1 <= wn->x + outer_w(wn) - PANEL_R && y1 <= wn->y + outer_h(wn) - PANEL_R) start = k;
             else if (x0 < wn->x + outer_w(wn) + WM_GLOW && x1 > wn->x - WM_GLOW && y0 < wn->y + outer_h(wn) + WM_GLOW && y1 > wn->y - WM_GLOW) break;
         }

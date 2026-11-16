@@ -113,14 +113,14 @@ static char side_names[SIDE_N][16];
 static int side_n;
 static char side_sig[SIDE_N * 17];                         /* что показано сейчас: пересобирать только при изменении */
 
-static void draw_mind(void) { if (wm_visible(w_mind)) { app_mind_draw(wm_content(w_mind), &mv, mind_page); wm_invalidate(w_mind); } }
+static void draw_mind(void) { if (wm_visible(w_mind)) { app_mind_draw(wm_content(w_mind), &mv, mind_page); wm_invalidate_diff(w_mind); } }
 
 static void draw_monitor(void) {
     if (!wm_visible(w_mon)) return;
     static thread_info_t ti[64];
     unsigned n = sched_snapshot(ti, 64);
     app_monitor_draw(wm_content(w_mon), &mv, n);
-    wm_invalidate(w_mon);
+    wm_invalidate_diff(w_mon);
 }
 
 static int cur_prog_pinned(void);
@@ -128,7 +128,7 @@ static int cur_prog_pinned(void);
 static void draw_files(void) {
     if (!wm_visible(w_files)) return;
     app_files_draw(wm_content(w_files), &ev, &files_hover, files_drop, files_status, cur_prog_pinned());
-    wm_invalidate(w_files);
+    wm_invalidate_diff(w_files);
 }
 
 static void settings_state(app_settings_t* s) {
@@ -143,7 +143,7 @@ static void draw_settings(void) {
     if (!wm_visible(w_set)) return;
     app_settings_t s; settings_state(&s);
     app_settings_draw(wm_content(w_set), &s, set_hover);
-    wm_invalidate(w_set);
+    wm_invalidate_diff(w_set);
 }
 
 static void redraw_app(int id) {

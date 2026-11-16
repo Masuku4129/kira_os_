@@ -85,6 +85,7 @@ void wm_raise(int id);
 int  wm_top(void);                                 /* верхнее видимое не закреплённое окно или -1 */
 void wm_invalidate(int id);
 void wm_invalidate_rows(int id, int y0, int y1);
+void wm_invalidate_diff(int id);                   /* только изменившиеся полосы содержимого (сравнение с копией) */
 void wm_invalidate_all(void);
 void wm_set_culling(int on);
 /* Верхняя панель и домашняя карточка: дата/время, загрузка CPU, память и здоровье Mind.
