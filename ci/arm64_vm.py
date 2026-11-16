@@ -24,7 +24,7 @@ SC = [
                ("disk", [r"\[системный\]", r"прерываний устройств \(MSI\): [1-9]"]), ("df", [r"KiraFS"]),
                ("write /hello.txt kira-arm64", []), ("cat /hello.txt", [r"kira-arm64"]), ("ls /", [r"hello.txt"]),
                ("ai", [r"предвидение: риск опоздания экрана", r"здоровье \d+"]), ("ai model", [r"обучено на \d+ с"]),
-               ("ai levers", [r"13\. вес окна в фокусе: 6 /4 \(обычно 6\)", r"16\. период тактики: 25 мс", r"21\. предел одного запроса к диску: 256 блоков", r"23\. окно предела доли процессора: 50 тиков", r"смен значений за запуск \d+"]),
+               ("ai levers", [r"13\. вес окна в фокусе: 6 /4 \(обычно 6\)", r"16\. период тактики: (25 мс \(обычно 25\)|\d+ мс \(обычно 25\) - идёт проба)", r"21\. предел одного запроса к диску: 256 блоков", r"23\. окно предела доли процессора: 50 тиков", r"смен значений за запуск \d+"]),
                ("ai save", [r"опыт записан"]),
                ("ai cap 70", [r"70%"]),
                ("ls /bin", [r"mt", r"ipc"]),
@@ -241,6 +241,46 @@ SC = [
                ("test smp", [r"RESULT: PASS", r"preempted by tick"]),
                ("mt", [r"mt: .* - PASS"]), ("test ipc", [r"ipc server: .* - PASS", r"ipc client: .* - PASS"]),
                ("ps", [r"core\s+RUNNING", r"idle"]), ("df", [r"KiraFS"])]),
+    # Паритет с x86-64 (docs/architecture/PARITY_ARM64.md): службы ksvc на портах (kira.gfx, kira.fs), SYS_PORT_WAIT, потоки и futex,
+    # вещественная арифметика/NEON и 3D-движок k3d с потоками, замер обмена, Python/ksh на WebAssembly; экран virtio-gpu.
+    dict(name="arm64-parity", m="virt,gic-version=3", cpu="cortex-a72", smp=4, mem="1G", disk="virtio-blk-pci", gui=True, files=True,
+         allow=[r"process terminated"],
+         must=[r"\[KIRA GPU\] virtio-gpu: \d+x\d+ 2D scanout", r"\[KIRA DISPLAY\] Shell online", r"Processors online: 4 of 4"],
+         cmds=[("@sleep 2", []),
+               ("@log \\[KIRA GFXCTL\\] port kira\\.gfx ready", []), ("@log \\[KIRA FSSVC\\] port kira\\.fs ready", []),
+               ("test gfxport", [r"gfxport: screen \d+x\d+, \d+ checks, 0 failed - PASS"]),
+               ("test fsport", [r"fsport: \d+ checks, 0 failed - PASS"]),
+               ("test ipc", [r"ipcx: foreign-domain open of a public shared-memory object refused \(PASS\)",
+                             r"ipc client: descriptors passed through messages \(private port and shared memory, both directions\) \(PASS\)",
+                             r"ipc server: descriptors received through messages: client's private port and shared memory \(PASS\)",
+                             r"ipc server: wait on two ports: messages from both seen, timeout and duplicate refused \(PASS\)"]),
+               ("test threads", [r"mt: .* - PASS"]),
+               ("test fpu", [r"fpu: rounds \d+, mismatches 0 - PASS"]),
+               ("run cube3d bench threads=3", [r"cube3d: selftest PASS", r"cube3d: k3d engine running, 3 helper threads", r"cube3d: bench helpers=0: \d+ frames",
+                                               r"cube3d: bench helpers=3: \d+ frames", r"cube3d: bench speedup x\d+\.\d+"]),
+               ("test ipcbench", [r"ipcbench: round trip, polling two ports \(before\)", r"ipcbench: round trip, waiting on two ports \(after\)",
+                                  r"ipcbench: round trip, one port \(floor\)", r"ipcbench: 1 MiB by one shared-memory attachment \(after\)", r"ipcbench: done"]),
+               ("python -c print(6*7)", [r"wasm: /wasm/python\.wasm - \d+ functions", r"\[USER pid \d+\] 42\b", r"wasm: finished with code 0"]),
+               ("write /data/wasm/t.sh for i in 1 2 3; do echo n=$((i*i)); done", []),
+               ("ksh t.sh", [r"wasm: /wasm/ksh\.wasm - \d+ functions", r"n=9\b", r"wasm: finished with code 0"]),
+               ("ps", [r"core\s+RUNNING"])]),
+    # IPv6 на ARM64 (virtio-net, QEMU user ipv6=on): адрес канала + DAD, RA -> SLAAC, ND, ping6. Серверы IPv6 хозяина (net6 UDP/TCP) стенд ARM64 пока не поднимает.
+    dict(name="arm64-ipv6", m="virt,gic-version=3", cpu="cortex-a72", smp=2, mem="512M", disk="virtio-blk-pci", net="virtio", netdev="ipv4=on,ipv6=on",
+         must=[r"Processors online: 2 of 2"],
+         cmds=[("@sleep 10", []),
+               ("@log \\[KIRA NET\\] IPv6: fe80::5054:ff:fe12:3456 \\(link-local, DAD passed\\) ready", []),
+               ("@log \\[KIRA NET\\] IPv6: router advertisement from fe80::", []),
+               ("@log \\[KIRA NET\\] IPv6: fec0::5054:ff:fe12:3456 \\(SLAAC /64, DAD passed\\) ready", []),
+               ("net", [r"IPv6: fec0::5054:ff:fe12:3456/64 \(SLAAC\)", r"IPv6: соседей в кэше [1-9]"]),
+               ("ping6 fec0::2 3", [r"ответ от fec0::2", r"отправлено 3, получено [1-3]"])]),
+    # Планировщик с очередями на ядро на 8 ядрах ARM64: плазма x8 + burnall, отклик консоли, замеры замков очередей
+    dict(name="arm64-sched8", m="virt,gic-version=3", cpu="cortex-a72", smp=8, mem="2G", disk="virtio-blk-pci", gui=True, ready_timeout=90,
+         must=[r"Processors online: 8 of 8", r"working timer interrupt: 8 of 8", r"\[KIRA DISPLAY\] Shell online"],
+         cmds=[("@sleep 2", [])] + [("plasma", []) for _ in range(8)] +
+               [("burnall", []), ("@sleep 5", []), ("burnall", []), ("@sleep 6", []),
+                ("status", [r"interrupts: GICv3"]), ("ps", [r"plasma"]), ("smp", [r"core 7: MPIDR 0x0+7, online, ticks [1-9]"]),
+                ("ai", [r"замок планировщика: ядра ждут его \d+,\d% времени; взятий с ожиданием \d+ из \d+; затяжных ожиданий \d+"]),
+                ("status", [r"interrupts: GICv3"])]),
 ]
 
 
@@ -358,7 +398,10 @@ def run(sc, out):
         srv = os.path.abspath(os.path.join(os.path.dirname(__file__), "http_once.py"))
         nic = "virtio-net-pci" if sc["net"] == "virtio" else "e1000"
         tls = os.path.abspath(os.path.join(os.path.dirname(__file__), "https_once.py"))
-        args += ["-netdev", f"user,id=n0,guestfwd=tcp:10.0.2.100:80-cmd:python3 {srv},guestfwd=tcp:10.0.2.100:443-cmd:python3 {tls} --chain {os.path.abspath("ci-out/tlschain")},guestfwd=tcp:10.0.2.100:8443-cmd:python3 {tls} --self {os.path.abspath("ci-out/tlschain")},hostfwd=tcp:127.0.0.1:18081-:8080,hostfwd=udp:127.0.0.1:18083-:9000",
+        if sc.get("netdev"):                        # своя настройка сети QEMU user (например IPv6)
+            args += ["-netdev", "user,id=n0," + sc["netdev"], "-device", f"{nic},netdev=n0"]
+        else:
+          args += ["-netdev", f"user,id=n0,guestfwd=tcp:10.0.2.100:80-cmd:python3 {srv},guestfwd=tcp:10.0.2.100:443-cmd:python3 {tls} --chain {os.path.abspath("ci-out/tlschain")},guestfwd=tcp:10.0.2.100:8443-cmd:python3 {tls} --self {os.path.abspath("ci-out/tlschain")},hostfwd=tcp:127.0.0.1:18081-:8080,hostfwd=udp:127.0.0.1:18083-:9000",
                  "-device", f"{nic},netdev=n0"]
     else:
         args += ["-nic", "none"]
