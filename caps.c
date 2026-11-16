@@ -72,7 +72,7 @@ static const struct { const char* name; uint32_t caps_max; unsigned procs; uint3
     [DOM_SYSTEM]    = { "system",    CAP_GFX | CAP_NET | CAP_FS | CAP_SYSFILES | CAP_THREAD | CAP_PCILIST, 4,
                         (1u << DOM_COUNT) - 1 },
     [DOM_DRIVER]    = { "driver",    CAP_DRIVER_, 16, 1u << DOM_DRIVER },
-    [DOM_MEDIA]     = { "media",     CAP_GFX | CAP_FS | CAP_GRANT | CAP_SND | CAP_REC | CAP_IPC, 16, 1u << DOM_MEDIA },
+    [DOM_MEDIA]     = { "media",     CAP_GFX | CAP_FS | CAP_GRANT | CAP_SND | CAP_REC | CAP_IPC | CAP_THREAD, 16, 1u << DOM_MEDIA },
     [DOM_NET]       = { "net",       CAP_NET | CAP_NET_SERVE | CAP_UDP | CAP_FS | CAP_SYSFILES, 8, 1u << DOM_NET },
     [DOM_TOOLS]     = { "tools",     CAP_GFX | CAP_FS | CAP_GRANT | CAP_JIT | CAP_IPC | CAP_THREAD | CAP_STDIN, 16, 1u << DOM_TOOLS },
     [DOM_UNTRUSTED] = { "untrusted", 0, 16, 1u << DOM_UNTRUSTED },
