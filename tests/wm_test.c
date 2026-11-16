@@ -441,6 +441,20 @@ int main(void) {
     wm_set_subtitle(a, "ядро");
     CHECK(wm_compose(&x, &y, &w, &h));
 
+    /* батарея: нет батареи - панель не перерисовывается; появилась - перерисовка один раз; заряд изменился - ещё раз; снова нет - и индикатор исчезает */
+    wm_set_battery(0, -1, 0);
+    CHECK(!wm_compose(&x, &y, &w, &h));
+    wm_set_battery(1, 56, 0);
+    CHECK(wm_compose(&x, &y, &w, &h));
+    wm_set_battery(1, 56, 0);
+    CHECK(!wm_compose(&x, &y, &w, &h));
+    wm_set_battery(1, 55, 1);
+    CHECK(wm_compose(&x, &y, &w, &h));
+    wm_set_battery(0, -1, 0);
+    CHECK(wm_compose(&x, &y, &w, &h));
+    wm_set_battery(0, -1, 0);
+    CHECK(!wm_compose(&x, &y, &w, &h));
+
     /* окно, созданное с WM_AUTO, помещается на экран правее боковой панели */
     int au = wm_create("auto", WM_AUTO, WM_AUTO, 680, 432, 0);
     int axx, ayy; wm_window_pos(au, &axx, &ayy);

@@ -54,6 +54,7 @@ static surface_t bgs;
 static char clock_date[48], clock_hm[8];
 static uint8_t m_busy[64];
 static int m_cores, m_mem = -1, m_health = -1;
+static int m_bat_on, m_bat_pct = -1, m_bat_chg;
 static int fx_level = 3;
 static uint32_t anim_ms;
 #define WM_NOTIFY_MAX 3
@@ -817,6 +818,16 @@ void wm_set_clock(const char* date, const char* hm) {
     damage_home();
 }
 
+void wm_set_battery(int present, int percent, int charging) {
+    present = present ? 1 : 0;
+    if (percent > 100) percent = 100;
+    if (percent < 0) percent = -1;
+    if (!present) { percent = -1; charging = 0; }
+    if (present == m_bat_on && percent == m_bat_pct && (charging ? 1 : 0) == m_bat_chg) return;
+    m_bat_on = present; m_bat_pct = percent; m_bat_chg = charging ? 1 : 0;
+    damage_top();
+}
+
 void wm_set_meters(const uint8_t* busy, int ncores, int mem_pct, int health) {
     if (ncores > 64) ncores = 64;
     int changed = ncores != m_cores || mem_pct != m_mem || health != m_health;
@@ -1396,6 +1407,24 @@ static void draw_home(surface_t* c, int ox, int oy) {
 static int topbar_right(surface_t* c, int ox, int oy, int dry) {
     int W = scr->w, y = oy;
     int rx = W - 22 + ox;
+    if (W >= 1024 && m_bat_on) {                          /* батарея: рамка 22x11 с выступом, заливка по заряду, число; зелёный - зарядка */
+        char t[8]; int n = 0, k = 0; char d[4];
+        if (m_bat_pct >= 0) { int v = m_bat_pct; do { d[k++] = (char)('0' + v % 10); v /= 10; } while (v && k < 3); while (k) t[n++] = d[--k]; t[n++] = '%'; }
+        else t[n++] = '?';
+        t[n] = 0;
+        uint32_t bc = m_bat_chg ? TH_GREEN : m_bat_pct < 0 ? TH_TEXT_DIM : m_bat_pct <= 15 ? TH_RED : m_bat_pct <= 30 ? TH_AMBER : TH_TEXT;
+        rx -= gfx_text_width(t);
+        if (!dry) ui_text_bold(c, rx, y + 12, t, bc);
+        rx -= 28;
+        if (!dry) {
+            int bx = rx, by = y + 14;
+            gfx_rect(c, bx, by, 22, 1, bc); gfx_rect(c, bx, by + 10, 22, 1, bc);
+            gfx_rect(c, bx, by, 1, 11, bc); gfx_rect(c, bx + 21, by, 1, 11, bc);
+            gfx_rect(c, bx + 22, by + 3, 2, 5, bc);
+            if (m_bat_pct > 0) { int fw = (18 * m_bat_pct + 99) / 100; if (fw < 1) fw = 1; gfx_rect(c, bx + 2, by + 2, fw, 7, bc); }
+        }
+        rx -= 14;
+    }
     if (W >= 1024 && m_health >= 0) {
         char t[8]; int n = 0, v = m_health; char d[4]; int k = 0;
         do { d[k++] = (char)('0' + v % 10); v /= 10; } while (v && k < 3);

@@ -92,6 +92,9 @@ void wm_set_culling(int on);
    Отсутствующие значения отображаются как «нет данных», не как фиктивный ноль. */
 void wm_set_clock(const char* date, const char* hm);
 void wm_set_meters(const uint8_t* busy, int ncores, int mem_pct, int health);
+/* Батарея в верхней панели (рядом с индикатором здоровья). present = 0 - батареи нет, индикатор не рисуется.
+   percent 0..100 или -1 (заряд неизвестен: рисуется пустая рамка и «?»). charging - идёт зарядка. Значения только настоящие, из ACPI. */
+void wm_set_battery(int present, int percent, int charging);
 /* Фон: уровень анимации 0..3 и шаг анимации (каждый цикл дисплея). */
 void wm_set_fx(int level);
 enum { WM_NOTIFY_INFO, WM_NOTIFY_SUCCESS, WM_NOTIFY_WARNING, WM_NOTIFY_ERROR };
