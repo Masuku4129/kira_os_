@@ -20,5 +20,7 @@ int display_get_fx(void);
 /* Композитор сам выбирает, собирать кадр на всех ядрах или на одном: по замеренной цене на этой машине (на эмуляторе
    с одним настоящим потоком параллельная сборка только дороже). par - сейчас параллельно; цена 1000 точек, нс. */
 void display_compositor_stats(uint32_t* par, uint32_t* ns_kpx_par, uint32_t* ns_kpx_ser);               // уровень анимации фона 0..3 (решает Разум)
+struct mind_draw_cost;
+void display_mind_cost(struct mind_draw_cost* out);                 /* замер: цена окон Разума в цикле экрана (ai cost) */
 
 #endif

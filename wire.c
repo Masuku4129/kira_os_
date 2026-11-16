@@ -48,7 +48,7 @@ void wire_init(void) {
     gfx_set_wm_ops(&wm_ops);
     static const console_shell_t shell = { display_print_info, display_request_files, display_kbd_owner };
     console_set_shell(&shell);
-    static const mind_sys_env_t mind_env = { display_get_fx, display_set_fx, display_get_stats, display_compositor_stats, gfx_focus_pid, build_mind_tick };
+    static const mind_sys_env_t mind_env = { display_get_fx, display_set_fx, display_get_stats, display_compositor_stats, gfx_focus_pid, build_mind_tick, display_mind_cost };
     mind_sys_set_env(&mind_env);
 #if defined(__x86_64__)   /* профиль железа (CPUID) есть только на x86-64; на ARM64 ядро его не строит */
     hw_set_describe_extra(uheap_describe_limits);

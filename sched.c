@@ -1281,12 +1281,20 @@ void sched_wake(thread_t* t) {
     irq_restore(f);
 }
 
+/* Цена снимков таблицы потоков: сколько раз, сколько тактов замок таблицы держался при выключенных прерываниях (всего и самый долгий). */
+static volatile uint64_t snap_n, snap_hold, snap_hold_max;
+void sched_snapshot_stats(uint64_t* n, uint64_t* hold_us, uint64_t* max_us) {
+    uint64_t khz = tsc_khz ? tsc_khz : 1000000;
+    *n = snap_n; *hold_us = snap_hold * 1000 / khz; *max_us = snap_hold_max * 1000 / khz;
+}
+
 unsigned sched_snapshot(thread_info_t* out, unsigned max) {
     uint64_t now_t = timer_get_ticks();
     unsigned n = 0;
     uint64_t f = irq_save();
     slk_lock(&tbl_lock, TBL_LOCK_ID);
     uint64_t now = rdtsc();
+    uint64_t held_from = now;
     for (unsigned i = 0; i < thread_hi && n < max; i++) {
         const thread_t* t = &threads[i];
         thread_state_t st = get_state(t);
@@ -1308,6 +1316,11 @@ unsigned sched_snapshot(thread_info_t* out, unsigned max) {
            разность ушла бы в огромное число («ждал процессор 2542620637 мс») */
         uint64_t rs = t->ready_since;
         o->waiting = (st == THREAD_READY && t->prio > PRIO_IDLE && now_t > rs) ? now_t - rs : 0;
+    }
+    {
+        uint64_t held = rdtsc() - held_from;
+        snap_n++; snap_hold += held;
+        if (held > snap_hold_max) snap_hold_max = held;
     }
     slk_unlock(&tbl_lock);
     irq_restore(f);

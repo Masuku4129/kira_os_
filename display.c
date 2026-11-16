@@ -113,7 +113,20 @@ static char side_names[SIDE_N][16];
 static int side_n;
 static char side_sig[SIDE_N * 17];                         /* что показано сейчас: пересобирать только при изменении */
 
-static void draw_mind(void) { if (wm_visible(w_mind)) { app_mind_draw(wm_content(w_mind), &mv, mind_page); wm_invalidate_diff(w_mind); } }
+/* Цена окон Разума в цикле экрана (замер для ai cost): update_mind целиком и перерисовка окна «Разум». */
+static struct { uint64_t updates, upd_ns, upd_max, draws, draw_ns, draw_max; } mcost;
+static void draw_mind(void) {
+    if (!wm_visible(w_mind)) return;
+    uint64_t t0 = clock_ns();
+    app_mind_draw(wm_content(w_mind), &mv, mind_page);
+    wm_invalidate_diff(w_mind);
+    uint64_t d = clock_ns() - t0;
+    mcost.draws++; mcost.draw_ns += d; if (d > mcost.draw_max) mcost.draw_max = d;
+}
+void display_mind_cost(mind_draw_cost_t* o) {
+    o->updates = mcost.updates; o->upd_ns = mcost.upd_ns; o->upd_max = mcost.upd_max;
+    o->draws = mcost.draws; o->draw_ns = mcost.draw_ns; o->draw_max = mcost.draw_max; o->view_bytes = sizeof(mind_view_t);
+}
 
 static void draw_monitor(void) {
     if (!wm_visible(w_mon)) return;
@@ -514,6 +527,7 @@ static void update_battery(void) {
 static void update_mind(void) {
     uint32_t v = mind_sys_version();
     if (v == mv_ver) return;
+    uint64_t t0 = clock_ns();
     mv_ver = v;
     mind_sys_view(&mv);
     mind_notify_latest();
@@ -521,6 +535,8 @@ static void update_mind(void) {
     draw_mind();
     draw_monitor();
     draw_settings();
+    uint64_t d = clock_ns() - t0;
+    mcost.updates++; mcost.upd_ns += d; if (d > mcost.upd_max) mcost.upd_max = d;
 }
 
 static void update_files(void) {

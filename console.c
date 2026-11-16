@@ -522,6 +522,7 @@ static void cmd_ai(const char* arg) {
     if (word_eq(arg, "procs")) { mind_sys_print("procs"); return; }
     if (word_eq(arg, "model")) { mind_sys_print("model"); return; }
     if (word_eq(arg, "levers")) { mind_sys_print("levers"); return; }
+    if (word_eq(arg, "cost")) { mind_sys_print("cost"); return; }
     if (word_eq(arg, "save")) { mind_sys_print("save"); return; }
     if (arg[0] == 'c' && arg[1] == 'a' && arg[2] == 'p' && (arg[3] == ' ' || !arg[3])) {
         const char* v = arg + 3; while (*v == ' ') v++;

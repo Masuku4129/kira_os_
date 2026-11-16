@@ -468,6 +468,12 @@ def run(sc, args):
                     time.sleep(0.02)
                 vm.ptr = (px, py)
                 vm.pump(0.6)
+            elif "click" in st:                       # щелчок кнопкой мыши (left/right) там, где стоит указатель (сначала шаг "pointer")
+                btn = st["click"] if isinstance(st["click"], str) else "left"
+                for down in (True, False):
+                    vm.qmp_cmd({"execute": "input-send-event", "arguments": {"events": [{"type": "btn", "data": {"down": down, "button": btn}}]}})
+                    time.sleep(0.08)
+                vm.pump(0.4)
             elif "mouse" in st:                       # поток движения мыши через QMP: кружит по экрану; hz - событий в секунду, step - пикселей за событие
                 m = st["mouse"]
                 hz, secs, step = m.get("hz", 125), m.get("seconds", 10), m.get("step", 8)
