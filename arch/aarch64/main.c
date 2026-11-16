@@ -28,6 +28,8 @@
 #include "fscmd.h"
 #include "life.h"
 #include "mind_sys.h"
+#include "bbring.h"
+#include "bbsave.h"
 #include "immune.h"
 #include "watchdog.h"
 #include "clock.h"
@@ -795,6 +797,8 @@ void kernel_panic(const char* reason) {
     mmu_on = 0;                                                  /* вывод без замка: его мог держать упавший код */
     kprintf("\n[KIRA KERNEL PANIC] %s\n", reason);
     if (sched_up) sched_crash_report(uart_print);
+    bb_event(BB_NOTE, BB_SEV_SEVERE, 0, 0, 0, 0, 0, "kernel panic");
+    bb_dump_tail(24, uart_print);                                /* диск в панике не трогаем: прерывания выключены */
     kprintf("[KIRA ARM64] Halting.\n");
     for (;;) __asm__ volatile ("wfi");
 }
@@ -1449,6 +1453,7 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     proc_init(ncpu, total / 1024);
     kprintf("[KIRA SYSCALL] SVC from EL0: the same calls as on x86-64 (number in x8, arguments x0..x2); PAN %s; user pointers validated.\n",
             uaccess_enable_smap() ? "on (kernel touches programs only via LDTR/STTR)" : "not offered by this CPU (copies still use LDTR/STTR)");
+    bbsave_init();           /* чёрный ящик: кольцо событий производительности, сброс на диск вне горячего пути */
     mind_sys_init();         /* Разум: нормы, модель предвидения, тактика ~40 Гц */
     rtc_pl031(fdt);
 
@@ -1465,6 +1470,7 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     fssvc_init();                                                /* порт kira.fs: файловая служба на сообщениях CBOR */
     gfxctl_init();                                               /* порт kira.gfx: окна и события на сообщениях CBOR */
     for (;;) {                                                   /* поток core: консоль и секундные дела */
+        bbsave_core_tick();                                      /* чёрный ящик: разрыв между проходами цикла */
         console_poll();
         static uint64_t last_sec, seconds;
         if (timer_get_ticks() - last_sec >= TIMER_HZ) {          /* раз в секунду: Разум, опыт, журнал, сборка стеков */

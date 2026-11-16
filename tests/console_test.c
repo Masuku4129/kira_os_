@@ -12,6 +12,7 @@
 #include "progs.h"
 #include "life.h"
 #include "mind_sys.h"
+#include "bbsave.h"
 #include "heap.h"
 #include "immune.h"
 #include "sched.h"
@@ -106,6 +107,9 @@ void mind_sys_print(const char* w) { snprintf(mind_req, sizeof mind_req, "print:
 void mind_sys_request_mode(int m) { snprintf(mind_req, sizeof mind_req, "mode:%d", m); }
 void mind_sys_request_cap(int p) { snprintf(mind_req, sizeof mind_req, "cap:%d", p); }
 unsigned mind_sys_core_cap(void) { return 50; }
+static char bb_req[32]; static int bb_shutdown_saves;
+void bbsave_command(const char* a) { snprintf(bb_req, sizeof bb_req, "bb:%s", a ? a : ""); }
+int bbsave_now(unsigned reason) { if (reason == BB_SAVE_SHUTDOWN) bb_shutdown_saves++; return 0; }
 void mind_sys_request_fx(int f) { snprintf(mind_req, sizeof mind_req, "fx:%d", f); }
 void mind_sys_view(mind_view_t* v) { memset(v, 0, sizeof *v); v->health = 91; strcpy(v->mood, "спокойна"); v->mode = 1; v->quantum_ms = 30; }
 uint64_t timer_get_ticks(void) { return 0; }
@@ -214,6 +218,9 @@ int main(void) {
     /* CR LF - одна команда, а не две */
     reset(); feed("save\r\n");
     CHECK(saved == 1);
+    reset(); feed("reboot\n"); CHECK(bb_shutdown_saves == 1);                 /* перед перезагрузкой чёрный ящик сбрасывается на диск */
+    reset(); feed("poweroff\n"); CHECK(bb_shutdown_saves == 2);
+    reset(); feed("save\r\n");
     size_t prompts = 0; for (const char* p = out; (p = strstr(p, "кира> ")); p += 8) prompts++;
     CHECK(prompts == 1);
     /* telemetry on/off */
@@ -224,6 +231,11 @@ int main(void) {
     flood = 1; console_poll(); CHECK(flood > 1 && flood < 2000); flood = 0;
     /* Разум */
     reset(); feed("ai why\n"); CHECK(!strcmp(mind_req, "print:why"));
+    reset(); feed("ai cost\n"); CHECK(!strcmp(mind_req, "print:cost"));
+    reset(); feed("bb\n"); CHECK(!strcmp(bb_req, "bb:"));                           /* чёрный ящик: команда доходит до bbsave_command с аргументом */
+    reset(); feed("bb save\n"); CHECK(!strcmp(bb_req, "bb:save"));
+    reset(); feed("bb clear\n"); CHECK(!strcmp(bb_req, "bb:clear"));
+    reset(); feed("bb old\n"); CHECK(!strcmp(bb_req, "bb:old"));
     reset(); feed("ai forecast\n"); CHECK(!strcmp(mind_req, "print:forecast"));
     reset(); feed("ai observe\n"); CHECK(!strcmp(mind_req, "mode:0"));
     reset(); feed("ai act\n"); CHECK(!strcmp(mind_req, "mode:1"));

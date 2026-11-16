@@ -17,6 +17,7 @@
 #include "heap.h"
 #include "immune.h"
 #include "mind_sys.h"
+#include "bbsave.h"
 #include "watchdog.h"
 #include "sched.h"
 #include "clock.h"
@@ -287,6 +288,7 @@ static void cmd_starve(const char* a) { (void)a; uart_print("[TEST] realtime bur
 static void cmd_3d(const char* a) { (void)a; prog_start("cube3d"); }
 static const console_shell_t* shell;
 void console_set_shell(const console_shell_t* sh) { shell = sh; }
+static void cmd_bb(const char* a) { bbsave_command(a); }
 static void cmd_fb(const char* a) { (void)a; if (shell && shell->print_info) shell->print_info(); else uart_print("экрана нет\n"); }
 static void cmd_hw(const char* a) { (void)a; platform_hw(uart_print); }
 static void cmd_fpu(const char* a) { (void)a; uart_print("[FPU TEST] 3 fpu processes compute x87 + SSE + double in parallel; each reports its own verdict\n"); prog_start("fpu"); prog_start("fpu"); prog_start("fpu"); }
@@ -380,6 +382,7 @@ static void cmd_files(const char* a) {
 static void power_prepare(void) {
     uart_print("сохраняю опыт и данные дисков...\n");
     experience_save_now();
+    (void)bbsave_now(BB_SAVE_SHUTDOWN);                     /* чёрный ящик - до сброса кэшей дисков: они его запишут вместе с остальным */
     for (int i = 0; i < 4; i++) vfs_flush(i);
     int bad = blk_flush_all();
     if (bad) { uart_print("[KIRA DISK] write cache not flushed on "); uart_print_dec((uint64_t)bad); uart_print(" disk(s)\n"); }
@@ -606,7 +609,8 @@ static const cmd_t cmds[] = {
     { "ps",        'p', "таблица процессов и потоков", cmd_ps },
     { "smp",       0,   "ядра: состояние, APIC ID, переключения, занятость", cmd_smp },
     { "hw",        0,   "профиль железа: процессор, ядра, ОЗУ, пределы для программ", cmd_hw },
-    { "fb",        'f', "статистика экрана", cmd_fb },
+    { "fb",        'f', "статистика экрана (и сводка чёрного ящика)", cmd_fb },
+    { "bb",        0,   "чёрный ящик: bb [N|all] последние события, bb old - прошлый запуск, bb save, bb clear, bb file, bb pause мс (проверка)", cmd_bb },
     { "burn",      'l', "процесс-нагрузка на 3 с (вытесняющее планирование)", cmd_burn },
     { "burnall",   0,   "по процессу-нагрузке на каждое ядро, 3 с (сравни итерации с burn)", cmd_burnall },
     { "3d",        'g', "окно 3D (программа cube3d из /bin)", cmd_3d },

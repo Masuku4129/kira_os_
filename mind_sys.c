@@ -20,6 +20,7 @@
 #include "audio.h"
 #include "kfs.h"
 #include "mind_archive_policy.h"
+#include "bbring.h"
 
 #define MODEL_PATH   "/var/mind.dat"
 #define SEED_PATH    "/etc/mind_seed.bin"
@@ -66,14 +67,36 @@ static int env_focus_pid(void) { return env.focus_pid ? env.focus_pid() : 0; }
 
 /* ---------------- исполнители ---------------- */
 
-static void a_quantum(uint32_t q) { sched_set_quantum(q * TIMER_PER_10MS); }
-static void a_weight(uint32_t pid, uint32_t w) { sched_set_proc_weight(pid, w); }
-static void a_limit(uint32_t pid, uint32_t pct) { sched_set_proc_limit(pid, pct); }
-static void a_fx(int level) { if (env.display_set_fx) env.display_set_fx(level); }
-static unsigned a_trim(void) { return heap_trim(); }
-static void a_restrict(int level) { proc_set_heap_restrict(level); }
-static int a_kill(uint32_t pid) { return proc_kill(pid); }
-static void a_hid(int block) { usb_hid_verdict(block); }
+/* Чёрный ящик: каждое действие Разума (смена рычага, предела, веса) - запись в кольцо с прежним значением (c = было + 1, 0 - неизвестно). */
+static bb_gate_t mind_gate;
+static void bb_mind(const char* what, uint32_t a, uint32_t b, uint32_t old_plus1, int gated) {
+    if (gated) {
+        uint32_t skipped;
+        if (!bb_gate_pass(&mind_gate, clock_ms(), 8, &skipped)) { bb_note_suppressed(BB_MIND, a); return; }
+    }
+    bb_event(BB_MIND, BB_SEV_INFO, a, b, old_plus1, 0, 0, what);
+}
+static uint32_t last_q;
+
+/* Рычаги 13-23: любая смена значения (проба, оставлено, откат) попадает в чёрный ящик. Вызывать под mmx после шага Разума. */
+static void bb_levers_check(void) {
+    static int32_t seen[ML_N]; static int init;
+    for (int L = 0; L < ML_N; L++) {
+        int32_t v = mind_lever_val(&M, L);
+        if (init && v != seen[L]) bb_mind("lever", 13 + (uint32_t)L, (uint32_t)v, (uint32_t)seen[L] + 1, 0);
+        seen[L] = v;
+    }
+    init = 1;
+}
+
+static void a_quantum(uint32_t q) { bb_mind("quantum ms", 1, q, last_q ? last_q + 1 : 0, 0); last_q = q; sched_set_quantum(q * TIMER_PER_10MS); }
+static void a_weight(uint32_t pid, uint32_t w) { bb_mind("weight pid", pid, w, 0, 1); sched_set_proc_weight(pid, w); }
+static void a_limit(uint32_t pid, uint32_t pct) { bb_mind("limit pid %", pid, pct, 0, 1); sched_set_proc_limit(pid, pct); }
+static void a_fx(int level) { bb_mind("fx", 6, (uint32_t)level, 0, 0); if (env.display_set_fx) env.display_set_fx(level); }
+static unsigned a_trim(void) { bb_mind("heap trim", 8, 0, 0, 1); return heap_trim(); }
+static void a_restrict(int level) { bb_mind("heap restrict", 8, (uint32_t)level, 0, 0); proc_set_heap_restrict(level); }
+static int a_kill(uint32_t pid) { bb_mind("kill pid", 9, pid, 0, 0); return proc_kill(pid); }
+static void a_hid(int block) { bb_mind("hid block", 10, (uint32_t)block, 0, 0); usb_hid_verdict(block); }
 
 typedef struct { uint32_t magic; mind_profile_t p; uint32_t check; } prof_file_t;
 
@@ -553,6 +576,7 @@ void mind_sys_tick(uint64_t seconds) {
     uint64_t tg1 = clock_ns();
     kmutex_lock(&mmx);
     mind_step(&M, &S, &act);
+    bb_levers_check();
     published_model = M;
     kmutex_unlock(&mmx);
     uint64_t tg2 = clock_ns();
@@ -664,6 +688,7 @@ static void tact_main(void* arg) {
         }
         kmutex_lock(&mmx);
         mind_tact_step(&M, in, &act);
+        bb_levers_check();
         kmutex_unlock(&mmx);
         mc_add(&mcost.tact, clock_ns() - tt0);
     }

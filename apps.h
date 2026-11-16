@@ -20,6 +20,11 @@
 #define APP_SET_H  (474 + TH_BAR_H)
 
 void app_mind_draw(surface_t* s, const mind_view_t* v, unsigned page);
+/* Карточный кэш окна «Разум»: перерисовываются только карточки с изменившимися значениями; бюджет делит работу на кадры. */
+#define APP_MIND_DREW 1u   /* поверхность изменилась */
+#define APP_MIND_MORE 2u   /* бюджет вышел, остались неотрисованные карточки: позвать ещё раз в следующем кадре */
+unsigned app_mind_draw_step(surface_t* s, const mind_view_t* v, unsigned page, uint64_t budget_ns, uint64_t (*now_ns)(void));
+void app_mind_invalidate(void);
 int  app_mind_hit(int x, int y);
 void app_monitor_draw(surface_t* s, const mind_view_t* v, uint32_t threads);
 

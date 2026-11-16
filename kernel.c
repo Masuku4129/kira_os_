@@ -10,6 +10,8 @@
 #include "apic.h"
 #include "immune.h"
 #include "mind_sys.h"
+#include "bbring.h"
+#include "bbsave.h"
 #include "watchdog.h"
 #include "keyboard.h"
 #include "input.h"
@@ -68,6 +70,8 @@ void kernel_panic(const char* reason) {
     uart_print("\n[KIRA KERNEL PANIC] called from ");
     uart_print_hex((uint64_t)(uintptr_t)__builtin_return_address(0));
     uart_print("\n");
+    bb_event(BB_NOTE, BB_SEV_SEVERE, 0, 0, 0, 0, 0, "kernel panic");
+    bb_dump_tail(24, uart_print);   // диск в панике не трогаем: прерывания выключены; последние события - в отчёте
     uart_flush_all();        // накопленное в построчных буферах всех ядер
     display_panic_flush();   // то же самое - на экран (если он есть)
     for (;;) {
@@ -228,6 +232,7 @@ void kernel_main(unsigned long magic, unsigned long addr) {
     experience_init();   // опыт прошлых жизней: если есть диск, организм вспоминает
     fs_init();           // файловая система на том же диске (после хранилища опыта)
     life_init();         // журнал организма и профили программ в /var
+    bbsave_init();       // чёрный ящик: кольцо событий производительности, сброс на диск вне горячего пути
     mind_sys_init();     // Разум: нормы, профили и выученный квант из /var/mind*
 
     // Экран необязателен. Раннее окно снимается до того, как драйвер дисплея сам
@@ -338,6 +343,7 @@ void kernel_main(unsigned long magic, unsigned long addr) {
     fssvc_init();        // порт kira.fs: файловая служба на сообщениях CBOR
     gfxctl_init();       // порт kira.gfx: окна и события на сообщениях CBOR
     for (;;) {
+        bbsave_core_tick();  // чёрный ящик: разрыв между проходами этого цикла
         console_poll();
         acpirt_poll();       // события ACPI и обновление питания
         if (acpirt_take_poweroff()) console_graceful_poweroff();   // нажата кнопка питания: сохранить и выключить

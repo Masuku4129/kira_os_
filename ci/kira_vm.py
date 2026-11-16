@@ -455,6 +455,14 @@ def run(sc, args):
                 time.sleep(1.0)
                 mark = len(vm.log)
                 result["checks"].append({"relaunch": True, "ok": True})
+            elif "crash" in st:                       # обрыв питания: машину убивают без выключения и поднимают снова на ТОМ ЖЕ диске (дополнительные устройства - в st["crash"])
+                vm.qemu.kill()
+                vm.qemu.wait(timeout=10)
+                vm.restart(st["crash"])
+                vm.expect(re.escape(PROMPT.decode()), sc.get("boot_timeout", 90), vm.phase_mark)
+                time.sleep(1.0)
+                mark = len(vm.log)
+                result["checks"].append({"crash": True, "ok": True})
             elif "pointer" in st:                     # поставить указатель в точку экрана: PS/2-мышь отдаёт только смещения, поэтому идём шагами
                 px, py = st["pointer"][0], st["pointer"][1]
                 cur = getattr(vm, "ptr", (640, 360))

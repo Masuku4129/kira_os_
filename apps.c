@@ -110,82 +110,7 @@ static uint32_t kind_color(int k) {
     }
 }
 
-static void mind_draw_state(surface_t* s, const mind_view_t* v) {
-    gfx_fill(s, TH_CONTENT);
-    char t[96]; int p;
 
-    /* здоровье: одно крупное число и четыре подписанные шкалы, из которых оно сложено */
-    card(s, 10, 10, 200, 320, "ЗДОРОВЬЕ СИСТЕМЫ", health_color(v->health));
-    char hv[8]; app_fmt_u(hv, v->health);
-    int hw = ui_text_smooth_width(hv, 56);
-    ui_text_smooth(s, 110 - (hw + 36) / 2, 38, hv, 56, health_color(v->health));
-    gfx_text(s, 110 - (hw + 36) / 2 + hw + 4, 72, "/100", TH_TEXT_FAINT, -1);
-    const char* mood = v->mood[0] ? v->mood : "просыпается";
-    gfx_text(s, 110 - gfx_text_width(mood) / 2, 108, mood, TH_TEXT, -1);
-    p = cat(t, 0, v->mode ? "действует" : "наблюдает");
-    p = cat(t, p, " · квант "); p = cat_u(t, p, v->quantum_ms); cat(t, p, " мс");
-    gfx_text(s, 110 - gfx_text_width(t) / 2, 128, t, v->mode ? TH_GREEN : TH_TEXT_DIM, -1);
-    gfx_rect(s, 22, 156, 176, 1, CARD_EDGE);
-    static const char* const part[4] = { "отклик", "запас", "равновесие", "стабильность" };
-    static const uint32_t pcol[4] = { TH_CYAN, TH_GREEN, TH_PURPLE, TH_AMBER };
-    const unsigned pval[4] = { v->c_resp, v->c_room, v->c_bal, v->c_stab };
-    for (int i = 0; i < 4; i++) {
-        int y = 168 + i * 36;
-        gfx_text(s, 24, y, part[i], TH_TEXT_DIM, -1);
-        app_fmt_u(t, pval[i]);
-        gfx_text(s, 196 - gfx_text_width(t), y, t, pval[i] >= 70 ? TH_TEXT : pval[i] >= 40 ? TH_AMBER : TH_RED, -1);
-        ui_round_rect(s, 24, y + 20, 172, 6, 3, TRACK, 255);
-        unsigned pv = pval[i] > 100 ? 100 : pval[i];
-        if (pv) ui_round_rect(s, 24, y + 20, (int)(172 * pv / 100) < 6 ? 6 : (int)(172 * pv / 100), 6, 3, pcol[i], 255);
-    }
-
-    /* сигналы: значение, отклонение от нормы, минута истории */
-    card(s, 220, 10, 370, 320, "СИГНАЛЫ И НОРМЫ", TH_CYAN);
-    for (int k = 0; k < MIND_SIG_N; k++) {
-        int y = 38 + k * 36;
-        int az = v->z_x10[k] < 0 ? -v->z_x10[k] : v->z_x10[k];
-        int learning = v->learned[k] < 60;
-        uint32_t vc = learning ? TH_TEXT_DIM : az >= 40 ? TH_RED : az >= 25 ? TH_AMBER : TH_TEXT;
-        gfx_text(s, 232, y + 2, mind_signal_name(k), TH_TEXT_DIM, -1);
-        p = cat_x100(t, 0, v->cur_x100[k]); cat(t, p, short_unit[k]);
-        gfx_text(s, 446 - gfx_text_width(t), y + 2, t, vc, -1);
-        uint32_t sc = learning ? TH_TEXT_FAINT : az >= 25 ? vc : ui_mix(TH_CYAN, TH_PURPLE, (unsigned)k * 32);
-        gfx_rect(s, 456, y + 20, 124, 1, TRACK);
-        spark(s, 456, y + 1, 124, 20, v->hist[k], v->hpos, sc, 1);
-    }
-
-    /* счётчики */
-    card(s, 10, 340, 580, 40, 0, 0);
-    char age[32]; fmt_age(age, v->lifetime_s);
-    p = cat(t, 0, "возраст "); p = cat(t, p, age);
-    gfx_text(s, 22, 352, t, TH_TEXT_DIM, -1);
-    int x = 22 + gfx_text_width(t) + 22;
-    p = cat(t, 0, "решений "); p = cat_u(t, p, v->decisions);
-    gfx_text(s, x, 352, t, TH_CYAN, -1); x += gfx_text_width(t) + 22;
-    p = cat(t, 0, "необычностей "); p = cat_u(t, p, v->anomalies);
-    gfx_text(s, x, 352, t, TH_AMBER, -1); x += gfx_text_width(t) + 22;
-    p = cat(t, 0, "квант: "); p = cat_u(t, p, v->tune_wins); p = cat(t, p, " из "); p = cat_u(t, p, v->tune_trials); p = cat(t, p, " проб");
-    gfx_text(s, x, 352, t, TH_PURPLE, -1); x += gfx_text_width(t) + 22;
-    if (v->kills) { p = cat(t, 0, "остановок "); p = cat_u(t, p, v->kills); text_fit(s, x, 352, t, 588 - x, TH_RED); }
-
-    /* журнал */
-    card(s, 10, 390, 580, 140, "ЖУРНАЛ РЕШЕНИЙ", TH_PURPLE);
-    int y = 414;
-    if (!v->nj) gfx_text(s, 24, y, "пока тихо: Разум изучает нормы этой машины", TH_TEXT_FAINT, -1);
-    for (unsigned i = 0; i < v->nj && y < 514; i++) {
-        uint32_t c = kind_color(v->j[i].kind);
-        if (v->j[i].applied) ui_disc(s, 26, y + 8, 4, c, 255);
-        else { ui_ring(s, 26, y + 8, 2, 4, c, 255); }
-        app_fmt_hms(t, v->j[i].t);
-        gfx_text(s, 38, y, t, TH_TEXT_FAINT, -1);
-        int lines = text_wrap(s, 112, y, v->j[i].text, 470, (514 - y) >= 36 ? 2 : 1, 17, i == 0 ? TH_TEXT : TH_TEXT_DIM);
-        y += lines * 17 + 4;
-    }
-    /* полоса состояния: последнее решение и здоровье */
-    char hr[32]; p = cat(hr, 0, "здоровье "); p = cat_u(hr, p, v->health); cat(hr, p, "%");
-    if (v->nj) ui_statusbar(s, s->h - TH_BAR_H, v->j[0].text, kind_color(v->j[0].kind), hr);
-    else ui_statusbar(s, s->h - TH_BAR_H, "Разум изучает нормы этой машины", TH_TEXT_DIM, hr);
-}
 
 
 /* Панель Mind читает только опубликованный снимок ядра.
@@ -225,12 +150,108 @@ static void mind_page_status(surface_t* s, const mind_view_t* v, const char* msg
     char r[32]; int p = cat(r, 0, "здоровье "); p = cat_u(r, p, v->health); cat(r, p, "%");
     ui_statusbar(s, s->h - TH_BAR_H, msg, TH_TEXT_DIM, r);
 }
-static void mind_draw_forecast(surface_t* s, const mind_view_t* v) {
-    gfx_fill(s, TH_CONTENT);
+
+static void m0_health(surface_t* s, const mind_view_t* v) {
+    char t[128]; int p = 0; (void)t; (void)p; (void)v;
+    /* здоровье: одно крупное число и четыре подписанные шкалы, из которых оно сложено */
+    card(s, 10, 10, 200, 320, "ЗДОРОВЬЕ СИСТЕМЫ", health_color(v->health));
+    char hv[8]; app_fmt_u(hv, v->health);
+    int hw = ui_text_smooth_width(hv, 56);
+    ui_text_smooth(s, 110 - (hw + 36) / 2, 38, hv, 56, health_color(v->health));
+    gfx_text(s, 110 - (hw + 36) / 2 + hw + 4, 72, "/100", TH_TEXT_FAINT, -1);
+    const char* mood = v->mood[0] ? v->mood : "просыпается";
+    { int mw = gfx_text_width(mood); if (mw > 190) mw = 190; ui_text_fit(s, 110 - mw / 2, 108, mood, 190, TH_TEXT); }      /* длинный текст не вылезает за карточку: кэш не оставит следов */
+    p = cat(t, 0, v->mode ? "действует" : "наблюдает");
+    p = cat(t, p, " · квант "); p = cat_u(t, p, v->quantum_ms); cat(t, p, " мс");
+    { int tw = gfx_text_width(t); if (tw > 190) tw = 190; ui_text_fit(s, 110 - tw / 2, 128, t, 190, v->mode ? TH_GREEN : TH_TEXT_DIM); }
+    gfx_rect(s, 22, 156, 176, 1, CARD_EDGE);
+    static const char* const part[4] = { "отклик", "запас", "равновесие", "стабильность" };
+    static const uint32_t pcol[4] = { TH_CYAN, TH_GREEN, TH_PURPLE, TH_AMBER };
+    const unsigned pval[4] = { v->c_resp, v->c_room, v->c_bal, v->c_stab };
+    for (int i = 0; i < 4; i++) {
+        int y = 168 + i * 36;
+        gfx_text(s, 24, y, part[i], TH_TEXT_DIM, -1);
+        app_fmt_u(t, pval[i]);
+        gfx_text(s, 196 - gfx_text_width(t), y, t, pval[i] >= 70 ? TH_TEXT : pval[i] >= 40 ? TH_AMBER : TH_RED, -1);
+        ui_round_rect(s, 24, y + 20, 172, 6, 3, TRACK, 255);
+        unsigned pv = pval[i] > 100 ? 100 : pval[i];
+        if (pv) ui_round_rect(s, 24, y + 20, (int)(172 * pv / 100) < 6 ? 6 : (int)(172 * pv / 100), 6, 3, pcol[i], 255);
+    }
+
+}
+
+static void m0_sigframe(surface_t* s, const mind_view_t* v) {
+    (void)v;
+    card(s, 220, 10, 370, 320, "СИГНАЛЫ И НОРМЫ", TH_CYAN);
+}
+/* Одна строка сигнала: значение, отклонение от нормы, минута истории. Строка - отдельная карточка кэша, поэтому перерисовка
+   сигналов делится на кадры (8 маленьких частей вместо одной крупной). */
+static void m0_sig_row(surface_t* s, const mind_view_t* v, int k) {
+    char t[128]; int p;
+    int y = 38 + k * 36;
+    if (k == 0) ui_vgrad(s, 232, 39, 346, 1, TH_CYAN, TH_CARD_EDGE);       /* линия под заголовком карточки: стирание строки задевает её, рисуем снова */
+    int az = v->z_x10[k] < 0 ? -v->z_x10[k] : v->z_x10[k];
+    int learning = v->learned[k] < 60;
+    uint32_t vc = learning ? TH_TEXT_DIM : az >= 40 ? TH_RED : az >= 25 ? TH_AMBER : TH_TEXT;
+    gfx_text(s, 232, y + 2, mind_signal_name(k), TH_TEXT_DIM, -1);
+    p = cat_x100(t, 0, v->cur_x100[k]); cat(t, p, short_unit[k]);
+    { int tw = gfx_text_width(t); if (tw > 216) tw = 216; ui_text_fit(s, 446 - tw, y + 2, t, 216, vc); }   /* не шире строки: не вылезает за карточку */
+    uint32_t sc = learning ? TH_TEXT_FAINT : az >= 25 ? vc : ui_mix(TH_CYAN, TH_PURPLE, (unsigned)k * 32);
+    gfx_rect(s, 456, y + 20, 124, 1, TRACK);
+    spark(s, 456, y + 1, 124, 20, v->hist[k], v->hpos, sc, 1);
+}
+#define SIGROW(n) static void m0_sig##n(surface_t* s, const mind_view_t* v) { m0_sig_row(s, v, n); }
+SIGROW(0) SIGROW(1) SIGROW(2) SIGROW(3) SIGROW(4) SIGROW(5) SIGROW(6) SIGROW(7)
+_Static_assert(MIND_SIG_N == 8, "строки сигналов окна Разума: по карточке на сигнал");
+static void m0_counters(surface_t* s, const mind_view_t* v) {
+    char t[128]; int p = 0; (void)t; (void)p; (void)v;
+    /* счётчики */
+    card(s, 10, 340, 580, 40, 0, 0);
+    char age[32]; fmt_age(age, v->lifetime_s);
+    p = cat(t, 0, "возраст "); p = cat(t, p, age);
+    gfx_text(s, 22, 352, t, TH_TEXT_DIM, -1);
+    int x = 22 + gfx_text_width(t) + 22;
+    p = cat(t, 0, "решений "); p = cat_u(t, p, v->decisions);
+    gfx_text(s, x, 352, t, TH_CYAN, -1); x += gfx_text_width(t) + 22;
+    p = cat(t, 0, "необычностей "); p = cat_u(t, p, v->anomalies);
+    gfx_text(s, x, 352, t, TH_AMBER, -1); x += gfx_text_width(t) + 22;
+    p = cat(t, 0, "квант: "); p = cat_u(t, p, v->tune_wins); p = cat(t, p, " из "); p = cat_u(t, p, v->tune_trials); p = cat(t, p, " проб");
+    gfx_text(s, x, 352, t, TH_PURPLE, -1); x += gfx_text_width(t) + 22;
+    if (v->kills) { p = cat(t, 0, "остановок "); p = cat_u(t, p, v->kills); text_fit(s, x, 352, t, 588 - x, TH_RED); }
+
+}
+
+static void m0_journal(surface_t* s, const mind_view_t* v) {
+    char t[128]; int p = 0; (void)t; (void)p; (void)v;
+    /* журнал */
+    card(s, 10, 390, 580, 140, "ЖУРНАЛ РЕШЕНИЙ", TH_PURPLE);
+    int y = 414;
+    if (!v->nj) gfx_text(s, 24, y, "пока тихо: Разум изучает нормы этой машины", TH_TEXT_FAINT, -1);
+    for (unsigned i = 0; i < v->nj && y < 514; i++) {
+        uint32_t c = kind_color(v->j[i].kind);
+        if (v->j[i].applied) ui_disc(s, 26, y + 8, 4, c, 255);
+        else { ui_ring(s, 26, y + 8, 2, 4, c, 255); }
+        app_fmt_hms(t, v->j[i].t);
+        gfx_text(s, 38, y, t, TH_TEXT_FAINT, -1);
+        int lines = text_wrap(s, 112, y, v->j[i].text, 470, (514 - y) >= 36 ? 2 : 1, 17, i == 0 ? TH_TEXT : TH_TEXT_DIM);
+        y += lines * 17 + 4;
+    }
+}
+
+static void m0_status(surface_t* s, const mind_view_t* v) {
+    char t[128]; int p = 0; (void)t; (void)p; (void)v;
+    /* полоса состояния: последнее решение и здоровье */
+    char hr[32]; p = cat(hr, 0, "здоровье "); p = cat_u(hr, p, v->health); cat(hr, p, "%");
+    if (v->nj) ui_statusbar(s, s->h - TH_BAR_H, v->j[0].text, kind_color(v->j[0].kind), hr);
+    else ui_statusbar(s, s->h - TH_BAR_H, "Разум изучает нормы этой машины", TH_TEXT_DIM, hr);
+}
+
+static void m1_risk(surface_t* s, const mind_view_t* v) {
+    char t[128]; int p = 0; (void)t; (void)p; (void)v;
     card(s, 10, 10, 580, 145, "ПРОГНОЗ ОТКЛИКА ЭКРАНА · СЛЕДУЮЩАЯ СЕКУНДА", TH_CYAN);
     unsigned risk = v->risk > 100 ? 100 : v->risk;
     uint32_t c = risk >= 70 ? TH_RED : risk >= 40 ? TH_AMBER : TH_GREEN;
-    char t[96]; int p = cat(t, 0, "вероятность опоздания: "); p = cat_u(t, p, risk); cat(t, p, "%");
+    p = cat(t, 0, "вероятность опоздания: "); p = cat_u(t, p, risk); cat(t, p, "%");
     ui_text_bold(s, 28, 54, t, c);
     ui_round_rect(s, 28, 84, 540, 18, 8, TRACK, 255);
     if (risk) ui_round_rect(s, 28, 84, (int)(540 * risk / 100), 18, 8, c, 255);
@@ -238,26 +259,43 @@ static void mind_draw_forecast(surface_t* s, const mind_view_t* v) {
         const char* why = v->risk_why >= 0 && v->risk_why < MNET_F ? mind_feature_name(v->risk_why) : "признак не выделен";
         p = cat(t, 0, "главный фактор: "); cat(t, p, why); gfx_text(s, 28, 120, t, TH_TEXT_DIM, -1);
     } else gfx_text(s, 28, 120, "Модель пока не заслужила доверия: предупреждения не используются", TH_AMBER, -1);
+}
+
+static void m1_history(surface_t* s, const mind_view_t* v) {
+    char t[128]; int p = 0; (void)t; (void)p; (void)v;
     card(s, 10, 165, 280, 160, "ИСТОРИЯ ПРОГНОЗОВ", TH_PURPLE);
     p = cat(t, 0, "прогнозов: "); p = cat_u(t, p, v->forecasts); gfx_text(s, 26, 204, t, TH_TEXT, -1);
     p = cat(t, 0, "примеров: "); p = cat_u(t, p, v->net_n); gfx_text(s, 26, 232, t, TH_TEXT_DIM, -1);
     p = cat(t, 0, "положительных: "); p = cat_u(t, p, v->net_pos); gfx_text(s, 26, 260, t, TH_TEXT_DIM, -1);
+}
+
+static void m1_quality(surface_t* s, const mind_view_t* v) {
+    char t[128]; int p = 0; (void)t; (void)p; (void)v;
     card(s, 300, 165, 290, 160, "КАЧЕСТВО ПРЕДУПРЕЖДЕНИЙ", TH_GREEN);
     p = cat(t, 0, "точность: "); p = cat_u(t, p, v->net_prec); cat(t, p, "%"); gfx_text(s, 316, 204, t, TH_TEXT, -1);
     p = cat(t, 0, "полнота: "); p = cat_u(t, p, v->net_rec); cat(t, p, "%"); gfx_text(s, 316, 232, t, TH_TEXT, -1);
     p = cat(t, 0, "доверие: "); cat(t, p, v->net_trusted ? "подтверждено" : "не подтверждено");
     gfx_text(s, 316, 260, t, v->net_trusted ? TH_GREEN : TH_AMBER, -1);
+}
+
+static void m1_limits(surface_t* s, const mind_view_t* v) {
+    char t[128]; int p = 0; (void)t; (void)p; (void)v;
     card(s, 10, 335, 580, 190, "ОГРАНИЧЕНИЯ ПРОГНОЗА", TH_BLUE);
     gfx_text(s, 26, 376, "Оценивается только вероятность задержки экрана на следующей секунде.", TH_TEXT_DIM, -1);
     gfx_text(s, 26, 402, "Это не универсальный прогноз производительности всей системы.", TH_TEXT_DIM, -1);
     gfx_text(s, 26, 438, "При недостаточном доверии модель не используется для предупреждений.", TH_TEXT_FAINT, -1);
     gfx_text(s, 26, 474, "Причина указана, только если ядро выделило значимый признак.", TH_TEXT_FAINT, -1);
+}
+
+static void m1_status(surface_t* s, const mind_view_t* v) {
+    char t[128]; int p = 0; (void)t; (void)p; (void)v;
     mind_page_status(s, v, "прогноз · диагностическая оценка, не команда управления");
 }
-static void mind_draw_training(surface_t* s, const mind_view_t* v) {
-    gfx_fill(s, TH_CONTENT);
+
+static void m2_state(surface_t* s, const mind_view_t* v) {
+    char t[128]; int p = 0; (void)t; (void)p; (void)v;
     card(s, 10, 10, 580, 125, "СОСТОЯНИЕ ОБУЧЕНИЯ", TH_PURPLE);
-    char t[96]; int p = cat(t, 0, "примеров: "); p = cat_u(t, p, v->net_n);
+    p = cat(t, 0, "примеров: "); p = cat_u(t, p, v->net_n);
     p = cat(t, p, " · положительных: "); p = cat_u(t, p, v->net_pos); gfx_text(s, 26, 48, t, TH_TEXT, -1);
     p = cat(t, 0, "точность: "); p = cat_u(t, p, v->net_prec); p = cat(t, p, "% · полнота: ");
     p = cat_u(t, p, v->net_rec); cat(t, p, "%"); gfx_text(s, 26, 74, t, TH_TEXT_DIM, -1);
@@ -265,6 +303,10 @@ static void mind_draw_training(surface_t* s, const mind_view_t* v) {
     { unsigned f = v->net_loss_x1e4 % 10000; t[p++] = (char)('0' + f / 1000); t[p++] = (char)('0' + f / 100 % 10); t[p++] = (char)('0' + f / 10 % 10); t[p++] = (char)('0' + f % 10); t[p] = 0; }
     gfx_text(s, 26, 100, t, TH_TEXT_DIM, -1);
     gfx_text(s, 370, 100, v->net_trusted ? "модель доверенная" : "модель не доверенная", v->net_trusted ? TH_GREEN : TH_AMBER, -1);
+}
+
+static void m2_weights(surface_t* s, const mind_view_t* v) {
+    char t[128]; int p = 0; (void)t; (void)p; (void)v;
     card(s, 10, 145, 580, 380, "ВЕСА ПРИЗНАКОВ · Q16", TH_CYAN);
     for (int i = 0; i < MNET_F; i++) {
         int x = i / 6 ? 310 : 26, y = 182 + (i % 6) * 52;
@@ -279,12 +321,17 @@ static void mind_draw_training(surface_t* s, const mind_view_t* v) {
         unsigned fill = (unsigned)(mag > 4LL * MNET_ONE ? 4LL * MNET_ONE : mag) * 145 / (4 * MNET_ONE);
         if (fill) ui_round_rect(s, x + 112, y + 23, (int)fill, 5, 2, value < 0 ? TH_AMBER : TH_GREEN, 255);
     }
+}
+
+static void m2_status(surface_t* s, const mind_view_t* v) {
+    char t[128]; int p = 0; (void)t; (void)p; (void)v;
     mind_page_status(s, v, v->lv_seed ? "обучение · стартовая модель содержит семя опыта" : "обучение · опыт текущей машины");
 }
-static void mind_draw_decisions(surface_t* s, const mind_view_t* v) {
-    gfx_fill(s, TH_CONTENT);
+
+static void m3_summary(surface_t* s, const mind_view_t* v) {
+    char t[128]; int p = 0; (void)t; (void)p; (void)v;
     card(s, 10, 10, 580, 90, "СВОДКА РЕШЕНИЙ", TH_PURPLE);
-    char t[128]; int p = cat(t, 0, "решений: "); p = cat_u(t, p, v->decisions);
+    p = cat(t, 0, "решений: "); p = cat_u(t, p, v->decisions);
     p = cat(t, p, " · отклонений: "); p = cat_u(t, p, v->anomalies);
     p = cat(t, p, " · остановок: "); p = cat_u(t, p, v->kills); gfx_text(s, 26, 48, t, TH_TEXT, -1);
     uint32_t lever_backs = 0;
@@ -292,6 +339,10 @@ static void mind_draw_decisions(surface_t* s, const mind_view_t* v) {
     p = cat(t, 0, "изменений рычагов: "); p = cat_u(t, p, v->lv_changes);
     p = cat(t, p, " · их откатов: "); p = cat_u(t, p, lever_backs);
     p = cat(t, p, " · общих: "); p = cat_u(t, p, v->lv_general); gfx_text(s, 26, 74, t, TH_TEXT_DIM, -1);
+}
+
+static void m3_levers(surface_t* s, const mind_view_t* v) {
+    char t[128]; int p = 0; (void)t; (void)p; (void)v;
     card(s, 10, 110, 580, 415, "АДАПТИВНЫЕ ПАРАМЕТРЫ · 13–30", TH_CYAN);
     for (int i = 0; i < ML_N; i++) {
         int x = i / 9 ? 310 : 26, y = 142 + (i % 9) * 40;
@@ -303,13 +354,18 @@ static void mind_draw_decisions(surface_t* s, const mind_view_t* v) {
         else q = cat_u(val, q, (uint64_t)v->lv[i].val);
         cat(val, q, mind_lever_unit(i)); text_fit(s, x, y + 17, val, 164, TH_CYAN);
         text_fit(s, x + 170, y + 5, state, 94, c);
-        char stats[32]; q = cat(stats, 0, "пробы "); q = cat_u(stats, q, v->lv[i].trials);
+        char stats[48]; q = cat(stats, 0, "пробы "); q = cat_u(stats, q, v->lv[i].trials);
         q = cat(stats, q, " · успех "); q = cat_u(stats, q, v->lv[i].wins); text_fit(s, x + 170, y + 21, stats, 94, TH_TEXT_FAINT);
     }
+}
+
+static void m3_status(surface_t* s, const mind_view_t* v) {
+    char t[128]; int p = 0; (void)t; (void)p; (void)v;
     mind_page_status(s, v, "решения · параметры ядра проверяются и откатываются при ухудшении");
 }
-static void mind_draw_processes(surface_t* s, const mind_view_t* v) {
-    gfx_fill(s, TH_CONTENT);
+
+static void m4_list(surface_t* s, const mind_view_t* v) {
+    char t[128]; int p = 0; (void)t; (void)p; (void)v;
     card(s, 10, 10, 580, 515, "ПРОЦЕССЫ · СНИМОК ЯДРА", TH_BLUE);
     static const int x[6] = { 24, 72, 224, 284, 360, 444 };
     static const char* const h[6] = { "PID", "ПРОГРАММА", "ПОТОКИ", "ЦП", "ПАМЯТЬ", "ВЕС / ЛИМИТ" };
@@ -330,10 +386,15 @@ static void mind_draw_processes(surface_t* s, const mind_view_t* v) {
         else { q = cat_u(t, q, v->p[i].limit); cat(t, q, "%"); }
         text_fit(s, x[5], y, t, 128, TH_TEXT_DIM);
     }
+}
+
+static void m4_status(surface_t* s, const mind_view_t* v) {
+    char t[128]; int p = 0; (void)t; (void)p; (void)v;
     mind_page_status(s, v, "процессы · до 16 записей из системного снимка");
 }
-static void mind_draw_hardware(surface_t* s, const mind_view_t* v) {
-    gfx_fill(s, TH_CONTENT);
+
+static void m5_cpu(surface_t* s, const mind_view_t* v) {
+    char t[128]; int p = 0; (void)t; (void)p; (void)v;
     card(s, 10, 10, 580, 145, "ПРОЦЕССОР · ЗАГРУЗКА ЯДЕР", TH_CYAN);
     unsigned n = v->cores > 64 ? 64 : v->cores;
     if (!n) {
@@ -351,16 +412,28 @@ static void mind_draw_hardware(surface_t* s, const mind_view_t* v) {
             if (slot >= 22) { char t[12]; app_fmt_u(t, i); gfx_text(s, x + bw / 2 - gfx_text_width(t) / 2, 132, t, TH_TEXT_FAINT, -1); }
         }
     }
+}
+
+static void m5_mem(surface_t* s, const mind_view_t* v) {
+    char t[128]; int p = 0; (void)t; (void)p; (void)v;
     card(s, 10, 165, 280, 145, "ПАМЯТЬ", TH_PURPLE);
-    char t[128]; int p = cat(t, 0, "занято "); p = cat_u(t, p, v->mem_used); cat(t, p, "%");
+    p = cat(t, 0, "занято "); p = cat_u(t, p, v->mem_used); cat(t, p, "%");
     ui_text_bold(s, 26, 208, t, v->mem_used >= 85 ? TH_RED : TH_TEXT);
     ui_round_rect(s, 26, 236, 248, 14, 6, TRACK, 255);
     if (v->mem_used) ui_round_rect(s, 26, 236, (int)(248 * (v->mem_used > 100 ? 100 : v->mem_used) / 100), 14, 6, v->mem_used >= 85 ? TH_RED : TH_PURPLE, 255);
     p = cat(t, 0, "готовых потоков: "); cat_u(t, p, v->runnable); gfx_text(s, 26, 272, t, TH_TEXT_DIM, -1);
+}
+
+static void m5_screen(surface_t* s, const mind_view_t* v) {
+    char t[128]; int p = 0; (void)t; (void)p; (void)v;
     card(s, 300, 165, 290, 145, "ЭКРАН И КОМПОЗИТОР", TH_GREEN);
     p = cat(t, 0, "кадров/с: "); p = cat_u(t, p, v->frames_per_s); gfx_text(s, 316, 204, t, TH_TEXT, -1);
     p = cat(t, 0, "опозданий/с: "); p = cat_u(t, p, v->late_per_s); gfx_text(s, 316, 230, t, v->late_per_s ? TH_AMBER : TH_GREEN, -1);
     p = cat(t, 0, "сборка: "); cat(t, p, v->comp_par ? "параллельная" : "одно ядро"); gfx_text(s, 316, 256, t, TH_TEXT_DIM, -1);
+}
+
+static void m5_policy(surface_t* s, const mind_view_t* v) {
+    char t[128]; int p = 0; (void)t; (void)p; (void)v;
     card(s, 10, 320, 580, 205, "ПОЛИТИКИ РЕСУРСОВ", TH_BLUE);
     gfx_text(s, 26, 360, "окна: открытые 60 кадров/с, свёрнутые 4", TH_TEXT_DIM, -1);
     p = cat(t, 0, "лимит фона при нехватке ЦП: "); p = cat_u(t, p, v->core_cap); cat(t, p, "%"); gfx_text(s, 26, 386, t, TH_TEXT_DIM, -1);
@@ -380,18 +453,182 @@ static void mind_draw_hardware(surface_t* s, const mind_view_t* v) {
     p = cat(t, 0, "отклонено запусков: "); p = cat_u(t, p, v->denied);
     if (v->denied && v->denied_name[0]) { p = cat(t, p, " · "); cat(t, p, v->denied_name); }
     gfx_text(s, 26, 508, t, v->denied ? TH_AMBER : TH_TEXT_DIM, -1);
+}
+
+static void m5_status(surface_t* s, const mind_view_t* v) {
+    char t[128]; int p = 0; (void)t; (void)p; (void)v;
     mind_page_status(s, v, "оборудование · показатели, опубликованные ядром");
 }
-void app_mind_draw(surface_t* s, const mind_view_t* v, unsigned page) {
+
+
+/* ---------------- окно «Разум»: карточки с кэшем ----------------
+   Каждый раздел - набор карточек (прямоугольник, подпись входных значений, рисование). Карточка перерисовывается, только если изменились
+   значения, которые она показывает (подпись - хеш этих значений, посчитанный по тем же правилам, что и рисование: например «ядро учится»
+   вместо числа секунд наблюдения, класс отклонения вместо самого отклонения). Остальные пиксели остаются в поверхности окна: поверхность живёт
+   между вызовами. Перерисовка нескольких карточек делится на кадры по бюджету времени (app_mind_draw_step), поэтому цикл экрана не получает
+   разовой паузы в несколько миллисекунд раз в секунду. Хост-тест tests/mind_cards_test.c меняет каждый байт снимка и проверяет, что результат
+   с кэшем побайтно равен полной перерисовке. */
+#define HZ_SEED 2166136261u
+static uint32_t hz(uint32_t h, uint32_t x) { h ^= x; h *= 16777619u; h ^= h >> 13; return h; }
+static uint32_t hs(uint32_t h, const char* s) { while (*s) h = hz(h, (uint8_t)*s++); return hz(h, 0x100u); }
+static uint32_t hhist(uint32_t h, const uint8_t* hist, uint32_t hpos) {      /* кривая в порядке рисования: сдвиг начала сам по себе пикселей не меняет */
+    for (int i = 0; i < MIND_HIST; i++) { unsigned x = hist[(hpos + (unsigned)i) % MIND_HIST]; h = hz(h, x > 100 ? 100 : x); }
+    return h;
+}
+
+static uint32_t g_m0_health(const mind_view_t* v) {
+    uint32_t h = HZ_SEED;
+    h = hz(h, v->health); h = hs(h, v->mood); h = hz(h, v->mode != 0); h = hz(h, v->quantum_ms);
+    h = hz(h, v->c_resp); h = hz(h, v->c_room); h = hz(h, v->c_bal); h = hz(h, v->c_stab);
+    return h;
+}
+static uint32_t g_m0_sig_row(const mind_view_t* v, int k) {
+    uint32_t h = HZ_SEED;
+    int az = v->z_x10[k] < 0 ? -v->z_x10[k] : v->z_x10[k];
+    h = hz(h, (uint32_t)(az >= 40 ? 2 : az >= 25 ? 1 : 0)); h = hz(h, v->learned[k] < 60);
+    h = hz(h, (uint32_t)v->cur_x100[k]); h = hhist(h, v->hist[k], v->hpos);
+    return h;
+}
+#define SIGROWG(n) static uint32_t g_m0_sig##n(const mind_view_t* v) { return g_m0_sig_row(v, n); }
+SIGROWG(0) SIGROWG(1) SIGROWG(2) SIGROWG(3) SIGROWG(4) SIGROWG(5) SIGROWG(6) SIGROWG(7)
+static uint32_t g_m0_counters(const mind_view_t* v) {
+    uint32_t h = HZ_SEED; char age[32];
+    fmt_age(age, v->lifetime_s); h = hs(h, age);
+    h = hz(h, v->decisions); h = hz(h, v->anomalies); h = hz(h, v->tune_wins); h = hz(h, v->tune_trials); h = hz(h, v->kills);
+    return h;
+}
+static uint32_t g_m0_journal(const mind_view_t* v) {
+    uint32_t h = HZ_SEED, n = v->nj > MIND_VIEW_J ? MIND_VIEW_J : v->nj;
+    h = hz(h, n);
+    for (uint32_t i = 0; i < n; i++) { h = hz(h, v->j[i].t); h = hz(h, v->j[i].kind); h = hz(h, v->j[i].applied != 0); h = hs(h, v->j[i].text); }
+    return h;
+}
+static uint32_t g_m0_status(const mind_view_t* v) {
+    uint32_t h = HZ_SEED;
+    if (v->nj) { h = hs(h, v->j[0].text); h = hz(h, v->j[0].kind); } else h = hz(h, 0xFFFFu);
+    return h;
+}
+static uint32_t g_const(const mind_view_t* v) { (void)v; return 1; }
+static uint32_t g_health(const mind_view_t* v) { return hz(HZ_SEED, v->health); }
+static uint32_t g_m1_risk(const mind_view_t* v) {
+    uint32_t h = HZ_SEED;
+    h = hz(h, v->risk > 100 ? 100 : v->risk); h = hz(h, v->net_trusted != 0);
+    if (v->net_trusted) h = hz(h, (uint32_t)(v->risk_why >= 0 && v->risk_why < MNET_F ? v->risk_why : -1));
+    return h;
+}
+static uint32_t g_m1_history(const mind_view_t* v) { return hz(hz(hz(HZ_SEED, v->forecasts), v->net_n), v->net_pos); }
+static uint32_t g_m1_quality(const mind_view_t* v) { return hz(hz(hz(HZ_SEED, v->net_prec), v->net_rec), v->net_trusted != 0); }
+static uint32_t g_m2_state(const mind_view_t* v) {
+    uint32_t h = HZ_SEED;
+    h = hz(h, v->net_n); h = hz(h, v->net_pos); h = hz(h, v->net_prec); h = hz(h, v->net_rec); h = hz(h, v->net_loss_x1e4); h = hz(h, v->net_trusted != 0);
+    return h;
+}
+static uint32_t g_m2_weights(const mind_view_t* v) { uint32_t h = HZ_SEED; for (int i = 0; i < MNET_F; i++) h = hz(h, (uint32_t)v->net_w[i]); return h; }
+static uint32_t g_m2_status(const mind_view_t* v) { return hz(HZ_SEED, v->lv_seed != 0); }
+static uint32_t g_m3_summary(const mind_view_t* v) {
+    uint32_t h = HZ_SEED, backs = 0;
+    for (int i = 0; i < ML_N; i++) backs += v->lv[i].backs;
+    h = hz(h, v->decisions); h = hz(h, v->anomalies); h = hz(h, v->kills); h = hz(h, v->lv_changes); h = hz(h, backs); h = hz(h, v->lv_general);
+    return h;
+}
+static uint32_t g_m3_levers(const mind_view_t* v) {
+    uint32_t h = HZ_SEED;
+    for (int i = 0; i < ML_N; i++) {
+        h = hz(h, (uint32_t)v->lv[i].val); h = hz(h, v->lv[i].state == 2 ? 2 : v->lv[i].state == 1 ? 1 : v->lv[i].state == 3 ? 3 : 0);
+        h = hz(h, v->lv[i].trials); h = hz(h, v->lv[i].wins);
+    }
+    return h;
+}
+static uint32_t g_m4_list(const mind_view_t* v) {
+    uint32_t h = HZ_SEED, n = v->nproc > 16 ? 16 : v->nproc;
+    h = hz(h, n);
+    for (uint32_t i = 0; i < n; i++) {
+        h = hz(h, v->p[i].pid); h = hs(h, v->p[i].name); h = hz(h, v->p[i].flagged != 0); h = hz(h, v->p[i].focus != 0);
+        h = hz(h, v->p[i].threads); h = hz(h, v->p[i].cpu_x10); h = hz(h, v->p[i].heap_kb); h = hz(h, v->p[i].weight);
+        h = hz(h, v->p[i].limit && v->p[i].limit < 100 ? v->p[i].limit : 0);
+    }
+    return h;
+}
+static uint32_t g_m5_cpu(const mind_view_t* v) {
+    uint32_t h = HZ_SEED, n = v->cores > 64 ? 64 : v->cores;
+    h = hz(h, n);
+    for (uint32_t i = 0; i < n; i++) h = hz(h, v->busy[i] > 100 ? 100 : v->busy[i]);
+    return h;
+}
+static uint32_t g_m5_mem(const mind_view_t* v) { return hz(hz(HZ_SEED, v->mem_used), v->runnable); }
+static uint32_t g_m5_screen(const mind_view_t* v) { return hz(hz(hz(HZ_SEED, v->frames_per_s), v->late_per_s), v->comp_par != 0); }
+static uint32_t g_m5_policy(const mind_view_t* v) {
+    uint32_t h = HZ_SEED;
+    h = hz(h, v->core_cap); h = hz(h, v->comp_ns_kpx_par); h = hz(h, v->comp_ns_kpx_ser);
+    h = hz(h, v->dev_errors); h = hs(h, v->dev_name);
+    h = hz(h, v->hid_suspect); h = hs(h, v->hid_name); h = hz(h, v->hid_rate);
+    h = hz(h, v->denied); h = hs(h, v->denied_name);
+    return h;
+}
+
+typedef struct { int x, y, w, h; uint32_t (*sig)(const mind_view_t*); void (*draw)(surface_t*, const mind_view_t*); int inner; } mcard_t;   /* inner: часть другой карточки, стирается её цветом */
+#define MC_STATUS(sg, dr) { 0, -TH_BAR_H, 0, TH_BAR_H, sg, dr, 0 }            /* полоса состояния: прижата к низу поверхности страницы, здоровье в её подписи у всех разделов */
+#define SR(n) { 224, 38 + (n) * 36 - 1, 362, 34, g_m0_sig##n, m0_sig##n, 1 }
+static const mcard_t mc_p0[] = {
+    { 10, 10, 200, 320, g_m0_health, m0_health, 0 }, { 220, 10, 370, 320, g_const, m0_sigframe, 0 },
+    SR(0), SR(1), SR(2), SR(3), SR(4), SR(5), SR(6), SR(7),
+    { 10, 340, 580, 40, g_m0_counters, m0_counters, 0 },
+    { 10, 390, 580, 140, g_m0_journal, m0_journal, 0 }, MC_STATUS(g_m0_status, m0_status) };
+static const mcard_t mc_p1[] = {
+    { 10, 10, 580, 145, g_m1_risk, m1_risk, 0 }, { 10, 165, 280, 160, g_m1_history, m1_history, 0 }, { 300, 165, 290, 160, g_m1_quality, m1_quality, 0 },
+    { 10, 335, 580, 190, g_const, m1_limits, 0 }, MC_STATUS(g_const, m1_status) };
+static const mcard_t mc_p2[] = {
+    { 10, 10, 580, 125, g_m2_state, m2_state, 0 }, { 10, 145, 580, 380, g_m2_weights, m2_weights, 0 }, MC_STATUS(g_m2_status, m2_status) };
+static const mcard_t mc_p3[] = {
+    { 10, 10, 580, 90, g_m3_summary, m3_summary, 0 }, { 10, 110, 580, 415, g_m3_levers, m3_levers, 0 }, MC_STATUS(g_const, m3_status) };
+static const mcard_t mc_p4[] = { { 10, 10, 580, 515, g_m4_list, m4_list, 0 }, MC_STATUS(g_const, m4_status) };
+static const mcard_t mc_p5[] = {
+    { 10, 10, 580, 145, g_m5_cpu, m5_cpu, 0 }, { 10, 165, 280, 145, g_m5_mem, m5_mem, 0 }, { 300, 165, 290, 145, g_m5_screen, m5_screen, 0 },
+    { 10, 320, 580, 205, g_m5_policy, m5_policy, 0 }, MC_STATUS(g_const, m5_status) };
+#define MC_MAX 16
+
+/* Что нарисовано в поверхности окна. Другая поверхность, размер или раздел - рисунок с нуля. */
+static struct { const void* px; int w, h; int pitch; unsigned page; int valid; uint32_t sig[MC_MAX]; uint8_t drawn[MC_MAX]; } mcache;
+
+void app_mind_invalidate(void) { mcache.valid = 0; }
+
+unsigned app_mind_draw_step(surface_t* s, const mind_view_t* v, unsigned page, uint64_t budget_ns, uint64_t (*now_ns)(void)) {
     if (page >= 6) page = 0;
     surface_t sub = { s->px + (size_t)MIND_NAV_H * (size_t)s->pitch, s->w, s->h - MIND_NAV_H, s->pitch };
-    if (page == 0) mind_draw_state(&sub, v);
-    else if (page == 1) mind_draw_forecast(&sub, v);
-    else if (page == 2) mind_draw_training(&sub, v);
-    else if (page == 3) mind_draw_decisions(&sub, v);
-    else if (page == 4) mind_draw_processes(&sub, v);
-    else mind_draw_hardware(&sub, v);
-    mind_tabs_draw(s, page);
+    static const mcard_t* const pages[6] = { mc_p0, mc_p1, mc_p2, mc_p3, mc_p4, mc_p5 };
+    static const unsigned counts[6] = { sizeof mc_p0 / sizeof mc_p0[0], sizeof mc_p1 / sizeof mc_p1[0], sizeof mc_p2 / sizeof mc_p2[0],
+                                        sizeof mc_p3 / sizeof mc_p3[0], sizeof mc_p4 / sizeof mc_p4[0], sizeof mc_p5 / sizeof mc_p5[0] };
+    const mcard_t* cs = pages[page]; unsigned n = counts[page];
+    unsigned res = 0;
+    int full = !mcache.valid || mcache.px != s->px || mcache.w != s->w || mcache.h != s->h || mcache.pitch != s->pitch || mcache.page != page;
+    if (full) {                                           /* первый рисунок, другой раздел или другая поверхность: всё сразу, без бюджета */
+        gfx_fill(&sub, TH_CONTENT);
+        mind_tabs_draw(s, page);
+        mcache.valid = 1; mcache.px = s->px; mcache.w = s->w; mcache.h = s->h; mcache.pitch = s->pitch; mcache.page = page;
+        for (unsigned i = 0; i < MC_MAX; i++) mcache.drawn[i] = 0;
+        res |= APP_MIND_DREW;
+    }
+    uint64_t t0 = now_ns ? now_ns() : 0;
+    for (unsigned i = 0; i < n; i++) {
+        const mcard_t* c = &cs[i];
+        uint32_t sg = c->sig(v);
+        if (c->y < 0) sg = hz(sg, g_health(v));
+        if (mcache.drawn[i] && mcache.sig[i] == sg) continue;
+        if (!full && (res & APP_MIND_DREW) && now_ns && now_ns() - t0 >= budget_ns) { res |= APP_MIND_MORE; continue; }   /* бюджет кадра вышел: остальное - в следующих кадрах */
+        if (mcache.drawn[i]) {                            /* прежнее содержимое карточки стирается фоном страницы, как на пустой странице */
+            int y = c->y < 0 ? sub.h + c->y : c->y, w = c->w ? c->w : sub.w;
+            gfx_rect(&sub, c->x, y, w, c->h, c->inner ? TH_CARD : TH_CONTENT);
+        }
+        c->draw(&sub, v);
+        mcache.sig[i] = sg; mcache.drawn[i] = 1;
+        res |= APP_MIND_DREW;
+    }
+    return res;
+}
+
+void app_mind_draw(surface_t* s, const mind_view_t* v, unsigned page) {
+    app_mind_invalidate();
+    (void)app_mind_draw_step(s, v, page, 0, 0);
 }
 
 /* ---------------- Монитор ---------------- */
@@ -838,3 +1075,4 @@ void app_settings_draw(surface_t* s, const app_settings_t* st, int hover) {
     gfx_text(s, 24, y + 94, t, TH_TEXT_FAINT, -1);
     ui_statusbar(s, s->h - TH_BAR_H, "щелчок по кнопке применяет настройку сразу", TH_TEXT_DIM, st->mode ? "Разум действует" : "Разум наблюдает");
 }
+
