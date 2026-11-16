@@ -138,7 +138,7 @@ jobs:
           git config user.name "kira-ci"; git config user.email "ci@kira.invalid"
           mkdir latest
           cp -r ../results/* latest/ 2>/dev/null || true
-          find latest -name '*.ppm' -delete
+          find latest -type f \\( -name '*.ppm' -o -name 'qemu.log' \\) -delete
           {
             echo "# Прогон ${GITHUB_SHA::7} (${GITHUB_REF_NAME})"
             echo
