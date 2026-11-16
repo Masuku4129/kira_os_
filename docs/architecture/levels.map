@@ -62,6 +62,9 @@ kapi kstack.h
 1 hwprofile.*
 1 mbinfo.*
 1 acpi.*
+1 aml.*   # интерпретатор AML: чистый код, всё железо - через узкую таблицу aml_ops_t
+1 aml_*
+1 acpidev.*   # события, батарея, питание, _PRT поверх интерпретатора; железо только через aml_ops_t
 1 fdt.*
 1 arch/aarch64/fdt*
 1 arch/*/hw*

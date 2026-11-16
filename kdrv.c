@@ -13,6 +13,7 @@
 #if defined(__x86_64__)
 #include "pic.h"
 #include "irqmode.h"
+#include "acpidev.h"
 #endif
 #include "iommu.h"
 #include "msi.h"
@@ -301,6 +302,15 @@ static const irq_handler_t intx_h[16] = { intx_h0, intx_h1, intx_h2, intx_h3, in
 static int intx_attach(bind_t* b) {
     const pci_dev_t* d = b->dev;
     unsigned pin = pci_read8(d, 0x3D), line = pci_read8(d, 0x3C);
+    if (pin && pin <= 4 && (line < 3 || line >= 16) && irqmode_is_apic()) {
+        /* Прошивка не записала линию (0xFF у UEFI-плат) - спрашиваем таблицу _PRT; годится только линия 3..15, куда ядро умеет вешать обработчик
+           (GSI 16 и выше - отдельная работа: обработчики на векторах IOAPIC). Устройства за мостами PCI-PCI _PRT здесь пока не разбирается. */
+        acpidev_irq_t q;
+        if (acpidev_pci_irq(d->bus, d->dev, d->fn, pin, &q) && q.gsi >= 3 && q.gsi < 16) {
+            line = q.gsi;
+            pci_write16(d, 0x3C, (uint16_t)((pci_read16(d, 0x3C) & 0xFF00u) | line));    /* регистр - только для программ, на устройство не действует */
+        }
+    }
     if (!pin || pin > 4 || line < 3 || line >= 16 || !irqmode_is_apic()) return 0;
     if (!xl[line].reg && irq_has_handler(line)) return 0;                           /* линию занял драйвер ядра */
     uint16_t cmd = pci_read16(d, 0x04);

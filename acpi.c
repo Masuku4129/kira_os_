@@ -6,6 +6,7 @@ typedef struct { char sig[4]; uint32_t len; uint8_t rev; uint8_t csum; char oem[
 
 static acpi_info_t info;
 static const void* (*map_hook)(uint64_t phys, uint64_t len);
+static uint64_t last_max_phys;        /* предел тождественной карты последнего разбора: по нему acpi_table_view находит таблицы позже */
 
 void acpi_set_map_hook(const void* (*hook)(uint64_t phys, uint64_t len)) { map_hook = hook; }
 
@@ -117,6 +118,10 @@ static void parse_fadt(const sdt_t* t, uint64_t max_phys, acpi_info_t* o) {
     o->smi_cmd = rd32(f + 48); o->acpi_enable = f[52];
     o->pm1a_cnt = rd32(f + 64); o->pm1b_cnt = rd32(f + 68);
     uint32_t flags = rd32(f + 112);
+    o->sci_int = (uint16_t)(f[46] | f[47] << 8);
+    o->pm1a_evt = rd32(f + 56); o->pm1b_evt = rd32(f + 60); o->pm1_evt_len = f[88];
+    o->gpe0_blk = rd32(f + 80); o->gpe1_blk = rd32(f + 84); o->gpe0_len = f[92]; o->gpe1_len = f[93]; o->gpe1_base = f[94];
+    o->fadt_flags = flags;
     if (len >= 111 && f[8] >= 2 && (f[109] & 1)) o->legacy_isa = 1;   /* IAPC_BOOT_ARCH: LEGACY_DEVICES */
     if (len >= 129 && (flags & (1u << 10))) {                    /* RESET_REG_SUP */
         o->reset_space = f[116]; o->reset_addr = rd64(f + 120); o->reset_value = f[128];
@@ -128,6 +133,7 @@ static void parse_fadt(const sdt_t* t, uint64_t max_phys, acpi_info_t* o) {
     if (!d || !sig_is(d->sig, "DSDT") || d->len < sizeof(sdt_t)) return;
     uint32_t dl = d->len;
     if (!(d = (const sdt_t*)reach(dsdt, dl, max_phys))) return;
+    if (sum_ok(d, dl)) { o->dsdt_phys = dsdt; o->dsdt_len = dl; }
     if (acpi_find_s5((const uint8_t*)d + sizeof(sdt_t), dl - (uint32_t)sizeof(sdt_t), &o->slp_typa, &o->slp_typb) == 0) o->s5_valid = 1;
 }
 
@@ -145,6 +151,9 @@ static void parse_table(uint64_t phys, uint64_t max_phys, acpi_info_t* o) {
     else if (sig_is(t->sig, "FACP")) parse_fadt(t, max_phys, o);
     else if (sig_is(t->sig, "DMAR") && t->len >= 48) { o->dmar_phys = phys; o->dmar_len = t->len; }
     else if (sig_is(t->sig, "IVRS") && t->len >= 48) { o->ivrs_phys = phys; o->ivrs_len = t->len; }
+    else if ((sig_is(t->sig, "SSDT") || sig_is(t->sig, "PSDT")) && o->ssdt_count < ACPI_MAX_SSDT) {
+        o->ssdt_phys[o->ssdt_count] = phys; o->ssdt_len[o->ssdt_count] = t->len; o->ssdt_count++;
+    }
     else if (sig_is(t->sig, "MCFG") && t->len >= 44 + 16) {
         const uint8_t* e = (const uint8_t*)t + 44;
         o->mcfg_base = rd64(e); o->mcfg_bus_start = e[10]; o->mcfg_bus_end = e[11];
@@ -153,6 +162,7 @@ static void parse_table(uint64_t phys, uint64_t max_phys, acpi_info_t* o) {
 
 int acpi_parse(uint64_t rsdp_phys, uint64_t max_phys, acpi_info_t* o) {
     uint8_t* z = (uint8_t*)o; for (uint32_t i = 0; i < sizeof(*o); i++) z[i] = 0;
+    last_max_phys = max_phys;
     if (rsdp_phys == 0 || rsdp_phys > UINT64_MAX - 20 ||
         (rsdp_phys <= max_phys && max_phys - rsdp_phys < 20)) return -1;
     const rsdp_t* r = (const rsdp_t*)reach(rsdp_phys, 20, max_phys);
@@ -346,3 +356,4 @@ int acpi_init(uint64_t mbi) {
 }
 
 const acpi_info_t* acpi_get(void) { return info.valid ? &info : 0; }
+const uint8_t* acpi_table_view(uint64_t phys, uint32_t len) { return phys ? reach(phys, len, last_max_phys) : 0; }

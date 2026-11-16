@@ -123,6 +123,19 @@ echo "== ACPI parser (synthetic XSDT/MADT/HPET/MCFG, corruption cases) =="
 $CC $FLAGS -o $T/acpi tests/acpi_test.c acpi.c
 $T/acpi
 
+echo "== AML: интерпретатор на настоящих таблицах (iasl) и на DSDT из QEMU, ASAN/UBSan =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/aml tests/aml_test.c aml.c aml_exec.c
+$T/aml
+echo "== ACPI в работе: события SCI/GPE/EC, кнопка питания, батарея, крышка, _PRT (модель железа) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/acpidev tests/acpidev_test.c acpidev.c aml.c aml_exec.c
+$T/acpidev
+echo "== AML на настоящих DSDT из QEMU (pc/PIIX и q35/ICH9): _PRT, связки, \\_S5, порча и обрезка =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/acpi_qemu tests/acpi_qemu_test.c acpidev.c aml.c aml_exec.c acpi.c
+ASAN_OPTIONS=detect_leaks=0 $T/acpi_qemu
+echo "== AML: фаззинг (случайные, обрезанные и испорченные таблицы) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/aml_fuzz tests/aml_fuzz.c aml.c aml_exec.c
+ASAN_OPTIONS=detect_leaks=0 $T/aml_fuzz 3000
+
 echo "== Intel VT-d DMAR topology parser (DRHD, RMRR, hostile input) =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/iommu-vtd tests/iommu_vtd_test.c iommu_vtd.c
 $T/iommu-vtd

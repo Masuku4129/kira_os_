@@ -4,6 +4,7 @@
 
 #define ACPI_MAX_IOAPIC 64
 #define ACPI_MAX_CPU    256
+#define ACPI_MAX_SSDT   64
 
 typedef struct {
     int      valid;            /* RSDP и корневая таблица прошли проверку контрольных сумм */
@@ -36,6 +37,16 @@ typedef struct {
     uint8_t  reset_space;          /* 0 - память, 1 - порт */
     uint64_t reset_addr;
     uint8_t  reset_value;
+    /* события и таблицы AML (FADT, DSDT, SSDT): для интерпретатора и обработки SCI */
+    uint16_t sci_int;              /* линия SCI (прерывание ACPI) */
+    uint32_t pm1a_evt, pm1b_evt;   /* порты регистров событий PM1 (состояние в начале, разрешение - во второй половине); 0 - нет */
+    uint8_t  pm1_evt_len;
+    uint32_t gpe0_blk, gpe1_blk;   /* порты GPE: первая половина - состояние, вторая - разрешение */
+    uint8_t  gpe0_len, gpe1_len, gpe1_base;
+    uint32_t fadt_flags;           /* бит 4 - кнопка питания реализована методами AML (фиксированной нет), бит 5 - то же для сна */
+    uint64_t dsdt_phys; uint32_t dsdt_len;     /* DSDT, прошедшая проверку суммы, иначе 0 */
+    uint32_t ssdt_count;           /* SSDT/PSDT с верной суммой (до ACPI_MAX_SSDT) */
+    uint64_t ssdt_phys[ACPI_MAX_SSDT]; uint32_t ssdt_len[ACPI_MAX_SSDT];
     int      legacy_isa;           /* платформа сообщает, что устаревшие устройства ISA есть: бит 0 IAPC_BOOT_ARCH в FADT (ACPI 2.0+) или шина ISA в таблицах MP */
 } acpi_info_t;
 
@@ -56,5 +67,7 @@ int acpi_init_rsdp(uint64_t rsdp_phys);
 // Ядро ставит хук, который делает таблицу выше max_phys читаемой (0 - не удалось); без хука такие таблицы пропускаются.
 void acpi_set_map_hook(const void* (*hook)(uint64_t phys, uint64_t len));   /* адрес для чтения таблицы или 0 */
 const acpi_info_t* acpi_get(void);
+/* Адрес, по которому таблицу ACPI (physical, len байт) можно читать после acpi_init: тождественная карта или окно хука ядра; 0 - не читается. */
+const uint8_t* acpi_table_view(uint64_t phys, uint32_t len);
 
 #endif

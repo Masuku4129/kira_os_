@@ -44,6 +44,7 @@ int64_t kfs_read(const char* path, uint64_t off, void* buf, size_t len) {
 #include "fm.h"
 #include "rtc.h"
 #include "apps.h"
+#include "platform.h"
 
 #define CHECK(c) do { if (!(c)) { printf("FAIL line %d: %s\n", __LINE__, #c); fails++; } } while (0)
 static int fails;
@@ -64,6 +65,7 @@ void fb_present_rect(int x, int y, int w, int h) { (void)x; (void)y; (void)w; (v
 void fb_frame_done(void) {}
 int virtio_gpu_probe(void) { return -1; }
 int platform_fb_probe(void) { return -1; }
+int platform_battery(platform_battery_t* b) { (void)b; return -1; }
 
 uint64_t pmm_alloc_contiguous(uint32_t pages) { return (uint64_t)(uintptr_t)aligned_alloc(4096, (size_t)pages * 4096); }
 int pmm_free_contiguous(uint64_t p, uint32_t pages) { (void)pages; free((void*)(uintptr_t)p); return 0; }

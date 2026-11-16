@@ -403,6 +403,13 @@ static void cmd_random(const char* a) {
     uart_print("\n");
 }
 static void cmd_poweroff(const char* a) { (void)a; power_prepare(); platform_poweroff(); }
+/* Кнопка питания (ACPI): то же, что команда poweroff. Если выключить не вышло, запрос снимает вызывающий. */
+void console_graceful_poweroff(void) {
+    uart_print("[KIRA POWER] power button: saving data and shutting down.\n");
+    power_prepare();
+    platform_poweroff();
+}
+static void cmd_acpi(const char* a) { platform_acpi_cmd(a); }
 static void cmd_reboot(const char* a) { (void)a; power_prepare(); platform_reboot(); }
 static void cmd_wasm(const char* a) {                       /* модуль WebAssembly - в интерпретаторе (Ring 3) */
     while (a && *a == ' ') a++;
@@ -609,6 +616,7 @@ static const cmd_t cmds[] = {
     { "volume",    0,   "громкость звука: volume [0..100]", cmd_volume },
     { "random",    0,   "генератор случайных чисел: источники и проба", cmd_random },
     { "poweroff",  0,   "выключить машину (опыт и диски сохраняются; ACPI S5 / PSCI)", cmd_poweroff },
+    { "acpi",      0,   "ACPI: acpi (сводка: устройства, питание, _PRT), acpi tables, acpi dump dsdt|ssdtN, acpi eval ПУТЬ", cmd_acpi },
     { "reboot",    0,   "перезагрузить машину (опыт и диски сохраняются)", cmd_reboot },
     { "wasm",      0,   "wasm /путь.wasm: программа WebAssembly (один файл для x86-64 и ARM64; модули в /wasm)", cmd_wasm },
     { "ksh",       0,   "Оболочка скриптов ksh: ksh - REPL; ksh файл.sh (файл в /data/wasm); ksh -c код", cmd_ksh },

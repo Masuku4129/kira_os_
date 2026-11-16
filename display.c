@@ -501,6 +501,16 @@ static void mind_notify_latest(void) {
     wm_notify(title, e->text, level);
 }
 
+/* Батарея из ACPI: индикатор в верхней панели есть, только если платформа её нашла (platform_battery); нет батареи - ничего не рисуется. */
+static void update_battery(void) {
+    static unsigned bver = ~0u; static int had;
+    platform_battery_t b;
+    if (platform_battery(&b) != 0) { if (had) { had = 0; wm_set_battery(0, -1, 0); } return; }
+    if (had && b.version == bver) return;
+    had = 1; bver = b.version;
+    wm_set_battery(1, b.percent, b.charging);
+}
+
 static void update_mind(void) {
     uint32_t v = mind_sys_version();
     if (v == mv_ver) return;
@@ -651,6 +661,7 @@ static void display_main(void* arg) {
         if (n && y1 > y0) wm_invalidate_rows(w_con, y0, y1);
 
         update_mind();
+        update_battery();
         update_files();
 
         uint64_t now0 = clock_ns();

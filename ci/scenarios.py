@@ -454,7 +454,32 @@ ALL = [
         {"log": [r"\[KIRA ACPI\] powering off \(S5\)"]},
         {"log_forbid": NO_ERR + [r"did not power off"]},
     ], smp=2, mem="512M"),
-    sc("power-reboot", "перезагрузка на q35 (регистр сброса FADT / 0xCF9): система поднимается снова, файл, записанный до сброса, на месте", [
+    sc("acpi-power-button", "кнопка питания (QMP system_powerdown, плата pc/PIIX): SCI -> интерпретатор AML -> штатное выключение с сохранением данных", [
+        {"log": BOOT_LOG + [r"\[KIRA ACPI\] AML up"]},
+        {"cmd": "write /acpi-btn.txt kira-acpi-button"},
+        {"qmp_exit": "system_powerdown", "within": 30},
+        {"log": [r"\[KIRA ACPI\] power button pressed", r"\[KIRA POWER\] power button: saving data", r"\[KIRA ACPI\] powering off \(S5\)"]},
+        {"log_forbid": NO_ERR + [r"did not power off", r"AML is busy"]},
+    ], smp=2, mem="512M"),
+    sc("acpi-info", "ACPI на плате pc (PIIX): сводка интерпретатора, таблицы, выгрузка DSDT в журнал", [
+        {"cmd": "acpi", "must": [r"ACPI AML: таблиц 1, объектов \d+.*ошибок загрузки 0", r"_INI 1 \(ошибок 0\)", r"ACPI _PRT .*PCI0: записей 128",
+                                 r"устр 3 INTA -> GSI 11 уровень .*связка LNKC", r"устр 3 INTC -> GSI 10 уровень .*связка LNKA", r"устр 1 INTA -> GSI 9 уровень .*связка LNKS"], "timeout": 60},
+        {"cmd": "acpi tables", "must": [r"DSDT: 0x"]},
+        {"cmd": "acpi dump dsdt", "must": [r"ACPIDUMP BEGIN DSDT \d+", r"ACPIDUMP END DSDT"], "timeout": 120},
+    ], smp=2, mem="512M"),
+    sc("acpi-info-q35", "ACPI на плате q35 (ICH9): сводка интерпретатора, таблицы, выгрузка DSDT в журнал", [
+        {"cmd": "acpi", "must": [r"ACPI AML: таблиц 1, объектов \d+.*ошибок загрузки 0", r"_INI 1 \(ошибок 0\)", r"ACPI _PRT .*PCI0: записей 128",
+                                 r"устр 25 INTA -> GSI 16 уровень .*связка GSIA", r"устр 0 INTA -> GSI 20 уровень .*связка GSIE", r"устр 31 INTD -> GSI 19 уровень .*связка GSID"], "timeout": 60},
+        {"cmd": "acpi tables", "must": [r"DSDT: 0x"]},
+        {"cmd": "acpi dump dsdt", "must": [r"ACPIDUMP BEGIN DSDT \d+", r"ACPIDUMP END DSDT"], "timeout": 120},
+    ], smp=2, mem="512M", machine="q35"),
+    sc("acpi-power-button-q35", "кнопка питания (QMP system_powerdown, плата q35/ICH9): та же цепочка на другой плате", [
+        {"log": BOOT_LOG + [r"\[KIRA ACPI\] AML up"]},
+        {"qmp_exit": "system_powerdown", "within": 30},
+        {"log": [r"\[KIRA ACPI\] power button pressed", r"\[KIRA ACPI\] powering off \(S5\)"]},
+        {"log_forbid": NO_ERR + [r"did not power off", r"AML is busy"]},
+    ], smp=2, mem="512M", machine="q35"),
+    sc("power-reboot","перезагрузка на q35 (регистр сброса FADT / 0xCF9): система поднимается снова, файл, записанный до сброса, на месте", [
         {"log": BOOT_LOG},
         {"cmd": "write /reboot.txt kira-before-reboot"},
         {"send": "reboot"},
