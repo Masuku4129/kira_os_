@@ -46,6 +46,7 @@ int64_t kfs_read(const char* path, uint64_t off, void* buf, size_t len) {
 #include "apps.h"
 #include "platform.h"
 
+unsigned bbsave_status(char* out, unsigned cap) { (void)cap; out[0] = 0; return 0; }   /* сброс на диск - не предмет этого теста */
 #define CHECK(c) do { if (!(c)) { printf("FAIL line %d: %s\n", __LINE__, #c); fails++; } } while (0)
 static int fails;
 

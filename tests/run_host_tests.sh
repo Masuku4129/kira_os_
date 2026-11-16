@@ -66,7 +66,7 @@ $CC $FLAGS -fsanitize=address,undefined -Iarch/aarch64 -o $T/wx_arm tests/wx_arm
 ASAN_OPTIONS=detect_leaks=0 $T/wx_arm
 
 echo "== scheduler policy (incl. regression: pulsing critical thread) =="
-$CC $FLAGS -o $T/sched tests/sched_test.c sched.c scale.c percpu.c
+$CC $FLAGS -o $T/sched tests/sched_test.c sched.c scale.c percpu.c bbring.c
 $T/sched
 
 echo "== REAL context switch + FXSAVE/FXRSTOR (arch/x86_64/context.s, 3 threads, xmm live across switches) =="
@@ -74,14 +74,15 @@ RF="-O1 -g -Wall -DKIRA_HOST_TEST -I. -Iarch/x86_64 -no-pie -fno-omit-frame-poin
 nasm -f elf64 arch/x86_64/context.s -o $T/context.o
 $CC $RF -DKIRA_HOST_REAL_FPU -mno-sse -c sched.c -o $T/sched_r.o
 $CC $RF -mno-sse -c percpu.c -o $T/percpu.o
+$CC $RF -mno-sse -c bbring.c -o $T/bbring.o
 $CC $RF -mno-sse -c scale.c -o $T/scale.o
 $CC $RF -mno-sse -c tests/tick_hook.c -o $T/hook.o
 $CC $RF -DKIRA_HOST_REAL_FPU -c tests/ctx_fpu_test.c -o $T/ctx.o
-$CC -no-pie -o $T/ctx_fpu $T/ctx.o $T/sched_r.o $T/scale.o $T/percpu.o $T/hook.o $T/context.o
+$CC -no-pie -o $T/ctx_fpu $T/ctx.o $T/sched_r.o $T/bbring.o $T/scale.o $T/percpu.o $T/hook.o $T/context.o
 $T/ctx_fpu
 $CC $RF -mno-sse -c sched.c -o $T/sched_n.o
 $CC $RF -c tests/ctx_fpu_test.c -o $T/ctx_n.o
-$CC -no-pie -o $T/ctx_fpu_n $T/ctx_n.o $T/sched_n.o $T/scale.o $T/percpu.o $T/hook.o $T/context.o
+$CC -no-pie -o $T/ctx_fpu_n $T/ctx_n.o $T/sched_n.o $T/bbring.o $T/scale.o $T/percpu.o $T/hook.o $T/context.o
 $T/ctx_fpu_n --nofpu
 
 echo "== input layer (PS/2 decoder, ring, overflow) =="
@@ -205,7 +206,7 @@ $CC ${FLAGS//-I./-iquote .} -O2 -fsanitize=thread -o $T/spin tests/spinlock_test
 $T/spin
 
 echo "== SMP (AP selection, ICR commands, percpu table) =="
-$CC $FLAGS -o $T/kmutex tests/kmutex_test.c kmutex.c sched.c scale.c percpu.c
+$CC $FLAGS -o $T/kmutex tests/kmutex_test.c kmutex.c sched.c scale.c percpu.c bbring.c
 $T/kmutex
 
 echo "== kernel objects: ports, shared memory, handles, futex =="
@@ -221,7 +222,7 @@ $CC $FLAGS -o $T/corefault tests/corefault_test.c corefault.c linebuf.c
 $T/corefault
 
 echo "== scaling: size policy and scheduler on 1, 2, 3, 4, 8, 16, 64 cores =="
-$CC $FLAGS -o $T/scale tests/scale_test.c scale.c sched.c percpu.c
+$CC $FLAGS -o $T/scale tests/scale_test.c scale.c sched.c percpu.c bbring.c
 for n in 1 2 3 4 8 16 64 65 128 256; do $T/scale $n; done
 $CC $FLAGS -o $T/smp tests/smp_test.c arch/x86_64/smp.c percpu.c
 $T/smp
@@ -316,6 +317,12 @@ $T/sysseal
 echo "== wallpaper (picture wallpaper: KWP1 parse, fill-crop scaling) =="
 $CC $FLAGS -Werror -fsanitize=address,undefined -o $T/wallpaper tests/wallpaper_test.c wallpaper.c
 $T/wallpaper
+
+echo "== bbring (чёрный ящик: кольцо, переполнение, ограничитель частоты, файл, разбор, текст; потоки + ThreadSanitizer) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/bbring tests/bbring_test.c bbring.c
+ASAN_OPTIONS=detect_leaks=0 $T/bbring
+$CC $FLAGS -O2 -fsanitize=thread -o $T/bbring_tsan tests/bbring_test.c bbring.c -lpthread
+$T/bbring_tsan --threads
 
 echo "== framegov (frame pacing: decided by the compositor, not by Mind) =="
 $CC $FLAGS -Werror -o $T/framegov tests/framegov_test.c framegov.c
@@ -412,8 +419,12 @@ else
     echo "Window manager regressions: covered by gui-regression job"
 fi
 
+echo "== окно Разума: кэш карточек = полная перерисовка для каждого байта снимка =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/mcards tests/mind_cards_test.c apps.c gfxui.c gfx2d.c font8x16.c icons.c brainfx.c wallpaper.c zstd.c dock.c mind.c mindnet.c -lm
+ASAN_OPTIONS=detect_leaks=0 $T/mcards
+
 echo "== display thread end-to-end with apps (preview: /tmp/kira_gfx/*.ppm) =="
-$CC $FLAGS -fsanitize=address,undefined -o $T/disp tests/display_preview.c display.c framegov.c kpar.c wm.c gfxui.c icons.c brainfx.c wallpaper.c zstd.c apps.c fm.c dock.c mind.c mindnet.c rtc.c input.c gfx2d.c font8x16.c klog.c fbcon.c -lm
+$CC $FLAGS -fsanitize=address,undefined -o $T/disp tests/display_preview.c display.c framegov.c kpar.c wm.c gfxui.c icons.c brainfx.c wallpaper.c zstd.c apps.c fm.c dock.c mind.c mindnet.c rtc.c input.c gfx2d.c font8x16.c klog.c fbcon.c bbring.c -lm
 # код возврата превью - не через tail (раньше сбой терялся в конвейере)
 for r in "" "1280 720" "1920 1080"; do
     ASAN_OPTIONS=detect_leaks=0 $T/disp $r > $T/disp.out 2>&1; rc=$?

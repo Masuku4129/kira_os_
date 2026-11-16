@@ -20,12 +20,18 @@
 #include "audio.h"
 #include "kfs.h"
 #include "mind_archive_policy.h"
+#include "bbring.h"
 
 #define MODEL_PATH   "/var/mind.dat"
 #define SEED_PATH    "/etc/mind_seed.bin"
 #define PROF_DIR     "/var/mind"
 #define SAVE_PERIOD  60
 #define PROF_MAGIC   0x464F5250U   /* "PROF" */
+
+/* ---- цена Разума (замер собственных затрат): сколько раз, сумма и самый долгий проход ---- */
+typedef struct { uint64_t n, ns, max; } mc_t;
+static struct { mc_t tick, gather, step, publish, save, tact, tact_snap; uint64_t since_ns; } mcost;
+static inline void mc_add(mc_t* c, uint64_t ns) { c->n++; c->ns += ns; if (ns > c->max) c->max = ns; }
 
 static mind_t M;
 static mind_t published_model;
@@ -61,14 +67,36 @@ static int env_focus_pid(void) { return env.focus_pid ? env.focus_pid() : 0; }
 
 /* ---------------- исполнители ---------------- */
 
-static void a_quantum(uint32_t q) { sched_set_quantum(q * TIMER_PER_10MS); }
-static void a_weight(uint32_t pid, uint32_t w) { sched_set_proc_weight(pid, w); }
-static void a_limit(uint32_t pid, uint32_t pct) { sched_set_proc_limit(pid, pct); }
-static void a_fx(int level) { if (env.display_set_fx) env.display_set_fx(level); }
-static unsigned a_trim(void) { return heap_trim(); }
-static void a_restrict(int level) { proc_set_heap_restrict(level); }
-static int a_kill(uint32_t pid) { return proc_kill(pid); }
-static void a_hid(int block) { usb_hid_verdict(block); }
+/* Чёрный ящик: каждое действие Разума (смена рычага, предела, веса) - запись в кольцо с прежним значением (c = было + 1, 0 - неизвестно). */
+static bb_gate_t mind_gate;
+static void bb_mind(const char* what, uint32_t a, uint32_t b, uint32_t old_plus1, int gated) {
+    if (gated) {
+        uint32_t skipped;
+        if (!bb_gate_pass(&mind_gate, clock_ms(), 8, &skipped)) { bb_note_suppressed(BB_MIND, a); return; }
+    }
+    bb_event(BB_MIND, BB_SEV_INFO, a, b, old_plus1, 0, 0, what);
+}
+static uint32_t last_q;
+
+/* Рычаги 13-23: любая смена значения (проба, оставлено, откат) попадает в чёрный ящик. Вызывать под mmx после шага Разума. */
+static void bb_levers_check(void) {
+    static int32_t seen[ML_N]; static int init;
+    for (int L = 0; L < ML_N; L++) {
+        int32_t v = mind_lever_val(&M, L);
+        if (init && v != seen[L]) bb_mind("lever", 13 + (uint32_t)L, (uint32_t)v, (uint32_t)seen[L] + 1, 0);
+        seen[L] = v;
+    }
+    init = 1;
+}
+
+static void a_quantum(uint32_t q) { bb_mind("quantum ms", 1, q, last_q ? last_q + 1 : 0, 0); last_q = q; sched_set_quantum(q * TIMER_PER_10MS); }
+static void a_weight(uint32_t pid, uint32_t w) { bb_mind("weight pid", pid, w, 0, 1); sched_set_proc_weight(pid, w); }
+static void a_limit(uint32_t pid, uint32_t pct) { bb_mind("limit pid %", pid, pct, 0, 1); sched_set_proc_limit(pid, pct); }
+static void a_fx(int level) { bb_mind("fx", 6, (uint32_t)level, 0, 0); if (env.display_set_fx) env.display_set_fx(level); }
+static unsigned a_trim(void) { bb_mind("heap trim", 8, 0, 0, 1); return heap_trim(); }
+static void a_restrict(int level) { bb_mind("heap restrict", 8, (uint32_t)level, 0, 0); proc_set_heap_restrict(level); }
+static int a_kill(uint32_t pid) { bb_mind("kill pid", 9, pid, 0, 0); return proc_kill(pid); }
+static void a_hid(int block) { bb_mind("hid block", 10, (uint32_t)block, 0, 0); usb_hid_verdict(block); }
 
 typedef struct { uint32_t magic; mind_profile_t p; uint32_t check; } prof_file_t;
 
@@ -528,6 +556,7 @@ static void put_u(char* b, unsigned* n, uint64_t v) {
 
 void mind_sys_tick(uint64_t seconds) {
     if (!ready) return;
+    uint64_t tk0 = clock_ns();
     int mode = mind_sync_take_int(&req_mode, -1);
     int fx = mind_sync_take_int(&req_fx, -1);
     int tz = mind_sync_take_int(&req_tz, 0x7FFFFFFF);
@@ -542,11 +571,16 @@ void mind_sys_tick(uint64_t seconds) {
     if (cap >= 0) { M.m.core_cap = (uint8_t)cap; changed = 1; }
     kmutex_unlock(&mmx);
     if (changed) mind_sys_save();
+    uint64_t tg0 = clock_ns();
     gather(seconds);
+    uint64_t tg1 = clock_ns();
     kmutex_lock(&mmx);
     mind_step(&M, &S, &act);
+    bb_levers_check();
     published_model = M;
     kmutex_unlock(&mmx);
+    uint64_t tg2 = clock_ns();
+    mc_add(&mcost.gather, tg1 - tg0); mc_add(&mcost.step, tg2 - tg1);
     /* Новые записи журнала - только в последовательный порт (стенд, отладка). На экране их показывает окно Разума
        и команда ai; в терминал они не копируются, иначе вывод Разума дублировался бы там. */
     uint32_t fresh = published_model.jn - printed;
@@ -559,7 +593,9 @@ void mind_sys_tick(uint64_t seconds) {
         uart_print_serial(jl);
     }
     printed = published_model.jn;
+    uint64_t tp0 = clock_ns();
     publish(&published_model);
+    mc_add(&mcost.publish, clock_ns() - tp0);
     if (env.build_tick) env.build_tick(&published_model, &S, (uint32_t)seconds);      /* только предложение строкой в serial; сборки и разрешений здесь нет */
     char line[256]; unsigned n = 0;
     put_s(line, &n, "[KIRA TELEMETRY] t="); put_u(line, &n, seconds);
@@ -575,7 +611,13 @@ void mind_sys_tick(uint64_t seconds) {
     /* Телеметрия никогда не попадает в пользовательскую консоль. Включённый режим означает
        диагностический поток только на serial; обычные метрики доступны через mind_sys_view(). */
     if (__atomic_load_n(&telemetry, __ATOMIC_ACQUIRE)) uart_print_serial(line);
-    if (seconds - last_save >= SAVE_PERIOD) { last_save = seconds; mind_sys_save(); }
+    if (seconds - last_save >= SAVE_PERIOD) {
+        last_save = seconds;
+        uint64_t ts0 = clock_ns();
+        mind_sys_save();
+        mc_add(&mcost.save, clock_ns() - ts0);
+    }
+    mc_add(&mcost.tick, clock_ns() - tk0);
 }
 
 /* ---- тактика: ~40 раз в секунду ---- */
@@ -597,6 +639,7 @@ static void tact_main(void* arg) {
         uint32_t win = (uint32_t)(now - last);
         if (!khz || win == 0) { last = now; continue; }
         last = now;
+        uint64_t tt0 = clock_ns();
         mind_tact_in_t* in = &TI;
         in->t_ms = (uint32_t)now; in->window_ms = win; in->nproc = 0; in->busy_x10 = 0; in->fg_wait_ms = 0;
         unsigned n = percpu_count(), cores = 0;
@@ -614,7 +657,9 @@ static void tact_main(void* arg) {
         in->loops = (uint32_t)(loops - tt_loops); in->late = (uint32_t)(late - tt_late);
         tt_loops = loops; tt_late = late;
         int focus = env_focus_pid();
+        uint64_t tt1 = clock_ns();
         unsigned nt = sched_snapshot(tt_info, tt_cap);
+        mc_add(&mcost.tact_snap, clock_ns() - tt1);
         for (unsigned i = 0; i < nt; i++) {
             const thread_info_t* t = &tt_info[i];
             uint32_t wms = (uint32_t)(t->waiting * 1000 / TIMER_HZ);
@@ -643,7 +688,9 @@ static void tact_main(void* arg) {
         }
         kmutex_lock(&mmx);
         mind_tact_step(&M, in, &act);
+        bb_levers_check();
         kmutex_unlock(&mmx);
+        mc_add(&mcost.tact, clock_ns() - tt0);
     }
 }
 
@@ -682,7 +729,67 @@ static void pr_x100(int64_t v) {
     if (f) { uart_print(","); if (f < 10) uart_print("0"); uart_print_dec(f % 10 == 0 ? f / 10 : f); }
 }
 
+
+/* ai cost: сколько процессора и памяти берёт Разум. Период - с прошлого вызова (первый - с запуска). */
+static void pr_us(uint64_t ns) { uart_print_dec(ns / 1000); }
+static void pr_permille(uint64_t ns, uint64_t dt_ns) {
+    uint64_t pm = dt_ns ? ns * 1000 / dt_ns : 0;
+    uart_print_dec(pm / 10); uart_print(","); uart_print_dec(pm % 10); uart_print("%");
+}
+static void pr_mc(const char* name, const mc_t* c, const mc_t* p, uint64_t dt_ns) {
+    uint64_t n = c->n - p->n, ns = c->ns - p->ns;
+    uart_print("  "); uart_print(name); uart_print(": "); uart_print_dec(n); uart_print(" раз, в среднем ");
+    pr_us(n ? ns / n : 0); uart_print(" мкс, самый долгий за запуск "); pr_us(c->max); uart_print(" мкс, доля одного ядра "); pr_permille(ns, dt_ns); uart_print("\n");
+}
+static void mind_cost_print(void) {
+    static mc_t prev[7]; static uint64_t prev_t; static uint64_t sn_n, sn_hold, tact_cyc, tact_sw, all_sw;
+    static uint64_t dr_upd, dr_upd_ns, dr_draw, dr_draw_ns;
+    uint64_t now = clock_ns();
+    uint64_t dt = now - prev_t;
+    if (!dt) dt = 1;
+    const mc_t* cur[7] = { &mcost.tick, &mcost.gather, &mcost.step, &mcost.publish, &mcost.save, &mcost.tact, &mcost.tact_snap };
+    uart_print("\n[MIND] цена Разума за "); uart_print_dec(dt / 1000000); uart_print(" мс (с прошлого ai cost, первый раз - с запуска):\n");
+    pr_mc("секундный шаг целиком", cur[0], &prev[0], dt);
+    pr_mc("  сбор замеров", cur[1], &prev[1], dt);
+    pr_mc("  решение (mind_step)", cur[2], &prev[2], dt);
+    pr_mc("  снимок для оболочки", cur[3], &prev[3], dt);
+    pr_mc("  запись опыта на диск", cur[4], &prev[4], dt);
+    pr_mc("тактика (поток mind-tact)", cur[5], &prev[5], dt);
+    pr_mc("  из неё снимок потоков", cur[6], &prev[6], dt);
+    for (int i = 0; i < 7; i++) prev[i] = *cur[i];
+    uint64_t sn, hold, mx;
+    sched_snapshot_stats(&sn, &hold, &mx);
+    uart_print("  снимки таблицы потоков (все вызывающие): "); uart_print_dec(sn - sn_n); uart_print(" раз, замок таблицы с выключенными прерываниями держался ");
+    uart_print_dec((hold - sn_hold)); uart_print(" мкс всего ("); uart_print_dec(sn - sn_n ? (hold - sn_hold) / (sn - sn_n) : 0);
+    uart_print(" мкс на снимок), самый долгий "); uart_print_dec(mx); uart_print(" мкс\n");
+    sn_n = sn; sn_hold = hold;
+    mind_draw_cost_t dc = {0};
+    if (env.draw_cost) env.draw_cost(&dc);
+    uart_print("  цикл экрана: проходов update_mind "); uart_print_dec(dc.updates - dr_upd); uart_print(", в среднем ");
+    pr_us(dc.updates - dr_upd ? (dc.upd_ns - dr_upd_ns) / (dc.updates - dr_upd) : 0); uart_print(" мкс (самый долгий за запуск "); pr_us(dc.upd_max);
+    uart_print(" мкс), доля ядра "); pr_permille(dc.upd_ns - dr_upd_ns, dt);
+    uart_print("; перерисовок окна Разума "); uart_print_dec(dc.draws - dr_draw); uart_print(", в среднем ");
+    pr_us(dc.draws - dr_draw ? (dc.draw_ns - dr_draw_ns) / (dc.draws - dr_draw) : 0); uart_print(" мкс (самая долгая за запуск "); pr_us(dc.draw_max); uart_print(" мкс)\n");
+    dr_upd = dc.updates; dr_upd_ns = dc.upd_ns; dr_draw = dc.draws; dr_draw_ns = dc.draw_ns;
+    /* доля ядра потока тактики - по учёту планировщика (включает пробуждения и переключения, которых нет в замере тела) */
+    uint64_t tact_now = 0, tact_sw_now = 0, khz = clock_tsc_khz();
+    unsigned nt = tinfo ? sched_snapshot(tinfo, tcap) : 0;
+    for (unsigned i = 0; i < nt; i++) if (name_is(tinfo[i].name, "mind-tact")) { tact_now += tinfo[i].cpu_cycles; tact_sw_now += tinfo[i].switches_in; }
+    uint64_t sw_now = sched_total_switches();
+    uint64_t tact_ns = khz && tact_now >= tact_cyc ? (tact_now - tact_cyc) * 1000000ULL / khz : 0;
+    tact_cyc = tact_now;
+    uart_print("  поток mind-tact по учёту планировщика: доля ядра "); pr_permille(tact_ns, dt);
+    uart_print(", получал процессор "); uart_print_dec(tact_sw_now - tact_sw); uart_print(" раз (всего в системе переключений "); uart_print_dec(sw_now - all_sw); uart_print(")\n");
+    tact_sw = tact_sw_now; all_sw = sw_now;
+    uart_print("[MIND] память: модель "); uart_print_dec(sizeof(mind_t) / 1024); uart_print(" КиБ x2 (рабочая и опубликованная), замер "); uart_print_dec(sizeof(mind_sample_t) / 1024);
+    uart_print(" КиБ, снимок для оболочки "); uart_print_dec(sizeof(mind_view_t) / 1024); uart_print(" КиБ x2 (ядро и окно), таблицы потоков 2 x ");
+    uart_print_dec((uint64_t)tcap * sizeof(thread_info_t) / 1024); uart_print(" КиБ; всего около ");
+    uart_print_dec((2 * sizeof(mind_t) + sizeof(mind_sample_t) + 3 * sizeof(mind_view_t) + 2 * (uint64_t)tcap * sizeof(thread_info_t)) / 1024); uart_print(" КиБ\n\n");
+    prev_t = now;
+}
+
 void mind_sys_print(const char* what) {
+    if (what[0] == 'c' && what[1] == 'o') { mind_cost_print(); return; }          /* cost: цена Разума */
     mind_view_t* v = (mind_view_t*)kmalloc(sizeof(mind_view_t));
     if (!v) return;
     mind_sys_view(v);
@@ -818,7 +925,7 @@ void mind_sys_print(const char* what) {
             uart_print("; затяжных ожиданий "); uart_print_dec(stalls); uart_print(", самое долгое "); uart_print_dec(maxw); uart_print(" мкс");
             uart_print("; взято с чужих очередей "); uart_print_dec(steals);
         }
-        uart_print("\n[MIND] подробнее: ai why (журнал), ai norms (нормы), ai procs (программы), ai model (веса), ai levers (рычаги), ai act | ai observe, ai fx auto|0..3\n\n");
+        uart_print("\n[MIND] подробнее: ai why (журнал), ai norms (нормы), ai procs (программы), ai model (веса), ai levers (рычаги), ai cost (цена Разума), ai act | ai observe, ai fx auto|0..3\n\n");
     }
     kfree(v);
 }

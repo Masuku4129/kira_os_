@@ -185,6 +185,7 @@ void sched_set_tsc_khz(uint64_t khz);
 uint64_t sched_idle_cycles(void);        // такты, проведённые в idle-потоке
 uint64_t sched_total_switches(void);
 unsigned sched_snapshot(thread_info_t* out, unsigned max); // копия таблицы потоков
+void sched_snapshot_stats(uint64_t* n, uint64_t* hold_us, uint64_t* max_us);   // сколько раз и сколько замок таблицы держался ради снимков
 const thread_t* sched_current(void);
 
 void sched_dump(void);                   // печать таблицы потоков в UART

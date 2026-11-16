@@ -455,6 +455,14 @@ def run(sc, args):
                 time.sleep(1.0)
                 mark = len(vm.log)
                 result["checks"].append({"relaunch": True, "ok": True})
+            elif "crash" in st:                       # обрыв питания: машину убивают без выключения и поднимают снова на ТОМ ЖЕ диске (дополнительные устройства - в st["crash"])
+                vm.qemu.kill()
+                vm.qemu.wait(timeout=10)
+                vm.restart(st["crash"])
+                vm.expect(re.escape(PROMPT.decode()), sc.get("boot_timeout", 90), vm.phase_mark)
+                time.sleep(1.0)
+                mark = len(vm.log)
+                result["checks"].append({"crash": True, "ok": True})
             elif "pointer" in st:                     # поставить указатель в точку экрана: PS/2-мышь отдаёт только смещения, поэтому идём шагами
                 px, py = st["pointer"][0], st["pointer"][1]
                 cur = getattr(vm, "ptr", (640, 360))
@@ -468,6 +476,12 @@ def run(sc, args):
                     time.sleep(0.02)
                 vm.ptr = (px, py)
                 vm.pump(0.6)
+            elif "click" in st:                       # щелчок кнопкой мыши (left/right) там, где стоит указатель (сначала шаг "pointer")
+                btn = st["click"] if isinstance(st["click"], str) else "left"
+                for down in (True, False):
+                    vm.qmp_cmd({"execute": "input-send-event", "arguments": {"events": [{"type": "btn", "data": {"down": down, "button": btn}}]}})
+                    time.sleep(0.08)
+                vm.pump(0.4)
             elif "mouse" in st:                       # поток движения мыши через QMP: кружит по экрану; hz - событий в секунду, step - пикселей за событие
                 m = st["mouse"]
                 hz, secs, step = m.get("hz", 125), m.get("seconds", 10), m.get("step", 8)

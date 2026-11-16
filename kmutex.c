@@ -1,5 +1,7 @@
 #include "kmutex.h"
 #include "sched.h"
+#include "timer.h"
+#include "bbring.h"
 
 extern void kernel_panic(const char* reason) __attribute__((noreturn));
 
@@ -28,9 +30,20 @@ void kmutex_lock(kmutex_t* m) {
     t->wait_next = 0;
     if (m->tail) m->tail->wait_next = t; else m->head = t;
     m->tail = t;
+    uint64_t t_block = timer_get_ticks();
+    uint32_t owner_id = m->owner && real(m->owner) ? m->owner->id : 0;
     // Спим, пока владелец не передаст мьютекс. Замок m->lk отпускается внутри, уже после пометки "ждёт".
     sched_block_and_unlock(&m->lk);
     irq_restore(f);                          // здесь мьютекс уже наш (передан в kmutex_unlock)
+    {   /* чёрный ящик: ожидание мьютекса дольше 50 мс (кто держал - номер потока-владельца) */
+        uint64_t ms = (timer_get_ticks() - t_block) * 1000 / TIMER_HZ;
+        if (real(t) && ms >= 50) {
+            static bb_gate_t gate; uint32_t skipped;
+            if (bb_gate_pass(&gate, timer_get_ticks() * 1000 / TIMER_HZ, 10, &skipped))
+                bb_event(BB_LOCK, ms >= 1000 ? BB_SEV_SEVERE : ms >= 200 ? BB_SEV_WARN : BB_SEV_INFO, (uint32_t)(ms * 1000), 0xFFFF, owner_id, t->last_cpu, skipped > 255 ? 255 : (uint8_t)skipped, t->name);
+            else bb_note_suppressed(BB_LOCK, (uint32_t)(ms * 1000));
+        }
+    }
 }
 
 int kmutex_trylock(kmutex_t* m) {

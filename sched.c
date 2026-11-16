@@ -8,6 +8,7 @@
 #include "uart.h"
 #include "scale.h"
 #include "arch_sched.h"
+#include "bbring.h"
 #ifndef KIRA_HOST_TEST
 #include "kstack.h"
 #endif
@@ -77,8 +78,14 @@ static slk_t tbl_lock;
 
 static inline unsigned cur_cpu_id(void) { return this_cpu()->cpu_id; }
 
+/* Чёрный ящик: ожидание замка дольше порога (BB_LOCK_US) записывается в кольцо; не больше 20 записей в секунду. */
+#define BB_LOCK_US 5000u
+static bb_gate_t bb_lock_gate, bb_cpuwait_gate;
+#define BB_CPUWAIT_TICKS (30 * TIMER_HZ / 1000)       /* поток ядра ждал процессор не меньше 30 мс */
+
 static void slk_wait(slk_t* l, unsigned lid, slk_stat_t* s) {
     uint64_t t0 = rdtsc();
+    uint32_t who = 0;                                  /* ядро-владелец + 1, как его видели при ожидании */
     uint64_t khz = tsc_khz ? tsc_khz : 1000000;
     uint64_t stall_at = t0 + khz * SLK_STALL_MS;
     int flagged = 0;
@@ -89,6 +96,7 @@ static void slk_wait(slk_t* l, unsigned lid, slk_stat_t* s) {
             if (spin_bust) goto out;
             for (unsigned i = 0; i < SLK_POLLS && __atomic_load_n(&l->held, __ATOMIC_RELAXED); i++) { }
             spin_relax();
+            { uint32_t o = __atomic_load_n(&l->owner, __ATOMIC_RELAXED); if (o) who = o; }
             if (!flagged && rdtsc() > stall_at) {
                 flagged = 1;
                 s->stalls++;
@@ -104,6 +112,17 @@ out:;
     s->wait += w;
     s->contended++;
     if (w > s->max_wait) s->max_wait = w;
+    {
+        uint64_t us = w * 1000 / khz;
+        if (us >= BB_LOCK_US) {
+            uint32_t skipped;
+            if (bb_gate_pass(&bb_lock_gate, t0 / khz, 20, &skipped)) {
+                const thread_t* cur = this_cpu()->current;
+                bb_event(BB_LOCK, us >= 200000 ? BB_SEV_SEVERE : us >= 10000 ? BB_SEV_WARN : BB_SEV_INFO,
+                         us > 0xFFFFFFFFu ? 0xFFFFFFFFu : (uint32_t)us, lid, who, (uint32_t)(s - lst), skipped > 255 ? 255 : (uint8_t)skipped, cur ? cur->name : 0);
+            } else bb_note_suppressed(BB_LOCK, us > 0xFFFFFFFFu ? 0xFFFFFFFFu : (uint32_t)us);
+        }
+    }
 }
 
 static inline void slk_lock(slk_t* l, unsigned lid) {
@@ -580,6 +599,13 @@ static void schedule(void) {
     if (next->quantum_left == 0) next->quantum_left = wq(next);
     if (next == prev) { slk_unlock(&rq[id].lock); return; }
 
+    if (next->pid == 0 && next->prio > PRIO_IDLE && now_tick > next->ready_since && now_tick - next->ready_since >= BB_CPUWAIT_TICKS) {
+        uint64_t wait_ms = (now_tick - next->ready_since) * 1000 / TIMER_HZ;
+        uint32_t skipped;
+        if (bb_gate_pass(&bb_cpuwait_gate, now_tick * 1000 / TIMER_HZ, 10, &skipped))
+            bb_event(BB_CPUWAIT, wait_ms >= 500 ? BB_SEV_SEVERE : wait_ms >= 100 ? BB_SEV_WARN : BB_SEV_INFO, (uint32_t)wait_ms, (uint32_t)next->prio, id, 0, skipped > 255 ? 255 : (uint8_t)skipped, next->name);
+        else bb_note_suppressed(BB_CPUWAIT, (uint32_t)wait_ms);
+    }
     next->switches_in++;
     cpu->switches++;
     __atomic_store_n(&next->on_cpu, 1, __ATOMIC_RELAXED);
@@ -1281,12 +1307,20 @@ void sched_wake(thread_t* t) {
     irq_restore(f);
 }
 
+/* Цена снимков таблицы потоков: сколько раз, сколько тактов замок таблицы держался при выключенных прерываниях (всего и самый долгий). */
+static volatile uint64_t snap_n, snap_hold, snap_hold_max;
+void sched_snapshot_stats(uint64_t* n, uint64_t* hold_us, uint64_t* max_us) {
+    uint64_t khz = tsc_khz ? tsc_khz : 1000000;
+    *n = snap_n; *hold_us = snap_hold * 1000 / khz; *max_us = snap_hold_max * 1000 / khz;
+}
+
 unsigned sched_snapshot(thread_info_t* out, unsigned max) {
     uint64_t now_t = timer_get_ticks();
     unsigned n = 0;
     uint64_t f = irq_save();
     slk_lock(&tbl_lock, TBL_LOCK_ID);
     uint64_t now = rdtsc();
+    uint64_t held_from = now;
     for (unsigned i = 0; i < thread_hi && n < max; i++) {
         const thread_t* t = &threads[i];
         thread_state_t st = get_state(t);
@@ -1308,6 +1342,11 @@ unsigned sched_snapshot(thread_info_t* out, unsigned max) {
            разность ушла бы в огромное число («ждал процессор 2542620637 мс») */
         uint64_t rs = t->ready_since;
         o->waiting = (st == THREAD_READY && t->prio > PRIO_IDLE && now_t > rs) ? now_t - rs : 0;
+    }
+    {
+        uint64_t held = rdtsc() - held_from;
+        snap_n++; snap_hold += held;
+        if (held > snap_hold_max) snap_hold_max = held;
     }
     slk_unlock(&tbl_lock);
     irq_restore(f);
