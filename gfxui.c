@@ -247,8 +247,25 @@ void ui_seg(surface_t* s, int x0, int y0, int x1, int y1, int w16, uint32_t colo
     if (px1 > s->w) px1 = s->w;
     if (py1 > s->h) py1 = s->h;
     int64_t dx = x1 - x0, dy = y1 - y0, ll = dx * dx + dy * dy;
-    for (int py = py0; py < py1; py++)
-        for (int px = px0; px < px1; px++) {
+    int R = w16 + 8;                                          /* дальше этого расстояния покрытие равно нулю */
+    int ymin = y0 < y1 ? y0 : y1, ymax = y0 < y1 ? y1 : y0;
+    for (int py = py0; py < py1; py++) {
+        /* В строке нужны только столбцы около части отрезка, попавшей в полосу [y-R, y+R]: у косой линии это узкая
+           полоса, а не весь прямоугольник вокруг неё. Границы с запасом, так что результат тот же, что при полном обходе. */
+        int cyc = py * 16 + 8;
+        int lo = cyc - R, hi = cyc + R;
+        if (hi < ymin || lo > ymax) continue;
+        int rx0, rx1;
+        if (dy == 0) { rx0 = x0 < x1 ? x0 : x1; rx1 = x0 < x1 ? x1 : x0; }
+        else {
+            int ya = lo < ymin ? ymin : lo, yb = hi > ymax ? ymax : hi;
+            int64_t xa = x0 + (int64_t)(ya - y0) * dx / dy, xb = x0 + (int64_t)(yb - y0) * dx / dy;
+            rx0 = (int)(xa < xb ? xa : xb) - 16; rx1 = (int)(xa < xb ? xb : xa) + 16;
+        }
+        int sx0 = (rx0 - R) >> 4, sx1 = ((rx1 + R) >> 4) + 1;
+        if (sx0 < px0) sx0 = px0;
+        if (sx1 > px1) sx1 = px1;
+        for (int px = sx0; px < sx1; px++) {
             int64_t cx = px * 16 + 8 - x0, cy = py * 16 + 8 - y0;
             int64_t t = ll ? (cx * dx + cy * dy) : 0;
             int64_t qx, qy;
@@ -261,6 +278,7 @@ void ui_seg(surface_t* s, int x0, int y0, int x1, int y1, int w16, uint32_t colo
             if (c > 16) c = 16;
             ui_blend(s, px, py, color, alpha * (unsigned)c / 16);
         }
+    }
 }
 
 /* Текст крупнее 8x16 со сглаживанием: глиф выбирается билинейно из битовой маски, scale16 = 16 - исходный размер. */
