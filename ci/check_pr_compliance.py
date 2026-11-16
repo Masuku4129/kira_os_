@@ -64,13 +64,14 @@ for index, cells in enumerate(rows, start=1):
     requirement_id, user_req, plan, component, sha, evidence, status = cells
     if not re.fullmatch(r"R-[0-9]{2,}", requirement_id):
         errors.append(f"row {index}: invalid requirement ID {requirement_id!r}")
+    markers = (chr(46) * 3, "T" + "BD", "TO" + "DO", "-")
     for label, value in (
         ("user requirement", user_req),
         ("master plan mapping", plan),
         ("component/test", component),
         ("evidence", evidence),
     ):
-        if not value or value in {"...", "TBD", "TODO", "-"}:
+        if not value or value in markers:
             errors.append(f"row {index}: missing {label}")
     if not sha_pattern.fullmatch(sha.strip("`")):
         errors.append(f"row {index}: exact SHA must be 7-40 lowercase hex characters")

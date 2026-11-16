@@ -9,7 +9,11 @@
 #define PCI_MAX_DEVS 1024         /* функций на всех шинах: у ПК 40-80, у серверов - сотни */
 #define PCI_BARS 6
 
+typedef struct { uint64_t id, generation; } pci_handle_t;
+typedef int (*pci_rescan_guard_fn)(void);
+
 typedef struct {
+    uint64_t device_id, generation; /* opaque boot-local identity; generation invalidates snapshot handles on rescan */
     uint8_t bus, dev, fn;
     uint16_t vendor, device;
     uint8_t class_code, subclass, prog_if, revision, header_type;
@@ -22,12 +26,16 @@ typedef struct {                 /* способ доступа к конфиг�
 } pci_backend_t;
 
 void pci_set_backend(const pci_backend_t* b);      /* 0 - порты 0xCF8/0xCFC (только x86) */
+void pci_set_rescan_guard(pci_rescan_guard_fn guard); /* runtime re-enumeration is denied unless the owner explicitly allows it */
 void pci_use_ecam(volatile void* base, uint8_t bus_start, uint8_t bus_end);   /* конфигурация через ECAM */
 typedef struct { uint64_t pci_base, size, next; int64_t cpu_off; } pci_window_t;   /* окно адресов моста */
 int  pci_assign(pci_window_t* mem32, pci_window_t* mem64);   /* назначить пустые BAR (после pci_init); число BAR */
-int  pci_init(void);                               /* число найденных устройств */
+int  pci_init(void);                               /* совместимый режим: root bus 0, весь диапазон 0..255 */
+int  pci_init_range(uint8_t first_bus, uint8_t last_bus); /* root bus и рекурсивные мосты ограничены диапазоном host bridge */
 int  pci_count(void);
 const pci_dev_t* pci_get(int i);
+pci_handle_t pci_get_handle(int i);                 /* opaque handle for the current enumeration snapshot */
+const pci_dev_t* pci_resolve(pci_handle_t handle);   /* stale/unknown handles resolve to NULL */
 const pci_dev_t* pci_find(uint16_t vendor, uint16_t device);
 
 uint8_t  pci_read8(const pci_dev_t* d, uint16_t off);

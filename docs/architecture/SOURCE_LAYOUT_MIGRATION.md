@@ -195,6 +195,6 @@ Both x86-64 and ARM64 build manifests compile these exact paths. Root `syscall.h
 
 ### PCI host follow-up constraints
 
-- The current common PCI enumerator starts scanning at bus 0. Until a range-aware enumeration API is introduced, the ARM64 host backend explicitly rejects a Device Tree `bus-range` whose first bus is not 0 instead of silently enumerating no devices.
+- The common PCI enumerator now accepts an explicit root bus range through `pci_init_range(first_bus, last_bus)`; `pci_init()` remains the legacy bus-0 wrapper. ARM64 passes the validated FDT `bus-range`, including a nonzero start. Recursive bridge traversal is bounded by the host aperture and each ancestor bridge's subordinate-bus window. Exact-head CI for the later nested-window regression remains required.
 - ECAM base must be 1-MiB aligned, matching the per-bus ECAM aperture. A final exact-head run is required for this follow-up.
 - Exact-head CI run `43298087855` on `618ce01344e219991323aca51f9de58c55ed2aab` completed **30/30 jobs successfully**, including host tests, x86-64/ARM64 builds and the full QEMU/Limbo matrix. This run predates the bus-start/alignment follow-up commits; those new checks remain unverified until the next run.

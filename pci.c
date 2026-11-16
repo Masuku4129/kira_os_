@@ -35,6 +35,13 @@ static pci_backend_t be = { port_read32, port_write32 };
 static pci_dev_t devs[PCI_MAX_DEVS];
 static int ndevs;
 static uint8_t bus_seen[256];
+static uint8_t scan_bus_min, scan_bus_max;
+static uint64_t pci_snapshot_generation;
+static uint64_t pci_next_device_id = 1;
+static int pci_identity_exhausted;
+static pci_rescan_guard_fn pci_rescan_guard;
+
+void pci_set_rescan_guard(pci_rescan_guard_fn guard) { pci_rescan_guard = guard; }
 
 void pci_set_backend(const pci_backend_t* b) {
     if (b) be = *b; else { be.read32 = port_read32; be.write32 = port_write32; }
@@ -147,14 +154,17 @@ static void probe_bars(pci_dev_t* d) {
     pci_write16(d, 0x04, cmd);
 }
 
-static void scan_bus(uint8_t bus);
+static void scan_bus(uint8_t bus, uint8_t bus_limit);
 
-static void scan_fn(uint8_t bus, uint8_t dev, uint8_t fn) {
+static void scan_fn(uint8_t bus, uint8_t dev, uint8_t fn, uint8_t bus_limit) {
     pci_dev_t t; t.bus = bus; t.dev = dev; t.fn = fn;
     uint32_t id = cr32(&t, 0);
     if ((id & 0xFFFF) == 0xFFFF) return;
-    if (ndevs >= PCI_MAX_DEVS) return;
+    if (ndevs >= PCI_MAX_DEVS || pci_identity_exhausted) return;
+    if (!pci_next_device_id) { pci_identity_exhausted = 1; return; }
     pci_dev_t* d = &devs[ndevs++];
+    d->device_id = pci_next_device_id++;
+    d->generation = pci_snapshot_generation;
     d->bus = bus; d->dev = dev; d->fn = fn;
     d->vendor = (uint16_t)id; d->device = (uint16_t)(id >> 16);
     uint32_t cls = cr32(d, 0x08);
@@ -162,32 +172,62 @@ static void scan_fn(uint8_t bus, uint8_t dev, uint8_t fn) {
     d->header_type = pci_read8(d, 0x0E);
     probe_bars(d);
     if ((d->header_type & 0x7F) == 1 && d->class_code == 6 && d->subclass == 4) {
-        uint8_t sec = pci_read8(d, 0x19);                          /* вторичная шина моста */
-        if (sec) scan_bus(sec);
+        uint8_t primary = pci_read8(d, 0x18);
+        uint8_t sec = pci_read8(d, 0x19);
+        uint8_t subordinate = pci_read8(d, 0x1A);
+        uint8_t child_limit = subordinate < bus_limit ? subordinate : bus_limit;
+        /* A child bridge may not escape either this bridge's subordinate window or the host aperture. */
+        if (primary == bus && sec >= scan_bus_min && sec <= child_limit)
+            scan_bus(sec, child_limit);
     }
 }
 
-static void scan_bus(uint8_t bus) {
+static void scan_bus(uint8_t bus, uint8_t bus_limit) {
+    if (bus < scan_bus_min || bus > scan_bus_max || bus > bus_limit) return;
     if (bus_seen[bus]) return;                                       /* защита от петель в неверно настроенных мостах */
     bus_seen[bus] = 1;
     for (uint8_t dev = 0; dev < 32; dev++) {
         pci_dev_t t; t.bus = bus; t.dev = dev; t.fn = 0;
         if ((cr32(&t, 0) & 0xFFFF) == 0xFFFF) continue;
         uint8_t multi = pci_read8(&t, 0x0E) & 0x80;
-        scan_fn(bus, dev, 0);
-        if (multi) for (uint8_t fn = 1; fn < 8; fn++) scan_fn(bus, dev, fn);
+        scan_fn(bus, dev, 0, bus_limit);
+        if (multi) for (uint8_t fn = 1; fn < 8; fn++) scan_fn(bus, dev, fn, bus_limit);
     }
 }
 
-int pci_init(void) {
+int pci_init_range(uint8_t first_bus, uint8_t last_bus) {
+    /* Never invalidate descriptors while drivers may retain direct MMIO/DMA mappings. */
+    if (pci_snapshot_generation && (!pci_rescan_guard || !pci_rescan_guard())) return -1;
     ndevs = 0;
+    pci_identity_exhausted = 0;
     for (int i = 0; i < 256; i++) bus_seen[i] = 0;
-    scan_bus(0);
+    if (first_bus > last_bus || pci_snapshot_generation == UINT64_MAX || !pci_next_device_id) return -1;
+    pci_snapshot_generation++;
+    scan_bus_min = first_bus;
+    scan_bus_max = last_bus;
+    scan_bus(first_bus, last_bus);
+    if (pci_identity_exhausted) { ndevs = 0; return -1; }
     return ndevs;
+}
+
+int pci_init(void) {
+    return pci_init_range(0, 255);
 }
 
 int pci_count(void) { return ndevs; }
 const pci_dev_t* pci_get(int i) { return i >= 0 && i < ndevs ? &devs[i] : 0; }
+pci_handle_t pci_get_handle(int i) {
+    pci_handle_t h = { 0, 0 };
+    const pci_dev_t* d = pci_get(i);
+    if (d) { h.id = d->device_id; h.generation = d->generation; }
+    return h;
+}
+const pci_dev_t* pci_resolve(pci_handle_t h) {
+    if (!h.id || !h.generation || h.generation != pci_snapshot_generation) return 0;
+    for (int i = 0; i < ndevs; i++)
+        if (devs[i].device_id == h.id && devs[i].generation == h.generation) return &devs[i];
+    return 0;
+}
 const pci_dev_t* pci_find(uint16_t v, uint16_t dv) {
     for (int i = 0; i < ndevs; i++) if (devs[i].vendor == v && devs[i].device == dv) return &devs[i];
     return 0;

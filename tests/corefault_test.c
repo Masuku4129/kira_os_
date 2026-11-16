@@ -57,6 +57,20 @@ int main(void) {
     lb_tick(&a, emit, 0);
     CHECK(emits == 1 && strcmp(out, ">") == 0);
     lb_tick(&a, emit, 0); CHECK(emits == 1);                     // пустой буфер ничего не выводит
+    // Длинная строка KDRV (225 байт) не должна разрываться выводом другого ядра.
+    linebuf_t kernel_line = {0}, user_line = {0};
+    const char* drv = "[KIRA DRV] edu: устройство 00:05.0 1234:11e8 -> драйвер запущен как drv-edu (pid 1), SHA-256 сверен, права: CAP_MMIO CAP_IRQ CAP_DMA CAP_PCIDEV, прерывание MSI включено\n";
+    const char* user = "[USER pid 1] drvedu: dma round trip equal\n";
+    size_t dn = strlen(drv);
+    CHECK(dn > 192 && dn < LB_SIZE);
+    out[0] = 0; emits = 0;
+    for (size_t k = 0; k < 200; k++) lb_putc(&kernel_line, drv[k], emit, 0);
+    for (size_t k = 0; user[k]; k++) lb_putc(&user_line, user[k], emit, 0);
+    for (size_t k = 200; k < dn; k++) lb_putc(&kernel_line, drv[k], emit, 0);
+    char expected[512];
+    snprintf(expected, sizeof expected, "%s%s", user, drv);
+    CHECK(emits == 2 && strcmp(out, expected) == 0);
+
     // Переполнение: строка длиннее буфера выходит кусками, ничего не теряется
     out[0] = 0; emits = 0;
     for (int k = 0; k < LB_SIZE * 2 + 5; k++) lb_putc(&a, 'z', emit, 0);
