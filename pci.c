@@ -36,9 +36,8 @@ static pci_dev_t devs[PCI_MAX_DEVS];
 static int ndevs;
 static uint8_t bus_seen[256];
 static uint8_t scan_bus_min, scan_bus_max;
-static uint64_t pci_snapshot_generation;
-static uint64_t pci_next_device_id = 1;
-static int pci_identity_exhausted;
+static int pci_has_snapshot;
+static int pci_registry_failed;
 static pci_rescan_guard_fn pci_rescan_guard;
 
 void pci_set_rescan_guard(pci_rescan_guard_fn guard) { pci_rescan_guard = guard; }
@@ -160,17 +159,34 @@ static void scan_fn(uint8_t bus, uint8_t dev, uint8_t fn, uint8_t bus_limit) {
     pci_dev_t t; t.bus = bus; t.dev = dev; t.fn = fn;
     uint32_t id = cr32(&t, 0);
     if ((id & 0xFFFF) == 0xFFFF) return;
-    if (ndevs >= PCI_MAX_DEVS || pci_identity_exhausted) return;
-    if (!pci_next_device_id) { pci_identity_exhausted = 1; return; }
+    if (ndevs >= PCI_MAX_DEVS || pci_registry_failed) return;
     pci_dev_t* d = &devs[ndevs++];
-    d->device_id = pci_next_device_id++;
-    d->generation = pci_snapshot_generation;
     d->bus = bus; d->dev = dev; d->fn = fn;
     d->vendor = (uint16_t)id; d->device = (uint16_t)(id >> 16);
     uint32_t cls = cr32(d, 0x08);
     d->revision = (uint8_t)cls; d->prog_if = (uint8_t)(cls >> 8); d->subclass = (uint8_t)(cls >> 16); d->class_code = (uint8_t)(cls >> 24);
     d->header_type = pci_read8(d, 0x0E);
     probe_bars(d);
+
+    device_descriptor_t descriptor = {0};
+    descriptor.bus = DEVICE_BUS_PCI;
+    descriptor.location.segment = 0;
+    descriptor.location.bus = bus;
+    descriptor.location.device = dev;
+    descriptor.location.function = fn;
+    descriptor.vendor_id = d->vendor;
+    descriptor.product_id = d->device;
+    descriptor.class_code = d->class_code;
+    descriptor.subclass = d->subclass;
+    descriptor.prog_if = d->prog_if;
+    descriptor.revision = d->revision;
+    descriptor.header_type = d->header_type;
+    if (device_registry_add(&descriptor, &d->handle) != DEVICE_OK) {
+        pci_registry_failed = 1;
+        ndevs--;
+        return;
+    }
+
     if ((d->header_type & 0x7F) == 1 && d->class_code == 6 && d->subclass == 4) {
         uint8_t primary = pci_read8(d, 0x18);
         uint8_t sec = pci_read8(d, 0x19);
@@ -197,16 +213,22 @@ static void scan_bus(uint8_t bus, uint8_t bus_limit) {
 
 int pci_init_range(uint8_t first_bus, uint8_t last_bus) {
     /* Never invalidate descriptors while drivers may retain direct MMIO/DMA mappings. */
-    if (pci_snapshot_generation && (!pci_rescan_guard || !pci_rescan_guard())) return -1;
+    if (pci_has_snapshot && (!pci_rescan_guard || !pci_rescan_guard())) return -1;
+    /* Invalid arguments do not destroy a previously valid device snapshot. */
+    if (first_bus > last_bus) return -1;
+    if (device_registry_begin_snapshot() != DEVICE_OK) return -1;
     ndevs = 0;
-    pci_identity_exhausted = 0;
+    pci_registry_failed = 0;
     for (int i = 0; i < 256; i++) bus_seen[i] = 0;
-    if (first_bus > last_bus || pci_snapshot_generation == UINT64_MAX || !pci_next_device_id) return -1;
-    pci_snapshot_generation++;
     scan_bus_min = first_bus;
     scan_bus_max = last_bus;
     scan_bus(first_bus, last_bus);
-    if (pci_identity_exhausted) { ndevs = 0; return -1; }
+    if (pci_registry_failed) {
+        ndevs = 0;
+        device_registry_abort_snapshot();
+        return -1;
+    }
+    pci_has_snapshot = 1;
     return ndevs;
 }
 
@@ -217,15 +239,20 @@ int pci_init(void) {
 int pci_count(void) { return ndevs; }
 const pci_dev_t* pci_get(int i) { return i >= 0 && i < ndevs ? &devs[i] : 0; }
 pci_handle_t pci_get_handle(int i) {
-    pci_handle_t h = { 0, 0 };
+    pci_handle_t empty = { 0, 0 };
     const pci_dev_t* d = pci_get(i);
-    if (d) { h.id = d->device_id; h.generation = d->generation; }
-    return h;
+    return d ? d->handle : empty;
 }
 const pci_dev_t* pci_resolve(pci_handle_t h) {
-    if (!h.id || !h.generation || h.generation != pci_snapshot_generation) return 0;
-    for (int i = 0; i < ndevs; i++)
-        if (devs[i].device_id == h.id && devs[i].generation == h.generation) return &devs[i];
+    const device_descriptor_t* descriptor = device_resolve(h);
+    if (!descriptor || descriptor->bus != DEVICE_BUS_PCI) return 0;
+    for (int i = 0; i < ndevs; i++) {
+        if (devs[i].handle.id == h.id && devs[i].handle.generation == h.generation &&
+            devs[i].bus == descriptor->location.bus &&
+            devs[i].dev == descriptor->location.device &&
+            devs[i].fn == descriptor->location.function)
+            return &devs[i];
+    }
     return 0;
 }
 const pci_dev_t* pci_find(uint16_t v, uint16_t dv) {
