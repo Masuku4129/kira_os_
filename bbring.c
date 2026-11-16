@@ -43,7 +43,12 @@ void bb_event(uint8_t kind, uint8_t sev, uint32_t a, uint32_t b, uint32_t c, uin
     r.kind = kind; r.cpu = hook_cpu ? (uint8_t)hook_cpu() : 0; r.flags = flags; r.sev = sev;
     r.a = a; r.b = b; r.c = c; r.d = d;
     unsigned i = 0;
-    if (name) for (; i < BB_NAME - 1 && name[i]; i++) r.name[i] = name[i];
+    if (name) {
+        unsigned n = 0;
+        while (n < BB_NAME - 1 && name[n]) n++;
+        if (name[n]) while (n > 0 && ((uint8_t)name[n] & 0xC0) == 0x80) n--;      /* усечение не режет букву UTF-8 пополам */
+        for (; i < n; i++) r.name[i] = name[i];
+    }
     for (; i < BB_NAME; i++) r.name[i] = 0;
     r.seq = (uint32_t)(idx + 1);
     slot_t sl; mcopy(&sl, &r, sizeof sl);

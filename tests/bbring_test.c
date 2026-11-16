@@ -146,6 +146,12 @@ static void test_text(void) {
     /* усечение по размеру буфера: не выходит за границы и завершается нулём */
     char tiny[12]; unsigned k = bb_format(&r, tiny, sizeof tiny); CHECK(k == 11 && tiny[11] == 0);
     CHECK(bb_format(&r, tiny, 0) == 0);
+    /* имя длиннее 15 байт усекается по границе буквы UTF-8: оборванного байта в конце нет */
+    bb_clear();
+    bb_event(BB_NOTE, 0, 0, 0, 0, 0, 0, "кольцо очищено");
+    { bb_rec_t t1[1]; CHECK(bb_snapshot(t1, 1) == 1); CHECK(!strcmp(t1[0].name, "кольцо о"));
+      bb_clear(); bb_event(BB_NOTE, 0, 0, 0, 0, 0, 0, "abcdefghijklmnяя");          /* 15-й байт - половина буквы: режется целиком */
+      CHECK(bb_snapshot(t1, 1) == 1 && !strcmp(t1[0].name, "abcdefghijklmn")); }
     /* сводка и хвост */
     bb_clear();
     fake_ms = 9; bb_event(BB_FRAME, 0, 30000, 1, 0, 0, 0, "gfx"); bb_event(BB_GAP, 2, 900, BB_GAP_CORE, 0, 0, 0, "core");

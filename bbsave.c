@@ -181,7 +181,7 @@ static unsigned parse_num(const char* a) { unsigned v = 0; while (*a >= '0' && *
 void bbsave_command(const char* arg) {
     while (arg && *arg == ' ') arg++;
     if (!arg) arg = "";
-    char line[256];
+    char line[512];
     if (same(arg, "save")) {
         int rc = bbsave_now(BB_SAVE_REQUEST);
         if (rc == 0) { bbsave_status(line, sizeof line); uart_print(line); uart_print("\n"); }
@@ -190,7 +190,7 @@ void bbsave_command(const char* arg) {
     }
     if (same(arg, "clear")) {
         bb_clear();
-        bb_event(BB_NOTE, BB_SEV_INFO, 0, 0, 0, 0, 0, "кольцо очищено");
+        bb_event(BB_NOTE, BB_SEV_INFO, 0, 0, 0, 0, 0, "очищено");
         uart_print("[BB] кольцо очищено; файлы на диске не тронуты (они перезапишутся при следующем сбросе)\n");
         return;
     }

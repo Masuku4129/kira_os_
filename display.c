@@ -922,7 +922,7 @@ void display_print_info(void) {
     p_gfx = st.ns_gfx; p_mm = st.ns_mouse; p_mid = st.ns_mid; p_cmp = st.ns_comp; p_in = in_n; p_drop = drop_n;
     st.max_gap_period = 0; st.worst_busy_ns = 0;
     {   /* чёрный ящик: сводка событий и состояние сброса на диск (подробно - команда bb) */
-        char l[400];
+        char l[512];
         bb_summary(l, sizeof l); uart_print(l); uart_print("\n");
         bbsave_status(l, sizeof l); uart_print(l); uart_print("\n");
     }
