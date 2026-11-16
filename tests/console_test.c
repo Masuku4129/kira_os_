@@ -18,6 +18,7 @@
 #include "fscmd.h"
 #include "pci.h"
 #include "blk.h"
+#include "platform.h"
 void smp_describe(void (*out)(const char*)) { out("smp stub\n"); }
 int smp_selftest_start(void) { return -1; }
 char kernel_start[4096];

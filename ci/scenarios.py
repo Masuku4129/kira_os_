@@ -454,7 +454,20 @@ ALL = [
         {"log": [r"\[KIRA ACPI\] powering off \(S5\)"]},
         {"log_forbid": NO_ERR + [r"did not power off"]},
     ], smp=2, mem="512M"),
-    sc("power-reboot", "перезагрузка на q35 (регистр сброса FADT / 0xCF9): система поднимается снова, файл, записанный до сброса, на месте", [
+    sc("acpi-power-button", "кнопка питания (QMP system_powerdown, плата pc/PIIX): SCI -> интерпретатор AML -> штатное выключение с сохранением данных", [
+        {"log": BOOT_LOG + [r"\[KIRA ACPI\] AML up"]},
+        {"cmd": "write /acpi-btn.txt kira-acpi-button"},
+        {"qmp_exit": "system_powerdown", "within": 30},
+        {"log": [r"\[KIRA ACPI\] power button pressed", r"\[KIRA POWER\] power button: saving data", r"\[KIRA ACPI\] powering off \(S5\)"]},
+        {"log_forbid": NO_ERR + [r"did not power off", r"AML is busy"]},
+    ], smp=2, mem="512M"),
+    sc("acpi-power-button-q35", "кнопка питания (QMP system_powerdown, плата q35/ICH9): та же цепочка на другой плате", [
+        {"log": BOOT_LOG + [r"\[KIRA ACPI\] AML up"]},
+        {"qmp_exit": "system_powerdown", "within": 30},
+        {"log": [r"\[KIRA ACPI\] power button pressed", r"\[KIRA ACPI\] powering off \(S5\)"]},
+        {"log_forbid": NO_ERR + [r"did not power off", r"AML is busy"]},
+    ], smp=2, mem="512M", machine="q35"),
+    sc("power-reboot","перезагрузка на q35 (регистр сброса FADT / 0xCF9): система поднимается снова, файл, записанный до сброса, на месте", [
         {"log": BOOT_LOG},
         {"cmd": "write /reboot.txt kira-before-reboot"},
         {"send": "reboot"},

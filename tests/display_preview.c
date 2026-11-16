@@ -44,6 +44,7 @@ int64_t kfs_read(const char* path, uint64_t off, void* buf, size_t len) {
 #include "fm.h"
 #include "rtc.h"
 #include "apps.h"
+#include "platform.h"
 
 #define CHECK(c) do { if (!(c)) { printf("FAIL line %d: %s\n", __LINE__, #c); fails++; } } while (0)
 static int fails;
