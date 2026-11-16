@@ -61,14 +61,17 @@ static void gpu_flush(int x, int y, int w, int h) {
 int virtio_gpu_probe(void) {
     const pci_dev_t* p = pci_find(VIRTIO_VENDOR, VIRTIO_GPU_DEVICE);
     if (!p) return -1;
-    if (virtio_attach(&dev, p) || virtio_begin(&dev, 0) || virtio_queue_setup(&dev, &ctrl, 0, 64)) {
+    int iso = virtio_iso_open(p);
+    int att = virtio_attach(&dev, p);
+    if (!att && iso) iso = virtio_iso_confirm(&dev, "virtio-gpu", 0, 0);     /* устройство читает команду из выданного буфера */
+    if (att || virtio_begin(&dev, VIRTIO_F_ACCESS_PLATFORM) || virtio_queue_setup(&dev, &ctrl, 0, 64)) {
         uart_print("[KIRA GPU] virtio-gpu found but did not start.\n");
         return -2;
     }
     virtio_driver_ok(&dev);
     cmd = (uint8_t*)virtio_dma_alloc(4096, &cmd_phys);
     resp = (uint8_t*)virtio_dma_alloc(4096, &resp_phys);
-    if (!cmd || !resp) { virtio_fail(&dev); return -3; }
+    if (!cmd || !resp || (iso && (virtio_dma_grant(&dev, cmd_phys, 4096) || virtio_dma_grant(&dev, resp_phys, 4096)))) { virtio_fail(&dev); return -3; }
 
     disp_info_t* di = (disp_info_t*)resp;
     zero(cmd, sizeof(hdr_t)); ((hdr_t*)cmd)->type = CMD_GET_DISPLAY_INFO;
@@ -81,7 +84,7 @@ int virtio_gpu_probe(void) {
 
     uint64_t fb_phys;
     uint8_t* fbm = (uint8_t*)virtio_dma_alloc(W * H * 4, &fb_phys);   /* подложка: непрерывная, видна устройству */
-    if (!fbm) { virtio_fail(&dev); return -5; }
+    if (!fbm || (iso && virtio_dma_grant(&dev, fb_phys, W * H * 4))) { virtio_fail(&dev); return -5; }
 
     create_t* c = (create_t*)cmd; zero(c, sizeof *c);
     c->h.type = CMD_RESOURCE_CREATE_2D; c->res = 1; c->format = FORMAT_B8G8R8X8; c->width = W; c->height = H;

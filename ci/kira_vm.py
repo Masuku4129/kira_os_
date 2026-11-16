@@ -151,7 +151,7 @@ class VM:
     def args(self):
         sc = self.sc
         a = ["qemu-system-x86_64", "-machine", sc.get("machine", "pc"), "-m", str(sc.get("mem", "1G")),
-             "-smp", str(sc.get("smp", 4)), "-vga", "std", "-display", "none",
+             "-smp", str(sc.get("smp", 4)), "-vga", sc.get("vga", "std"), "-display", "none",
              *self.boot_args(),
              "-chardev", f"socket,id=ser0,path={self.ser_path},server=on,wait=on", "-serial", "chardev:ser0",
              "-qmp", f"unix:{self.qmp_path},server=on,wait=off",

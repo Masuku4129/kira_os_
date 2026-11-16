@@ -425,6 +425,14 @@ ALL = [
         {"cmd": "ping 10.0.2.2 3", "must": [r"отправлено 3, получено [1-3]"], "timeout": 20},
         {"log_forbid": NO_ERR + [r"virtio-net: .*NOT isolated"]},
     ], smp=2, mem="1G", machine="q35", extra=["-device", "intel-iommu,aw-bits=48", "-netdev", "user,id=n0", "-device", "virtio-net-pci,netdev=n0,disable-legacy=on,iommu_platform=on"]),
+    sc("virtio-iommu-all", "virtio-rng, virtio-input и virtio-gpu под VT-d (q35): у каждого свой домен и подтверждённое принуждение, устройства работают", [
+        {"log": BOOT_LOG}, {"sleep": 6},
+        {"log": [r"\[KIRA IOMMU\] virtio-rng: enforcement check passed", r"\[KIRA IOMMU\] virtio-gpu: enforcement check passed"]},
+        {"log": [r"\[KIRA GPU\] virtio-gpu: \d+x\d+ 2D scanout"]},
+        {"cmd": "fb", "must": [r"\[PERIOD\] ms \d+ frames \d+"]},
+        {"log_forbid": NO_ERR + [r"virtio-(rng|gpu): .*NOT isolated", r"virtio-gpu found but did not start", r"virtio-gpu stopped answering"]},
+    ], smp=2, mem="1G", machine="q35", extra=["-device", "intel-iommu,aw-bits=48", "-device", "virtio-rng-pci,disable-legacy=on,iommu_platform=on",
+                                             "-device", "virtio-keyboard-pci,disable-legacy=on,iommu_platform=on", "-device", "virtio-gpu-pci,disable-legacy=on,iommu_platform=on"], vga="none"),
     sc("net-virtio", "сеть: virtio-net (MSI-X будит поток сети), DHCP, ping, программа fetch", [
         {"log": BOOT_LOG}, {"sleep": 8},
         {"log": [r"\[KIRA NET\] virtio-net: MAC 52:54:00.*MSI-X", r"\[KIRA NET\] DHCP: address 10\.0\.2\.15/24"]},

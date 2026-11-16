@@ -138,7 +138,10 @@ static uint32_t cfg_u32(vin_t* d, unsigned off) {
 }
 
 static int attach(vin_t* d, const pci_dev_t* p, int* has_irq) {
-    if (virtio_attach(&d->dev, p) || !d->dev.devcfg || virtio_begin(&d->dev, 0)) return -1;
+    int iso = virtio_iso_open(p);
+    if (virtio_attach(&d->dev, p) || !d->dev.devcfg) return -1;
+    if (iso) iso = virtio_iso_confirm(&d->dev, "virtio-input", 1, 0);       /* очередь событий молчит без ввода - проверка по очереди состояния */
+    if (virtio_begin(&d->dev, VIRTIO_F_ACCESS_PLATFORM)) return -1;
     uint64_t ma; uint32_t md;
     *has_irq = msi_alloc(p, irq, 0, &ma, &md) == 0 && pci_msix_setup(p, 0, ma, md) == 0;
     if (*has_irq) d->dev.msix_vec = 0;
@@ -153,7 +156,7 @@ static int attach(vin_t* d, const pci_dev_t* p, int* has_irq) {
         else { d->amin[a] = 0; d->amax[a] = 32767; }
     }
     d->ev = (vev_t*)virtio_dma_alloc(NBUF * sizeof(vev_t), &d->ev_phys);
-    if (!d->ev) { virtio_fail(&d->dev); return -2; }
+    if (!d->ev || (iso && virtio_dma_grant(&d->dev, d->ev_phys, NBUF * sizeof(vev_t)))) { virtio_fail(&d->dev); return -2; }
     uint16_t nb = d->q.size < NBUF ? d->q.size : NBUF;
     for (uint16_t i = 0; i < nb; i++) virtq_post(&d->q, i, d->ev_phys + i * sizeof(vev_t), sizeof(vev_t), 1);
     virtio_driver_ok(&d->dev);

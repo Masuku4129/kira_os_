@@ -295,3 +295,28 @@ int virtio_iommu_check_q(virtio_dev_t* v, uint16_t qidx, int device_writes) {
     return seen;
 #endif
 }
+
+int virtio_iso_open(const pci_dev_t* p) {
+#ifdef KIRA_HOST_TEST
+    (void)p; return 0;
+#else
+    return iommu_isolate_device(p) == 0;
+#endif
+}
+
+int virtio_iso_confirm(virtio_dev_t* v, const char* name, uint16_t qidx, int device_writes) {
+#ifdef KIRA_HOST_TEST
+    (void)v; (void)name; (void)qidx; (void)device_writes; return 0;
+#else
+    int chk = virtio_iommu_check_q(v, qidx, device_writes);
+    if (chk == 1) {
+        uart_print("[KIRA IOMMU] "); uart_print(name); uart_print(": enforcement check passed - DMA to memory that was not granted is blocked.\n");
+        return 1;
+    }
+    uart_print("[KIRA IOMMU] "); uart_print(name);
+    uart_print(chk < 0 ? ": device does not negotiate ACCESS_PLATFORM (its DMA bypasses the IOMMU): NOT isolated.\n"
+                       : ": no DMA fault seen in the enforcement check: isolation NOT confirmed, device stays passthrough.\n");
+    iommu_release_device(v->pci);
+    return 0;
+#endif
+}

@@ -63,6 +63,11 @@ int  virtio_dma_grant(virtio_dev_t* v, uint64_t phys, uint32_t bytes);
    (записана ошибка DMA), 0 - ошибки не было (изоляция не подтверждена), -1 - устройство не согласует
    VIRTIO_F_ACCESS_PLATFORM, его DMA идёт мимо IOMMU. Устройство после проверки сброшено. */
 int  virtio_iommu_check(virtio_dev_t* v);
+/* Общий порядок изоляции устройства virtio (как у диска и сети): virtio_iso_open ДО virtio_attach (домен VT-d без отображений),
+   virtio_iso_confirm ПОСЛЕ него (проверка принуждения по очереди qidx; не подтвердилась - домен снимается, устройство остаётся
+   сквозным и работает как раньше), затем virtio_begin(.. | VIRTIO_F_ACCESS_PLATFORM) и virtio_dma_grant на каждый буфер. */
+int  virtio_iso_open(const pci_dev_t* p);
+int  virtio_iso_confirm(virtio_dev_t* v, const char* name, uint16_t qidx, int device_writes);   /* 1 - изолировано */
 int  virtio_iommu_check_q(virtio_dev_t* v, uint16_t qidx, int device_writes);   /* то же, но по выбранной очереди */
 
 /* Непрерывная память для DMA (обнулена). Возвращает указатель; *phys - адрес для устройства. 0 - нет памяти. */

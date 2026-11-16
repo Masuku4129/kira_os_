@@ -13,9 +13,13 @@ int virtio_rng_read(void* out, uint32_t n) {
         st = -1;
         const pci_dev_t* p = pci_find(VIRTIO_VENDOR, 0x1044);
         if (!p) p = pci_find(VIRTIO_VENDOR, 0x1005);
-        if (!p || virtio_attach(&dev, p) || virtio_begin(&dev, 0) || virtio_queue_setup(&dev, &q, 0, 8)) return -1;
+        if (!p) return -1;
+        int iso = virtio_iso_open(p);
+        if (virtio_attach(&dev, p)) return -1;
+        if (iso) iso = virtio_iso_confirm(&dev, "virtio-rng", 0, 1);        /* устройство само пишет энтропию в выданный буфер */
+        if (virtio_begin(&dev, VIRTIO_F_ACCESS_PLATFORM) || virtio_queue_setup(&dev, &q, 0, 8)) return -1;
         buf = (uint8_t*)virtio_dma_alloc(64, &buf_p);
-        if (!buf) { virtio_fail(&dev); return -1; }
+        if (!buf || (iso && virtio_dma_grant(&dev, buf_p, 64))) { virtio_fail(&dev); return -1; }
         virtio_driver_ok(&dev);
         st = 1;
     }
