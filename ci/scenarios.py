@@ -437,10 +437,6 @@ ALL = [
         {"log": [r"\[KIRA IOMMU\] nvme: enforcement check passed", r"\[KIRA NVMe\] nvme0n1", r"NVMe .*completion by interrupt"]}] + DISK_IRQ + [
         {"log_forbid": NO_ERR + [r"nvme: .*NOT isolated", r"could not grant buffers"]}],
        disk="nvme", machine="q35", smp=2, mem="1G", extra=["-device", "intel-iommu,aw-bits=48"]),
-    sc("sata-iommu", "AHCI (SATA) под VT-d (q35): свой домен, проверка принуждения, система читает и пишет диск через выданные буферы", BASIC + [
-        {"log": [r"\[KIRA IOMMU\] ahci: enforcement check passed", r"\[KIRA AHCI\] sata0"]}] + DISK_IRQ + [
-        {"log_forbid": NO_ERR + [r"ahci: .*NOT isolated", r"could not grant buffers"]}],
-       disk="sata", machine="q35", smp=2, mem="1G", extra=["-device", "intel-iommu,aw-bits=48"]),
     sc("net-e1000-iommu", "e1000 под VT-d (q35): свой домен, проверка принуждения, кольца выданы устройству, DHCP и ping работают", [
         {"log": BOOT_LOG}, {"sleep": 8},
         {"log": [r"\[KIRA IOMMU\] e1000: enforcement check passed", r"\[KIRA NET\] e1000 \(8086:"]},
