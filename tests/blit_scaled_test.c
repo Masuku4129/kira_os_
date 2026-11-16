@@ -2,6 +2,8 @@
    (эталон ниже - прежняя реализация с делением на каждую точку). Случайные размеры, смещения и обрезка по экрану. */
 #include "wm.c"
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 static void ref_blit_scaled(surface_t* c, int dx, int dy, int dw, int dh, const surface_t* src) {
     if (dw == src->w && dh == src->h) { gfx_blit(c, dx, dy, src, 0, 0, src->w, src->h); return; }
