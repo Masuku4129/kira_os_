@@ -42,6 +42,7 @@
 #include "fsrv.h"
 #include "experience.h"
 #include "irqmode.h"
+#include "acpirt.h"
 #include "mbinfo.h"
 #include "bootinfo.h"
 #include "earlycon.h"
@@ -324,6 +325,8 @@ void kernel_main(unsigned long magic, unsigned long addr) {
         if (vmm_verify_wx(0) != 0) kernel_panic("W^X violated after start-up of the other cores");
     }
 
+    (void)acpirt_init();     // ACPI: интерпретатор AML, события SCI (кнопка питания, крышка), батарея, _PRT. Без таблицы или при отказе работа ядра не меняется
+
     uart_print("[KIRA OS] Ready. Type 'help' and press Enter.\n");
 
     // Поток "core": опрос консоли, секундные метрики, самоконтроль.
@@ -336,6 +339,8 @@ void kernel_main(unsigned long magic, unsigned long addr) {
     gfxctl_init();       // порт kira.gfx: окна и события на сообщениях CBOR
     for (;;) {
         console_poll();
+        acpirt_poll();       // события ACPI и обновление питания
+        if (acpirt_take_poweroff()) console_graceful_poweroff();   // нажата кнопка питания: сохранить и выключить
         prog_poll();         // запуск, заказанный дисплеем (иконки дока)
         fssvc_poll();        // запросы к порту kira.fs
         gfxctl_poll();       // запросы к порту kira.gfx

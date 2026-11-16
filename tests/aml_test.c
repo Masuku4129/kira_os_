@@ -136,6 +136,12 @@ int main(int argc, char** argv) {
     CHECK(E("\\TST.TSPN", 0, 0, 0) == AML_E_STEPS);
     aml_set_limits(G, AML_DEF_MAX_STEPS, 0, 0, 0);
     CHECK(E("\\TST.TNAP", 1, 5000, 0) == AML_E_TIME);
+    {   /* граница стека: если "дно" выше текущего указателя стека, глубже интерпретатор не идёт, но и не падает; после снятия - работает */
+        aml_set_stack_floor(G, (char*)__builtin_frame_address(0) + 64);   /* настоящий адрес кадра (не «быстрый стек» ASAN) */
+        int sr = E("\\TST.TADD", 2, 3, 4); if (sr != AML_E_DEPTH) printf("stack floor rc=%d\n", sr); CHECK(sr == AML_E_DEPTH);
+        aml_set_stack_floor(G, 0);
+        CHECK(T("\\TST.TADD", 2, 3, 4) == 7);
+    }
     CHECK(E("\\TST.TDV0", 1, 0, 0) != 0);
     CHECK(T("\\TST.TDV0", 1, 5, 0) == 2);
     CHECK(E("\\TST.TOOB", 0, 0, 0) == AML_E_BOUNDS);

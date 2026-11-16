@@ -1052,6 +1052,9 @@ void platform_reboot(void) {
     kprintf("[KIRA PSCI] SYSTEM_RESET returned: firmware refused to reset.\n");
 }
 
+int platform_battery(platform_battery_t* b) { (void)b; return -1; }      /* батарею по дереву устройств пока не читаем: индикатора нет */
+void platform_acpi_cmd(const char* a) { (void)a; kprintf("acpi: на ARM64 устройства описывает дерево устройств (команда hw), интерпретатора AML здесь нет\n"); }
+
 int platform_console_cmd(const char* l, const char* a) {
     if (word(l, "mem")) {
         for (unsigned i = 0; i < nram; i++) kprintf("  RAM %x .. %x (%u MB)\n", ram[i].base, ram[i].base + ram[i].size, ram[i].size >> 20);

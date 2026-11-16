@@ -428,7 +428,21 @@ def run(sc, args):
                     raise Fail(f"«{st['exit']}»: QEMU завершился с кодом {vm.qemu.returncode}")
                 vm.exited = True
                 result["checks"].append({"exit": st["exit"], "ok": True})
-            elif "relaunch" in st:                    # выключить машину и поднять её снова на ТОМ ЖЕ диске с другим набором устройств (extra):
+            elif "qmp_exit" in st:                    # команда QMP (например system_powerdown - нажатие кнопки питания), после неё машина должна выключиться сама
+                r = vm.qmp_cmd({"execute": st["qmp_exit"]})
+                if r is None or "error" in r:
+                    raise Fail(f"QMP «{st['qmp_exit']}»: {r}")
+                end_t = time.time() + st.get("within", 30) * args.timeout_scale
+                while vm.qemu.poll() is None and time.time() < end_t:
+                    vm.drain(0.5)
+                if vm.qemu.poll() is None:
+                    raise Fail(f"после «{st['qmp_exit']}» машина не выключилась за {st.get('within', 30)} с")
+                vm.drain(0.5)
+                if vm.qemu.returncode != 0:
+                    raise Fail(f"после «{st['qmp_exit']}» QEMU завершился с кодом {vm.qemu.returncode}")
+                vm.exited = True
+                result["checks"].append({"qmp_exit": st["qmp_exit"], "ok": True})
+            elif "relaunch" in st:                  # выключить машину и поднять её снова на ТОМ ЖЕ диске с другим набором устройств (extra):
                 vm.send("poweroff\r")                  # драйвер, установленный в первой фазе, нужен устройству, которого в первой фазе не было
                 end_t = time.time() + 30 * args.timeout_scale
                 while vm.qemu.poll() is None and time.time() < end_t:
