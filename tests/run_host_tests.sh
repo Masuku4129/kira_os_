@@ -129,6 +129,9 @@ $T/aml
 echo "== ACPI в работе: события SCI/GPE/EC, кнопка питания, батарея, крышка, _PRT (модель железа) =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/acpidev tests/acpidev_test.c acpidev.c aml.c aml_exec.c
 $T/acpidev
+echo "== AML на настоящих DSDT из QEMU (pc/PIIX и q35/ICH9): _PRT, связки, \\_S5, порча и обрезка =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/acpi_qemu tests/acpi_qemu_test.c acpidev.c aml.c aml_exec.c acpi.c
+ASAN_OPTIONS=detect_leaks=0 $T/acpi_qemu
 echo "== AML: фаззинг (случайные, обрезанные и испорченные таблицы) =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/aml_fuzz tests/aml_fuzz.c aml.c aml_exec.c
 ASAN_OPTIONS=detect_leaks=0 $T/aml_fuzz 3000

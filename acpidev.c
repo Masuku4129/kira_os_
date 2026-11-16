@@ -42,6 +42,11 @@ static struct {
 
 /* ---------------- мелочи ---------------- */
 
+/* Одновременно - один вызов AML: аргументы заданий лежат в общих переменных, а AML может уснуть (Sleep), и тогда в модуль способен
+   зайти другой поток ядра. Второй вход не ждёт, а получает отказ (занято) - вызывающий повторит позже или обойдётся без ответа. */
+static int g_gate;
+static int gate_take(void) { return !__atomic_exchange_n(&g_gate, 1, __ATOMIC_ACQUIRE); }
+static void gate_put(void) { __atomic_store_n(&g_gate, 0, __ATOMIC_RELEASE); }
 static void run_job(void (*fn)(void*), void* a) { if (S.runner) S.runner(fn, a); else fn(a); }
 static const void* g_floor;
 void acpidev_set_runner(void (*run)(void (*fn)(void*), void* arg), const void* stack_floor) { S.runner = run; g_floor = stack_floor; if (S.ctx) aml_set_stack_floor(S.ctx, stack_floor); }
@@ -467,8 +472,10 @@ void acpidev_poll(uint64_t now_ms) {
     if (!S.ready) return;
     int force = acpidev_sci_take();
     if (!force && S.qh == S.qt && !S.power_dirty && now_ms - S.last_service_ms < 250 && now_ms - S.last_power_ms < 10000 && S.inited_time) goto events;
+    if (!gate_take()) { if (force) __atomic_store_n(&S.sci_flag, 1, __ATOMIC_RELEASE); goto events; }   /* занято: SCI не теряем, разберём в следующий раз */
     PJ.now = now_ms; PJ.force = force;
     run_job(poll_job, 0);
+    gate_put();
 events:
     while (S.eh != S.et) {                                            /* события отдаём ядру вне отдельного стека */
         int ev = S.evq[S.eh].ev, arg = S.evq[S.eh].arg; S.eh = (S.eh + 1) % 16;
@@ -518,7 +525,7 @@ static void enable_job(void* p) {
     if (S.ec_ok && S.ec_gpe >= 0) { gpe_clear((unsigned)S.ec_gpe); gpe_enable((unsigned)S.ec_gpe, 1); }
     MJ.rc = 0;
 }
-int acpidev_enable_events(void) { if (!S.ready) return -1; run_job(enable_job, 0); return MJ.rc; }
+int acpidev_enable_events(void) { if (!S.ready) return -1; if (!gate_take()) return AML_E_BUSY; run_job(enable_job, 0); int r = MJ.rc; gate_put(); return r; }
 
 static void pic_job(void* p) {
     (void)p;
@@ -527,7 +534,7 @@ static void pic_job(void* p) {
     aml_val_t a = aml_int((uint64_t)MJ.arg), v;
     MJ.rc = aml_call(S.ctx, n, &a, 1, &v);
 }
-int acpidev_pic_mode(int apic) { if (!S.ready) return -1; MJ.arg = apic ? 1 : 0; run_job(pic_job, 0); return MJ.rc; }
+int acpidev_pic_mode(int apic) { if (!S.ready) return -1; if (!gate_take()) return AML_E_BUSY; MJ.arg = apic ? 1 : 0; run_job(pic_job, 0); int r = MJ.rc; gate_put(); return r; }
 
 static void sleep_job(void* p) {
     (void)p;
@@ -541,7 +548,7 @@ static void sleep_job(void* p) {
         if (r) MJ.rc = r;
     }
 }
-int acpidev_prepare_sleep(int state) { if (!S.ready) return AML_E_NOTFOUND; MJ.arg = state; run_job(sleep_job, 0); return MJ.rc; }
+int acpidev_prepare_sleep(int state) { if (!S.ready) return AML_E_NOTFOUND; if (!gate_take()) return AML_E_BUSY; MJ.arg = state; run_job(sleep_job, 0); int r = MJ.rc; gate_put(); return r; }
 
 static void s5_job(void* p) {
     (void)p;
@@ -557,9 +564,12 @@ static void s5_job(void* p) {
 }
 int acpidev_s5(uint8_t* a, uint8_t* b) {
     if (!S.ready) return AML_E_NOTFOUND;
+    if (!gate_take()) return AML_E_BUSY;
     run_job(s5_job, 0);
-    if (MJ.rc == 0) { *a = MJ.a; *b = MJ.b; }
-    return MJ.rc;
+    int r = MJ.rc;
+    if (r == 0) { *a = MJ.a; *b = MJ.b; }
+    gate_put();
+    return r;
 }
 
 /* ---------------- питание ---------------- */
@@ -624,7 +634,7 @@ static void power_job(void* p) {
     if (lid_changed) ev_push(ACPIDEV_EV_LID, n.lid);
 }
 
-void acpidev_power_refresh(void) { if (!S.ready) return; run_job(power_job, 0); }
+void acpidev_power_refresh(void) { if (!S.ready) return; if (!gate_take()) return; run_job(power_job, 0); gate_put(); }
 
 /* ---------------- _PRT ---------------- */
 
@@ -693,8 +703,10 @@ static void pci_irq_job(void* p) {
 int acpidev_pci_irq(unsigned bus, unsigned dev, unsigned fn, unsigned pin, acpidev_irq_t* out) {
     out->found = 0;
     if (!S.ready || pin < 1 || pin > 4 || bus > 255 || dev > 31) return 0;
+    if (!gate_take()) return 0;
     PI.bus = bus; PI.dev = dev; PI.fn = fn; PI.pin = pin; PI.out = out;
     run_job(pci_irq_job, 0);
+    gate_put();
     return out->found;
 }
 
@@ -734,8 +746,11 @@ static struct { const char* path; void (*sink)(const char*); int rc; } EJ;
 static void eval_job(void* p) { (void)p; EJ.rc = eval_impl(EJ.path, EJ.sink); }
 int acpidev_eval(const char* path, void (*sink)(const char*)) {
     if (!S.ready || !path) return -1;
+    if (!gate_take()) return AML_E_BUSY;
     EJ.path = path; EJ.sink = sink; run_job(eval_job, 0);
-    return EJ.rc;
+    int r = EJ.rc;
+    gate_put();
+    return r;
 }
 
 static const char* kind_name(int k) {
@@ -789,6 +804,8 @@ static void dump_job(void* p) {
 
 void acpidev_dump(void (*sink)(const char*)) {
     if (!S.ready) { if (sink) sink("ACPI: интерпретатор AML не запущен (таблицы DSDT нет или она не принята)"); return; }
+    if (!gate_take()) { if (sink) sink("ACPI: интерпретатор занят другим вызовом, повторите команду"); return; }
     DJ.sink = sink;
     run_job(dump_job, 0);
+    gate_put();
 }
