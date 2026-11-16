@@ -494,11 +494,22 @@ static unsigned timer_intid;
 #define ICC_IGRPEN1_EL1 S3_0_C12_C12_7
 #define ICC_IAR1_EL1    S3_0_C12_C12_0
 #define ICC_EOIR1_EL1   S3_0_C12_C12_1
+#define ICC_CTLR_EL1    S3_0_C12_C12_4
+#define ICC_IGRPEN0_EL1 S3_0_C12_C12_6
 #define XSTR(x) #x
 #define SREG_R(n) ({ uint64_t _v; __asm__ volatile ("mrs %0, " XSTR(n) : "=r"(_v)); _v; })
 #define SREG_W(n, v) __asm__ volatile ("msr " XSTR(n) ", %0" : : "r"((uint64_t)(v)))
 
 static void gic_dist_init(void) {
+    /* Начальное состояние не предполагается чистым: после прошивки (UEFI/edk2, U-Boot) часть общих прерываний уже разрешена
+       (последовательный порт, часы) и может держать линию - буря прерываний без обработчика. Запрещаем все, сбрасываем
+       ожидающие и активные; нужные включают драйверы сами. */
+    uint32_t lines = ((mmio_r32(gicd + 0x4) & 0x1F) + 1) * 32;
+    for (uint32_t i = 1; i < lines / 32; i++) {
+        mmio_w32(gicd + 0x180 + 4 * i, 0xFFFFFFFFu);             /* ICENABLER */
+        mmio_w32(gicd + 0x280 + 4 * i, 0xFFFFFFFFu);             /* ICPENDR */
+        mmio_w32(gicd + 0x380 + 4 * i, 0xFFFFFFFFu);             /* ICACTIVER */
+    }
     if (gic_v3) {
         mmio_w32(gicd, (1u << 4) | (1u << 1));                  /* GICD_CTLR: ARE_NS, EnableGrp1NS */
         for (int i = 0; i < 100000 && (mmio_r32(gicd) & (1u << 31)); i++) { }    /* RWP */
@@ -667,6 +678,10 @@ static int gic_cpu_init(void) {
         mmio_w32(r + 0x14, mmio_r32(r + 0x14) & ~(1u << 1));     /* GICR_WAKER.ProcessorSleep = 0 */
         for (int i = 0; i < 1000000 && (mmio_r32(r + 0x14) & (1u << 2)); i++) { }   /* ChildrenAsleep */
         uint64_t sgi = r + 0x10000;
+        mmio_w32(sgi + 0x180, 0xFFFFFFFFu);                      /* ICENABLER0: SGI/PPI, оставленные прошивкой (физический таймер edk2 и т.п.), запрещены */
+        mmio_w32(sgi + 0x280, 0xFFFFFFFFu);                      /* ICPENDR0 */
+        mmio_w32(sgi + 0x380, 0xFFFFFFFFu);                      /* ICACTIVER0 */
+        mmio_w32(sgi + 0x80, 0xFFFFFFFFu);                       /* IGROUPR0: всё в группе 1 (прошивка могла оставить группу 0) */
         mmio_w32(sgi + 0x80, mmio_r32(sgi + 0x80) | (1u << timer_intid) | (1u << SGI_RESCHED) | (1u << SGI_HALT));   /* IGROUPR0: группа 1 */
         *(volatile uint8_t*)(uintptr_t)(sgi + 0x400 + timer_intid) = 0x80;  /* приоритет */
         *(volatile uint8_t*)(uintptr_t)(sgi + 0x400 + SGI_RESCHED) = 0x80;
@@ -674,7 +689,9 @@ static int gic_cpu_init(void) {
         mmio_w32(sgi + 0x100, (1u << timer_intid) | (1u << SGI_RESCHED) | (1u << SGI_HALT));   /* ISENABLER0 */
         SREG_W(ICC_SRE_EL1, SREG_R(ICC_SRE_EL1) | 1);
         isb();
+        SREG_W(ICC_CTLR_EL1, SREG_R(ICC_CTLR_EL1) & ~3ull);      /* EOImode=0: EOIR и сбрасывает приоритет, и деактивирует (прошивка могла включить 1); CBPR=0 */
         SREG_W(ICC_PMR_EL1, 0xFF);
+        SREG_W(ICC_IGRPEN0_EL1, 0);                              /* группа 0 не используется */
         SREG_W(ICC_IGRPEN1_EL1, 1);
         isb();
     } else {
@@ -1233,7 +1250,7 @@ static const void* find_fdt(uint64_t x0) {
     return ok && !probe_failed ? (const void*)(uintptr_t)x0 : 0;
 }
 
-void arm_main(uint64_t dtb, uint64_t entry_el) {
+void arm_main(uint64_t dtb, uint64_t entry_el, uint64_t loader_tag) {
     /* До разбора дерева устройств данные ядер ещё не выделены, а замки журнала уже считают себя в this_cpu() (TPIDR_EL1).
        Нулевой указатель раньше молча писал в адрес 0x78 (флеш QEMU; на платах с ОЗУ с нуля - в живую память), ловушка NULL
        это показала. Временно ставим данные нулевого ядра; настоящие устанавливаются ниже, когда известен номер ядра. */
@@ -1262,6 +1279,9 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     kprintf("\n[KIRA ARM64] Kira OS on ARM64: device tree at %x (%u bytes), console PL011 at %x\n",
             (uint64_t)(uintptr_t)fdt, (uint64_t)fdt_total_size(fdt), uart);
     kprintf("[KIRA ARM64] entered at EL%u, running at EL%u\n", entry_el & 3, (SYSREG_R(CurrentEL) >> 2) & 3);
+    /* Метка "KIRAUEFI" в заголовке образа: её пишет наш UEFI-загрузчик (arch/aarch64/uefi/bootaa64.c) */
+    if (loader_tag == 0x494645554152494Bull)
+        kprintf("[KIRA BOOT] loaded by the Kira UEFI loader (BOOTAA64.EFI): device tree from firmware, MMU and D-cache were switched off by the loader\n");
 
     /* Normalize the ARM handoff once: memory banks, framebuffer and bootargs become
        the same versioned BootInfo ABI consumed by the x86 path and the ARM PMM. */
@@ -1332,6 +1352,9 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     timer_intid = (irq && ilen >= 36) ? 16 + fdt_u32(irq + 24 + 4) : 27;
     cnt_freq = SYSREG_R(cntfrq_el0);
     tick_cycles = cnt_freq / TIMER_HZ;
+    /* Начало отсчёта времени - здесь, сразу после выбора периода: раньше оно ставилось позже, а sched_init уже читал время, и счётчик,
+       который после прошивки (UEFI) идёт уже секунды, давал «прошедшие» тысячи тиков - сторожевой таймер срабатывал до первого прерывания. */
+    anchor_cnt = now_cnt();
     kprintf("[KIRA ARM64] interrupt controller GICv%u: distributor %x, %s %x; generic timer %u Hz, virtual timer INTID %u\n",
             (uint64_t)(gic_v3 ? 3 : 2), gicd, gic_v3 ? "redistributors" : "CPU interface", gic_v3 ? gicr_base : gicc, cnt_freq, (uint64_t)timer_intid);
 
@@ -1397,7 +1420,6 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     cpus[me].gic_ok = gic_cpu_init() == 0;
     cpus[me].gic_mask = gic_mask_me;
     if (gic_v3 && its_init(fdt) != 0) kprintf("[KIRA GIC] no usable ITS: PCI devices stay on polling\n");
-    anchor_cnt = now_cnt();
     sched_up = 1;
     timer_start();
     cpus[me].online = 1;

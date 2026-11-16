@@ -229,6 +229,18 @@ SC = [
                ("write /nc.txt dma-pool-ok", []), ("cat /nc.txt", [r"dma-pool-ok"]),
                ("beep 440 300", [r"DMA прошёл [1-9]\d* байт - карта играет"]),
                ("ps", [r"core\s+RUNNING"])]),
+    # acpi=off: при включённом ACPI edk2 публикует только таблицы ACPI, а ядро ARM64 читает дерево устройств (разбор ACPI на ARM64 - в таблице паритета)
+    # Загрузка как на железе: прошивка AAVMF (edk2) -> ISO kira-arm64.iso (El Torito, ESP) -> наш BOOTAA64.EFI -> ядро.
+    # Доказательство в serial.log: сначала строки загрузчика [KIRA UEFI] (их печатает консоль прошивки), потом ядро с меткой загрузчика.
+    dict(name="arm64-uefi", m="virt,gic-version=3,acpi=off", cpu="cortex-a72", smp=4, mem="1G", disk="virtio-blk-pci", uefi=True, ready_timeout=240,
+         must=[r"\[KIRA UEFI\] Kira OS ARM64 loader \(UEFI, no GRUB\)", r"\[KIRA UEFI\] kernel image: \d+ bytes, \d+ in memory, at 0x[0-9a-f]+", r"\[KIRA UEFI\] device tree from firmware: \d+ bytes, copy at 0x[0-9a-f]+",
+               r"\[KIRA BOOT\] loaded by the Kira UEFI loader", r"GICv3", r"Processors online: 4 of 4", r"working timer interrupt: 4 of 4", r"RAM: 1024 MB",
+               r"virtio-blk", r"\[KIRA FS\] KiraFS mounted", r"\[KIRA MIND\] Mind online", r"\[KIRA SYSCALL\] SVC from EL0"],
+         cmds=[("smp", [r"core 3: MPIDR 0x0+3, online, ticks [1-9]"]),
+               ("mem", [r"RAM 0x0+40000000 \.\. 0x0+80000000 \(1024 MB\)"]),
+               ("test smp", [r"RESULT: PASS", r"preempted by tick"]),
+               ("mt", [r"mt: .* - PASS"]), ("test ipc", [r"ipc server: .* - PASS", r"ipc client: .* - PASS"]),
+               ("ps", [r"core\s+RUNNING", r"idle"]), ("df", [r"KiraFS"])]),
 ]
 
 
@@ -286,11 +298,48 @@ def host_http(port, path):
 QCODE = {" ": "spc", "\r": "ret", "-": "minus", "/": "slash", ".": "dot"}
 
 
+def ensure_flash():
+    """Флешка стенда должна быть настоящей FAT32: пустой образ даёт ложное падение «нет usb0» (причина - стенд, не ядро)."""
+    f = "ci-out/flash.img"
+    def ok():
+        try:
+            with open(f, "rb") as fh: fh.seek(82); return fh.read(5) == b"FAT32"
+        except OSError: return False
+    if not ok():
+        subprocess.run(["bash", "ci/make_flash.sh"], check=True, stdout=subprocess.DEVNULL)
+        if not ok(): sys.exit("стенд: ci-out/flash.img не FAT32 (нужен mkfs.fat или mformat)")
+
+
+def host_resolves(name="example.com"):
+    try: socket.getaddrinfo(name, 80, socket.AF_INET); return True
+    except OSError: return False
+
+
+def hermetic_hosts(d):
+    """Проверка «dns example.com» спрашивает имя у хозяина через QEMU (libslirp зовёт getaddrinfo хозяина). Без выхода в
+    интернет хозяин имя не знает, и гость честно получает «такого имени нет»: падение стендовое, не ядра. Тогда QEMU
+    запускается в своём пространстве монтирования, где /etc/hosts дополнен адресом example.com; гость по-прежнему
+    обязан сам отправить DNS-запрос и разобрать ответ. Возвращает приставку команды (или [], если хозяин имя знает)."""
+    if host_resolves() or not shutil.which("unshare"): return []
+    hosts = os.path.join(d, "hosts")
+    with open("/etc/hosts") as f: txt = f.read()
+    open(hosts, "w").write(txt + "\n93.184.216.34 example.com\n")
+    return ["unshare", "-m", "sh", "-c", 'mount --bind "$0" /etc/hosts && exec "$@"', hosts]
+
+
 def run(sc, out):
     d = os.path.join(out, sc["name"]); os.makedirs(d, exist_ok=True)
     args = ["qemu-system-aarch64", "-M", sc["m"], "-cpu", sc["cpu"], "-smp", str(sc["smp"]), "-m", sc["mem"],
-            "-display", "none", "-monitor", "none", "-serial", "stdio", "-kernel", "kira-arm64.img",
+            "-display", "none", "-monitor", "none", "-serial", "stdio",
             "-d", "guest_errors,unimp", "-D", os.path.join(d, "qemu-debug.log")]
+    if sc.get("uefi"):                              # загрузка как на железе: прошивка AAVMF (edk2) -> ISO -> наш BOOTAA64.EFI -> ядро
+        fw = os.environ.get("AAVMF_CODE", "/usr/share/AAVMF/AAVMF_CODE.fd")
+        vars_ = os.path.join(d, "vars.fd"); shutil.copyfile(os.environ.get("AAVMF_VARS", "/usr/share/AAVMF/AAVMF_VARS.fd"), vars_)
+        args += ["-drive", f"if=pflash,format=raw,unit=0,file={fw},readonly=on", "-drive", f"if=pflash,format=raw,unit=1,file={vars_}",
+                 "-drive", "file=kira-arm64.iso,if=none,id=cd0,media=cdrom,format=raw,readonly=on",
+                 "-device", "virtio-scsi-pci", "-device", "scsi-cd,drive=cd0"]
+    else:
+        args += ["-kernel", "kira-arm64.img"]
     if sc.get("disk"):                              # свежая копия диска с KiraFS на каждую машину
         img = os.path.join(d, "disk.img"); shutil.copyfile("kira-arm64.disk", img)
         if sc.get("files"):                         # тестовые файлы (ci/mkfiles.py) - на диск машины
@@ -315,6 +364,7 @@ def run(sc, out):
         args += ["-nic", "none"]
     qmp_path = os.path.join(d, "qmp.sock")
     if sc.get("flash"):                             # флешка FAT32 (ci/make_flash.sh) - свежая копия
+        ensure_flash()
         fl = os.path.join(d, "flash.img"); shutil.copyfile("ci-out/flash.img", fl)
         args += ["-drive", f"if=none,id=stick,format=raw,file={fl}"]
     args += sc.get("extra", [])
@@ -326,6 +376,7 @@ def run(sc, out):
         args += ["-audiodev", "none,id=snd0", "-device", "intel-hda", "-device", "hda-duplex,audiodev=snd0"]
         args += ["-device", "virtio-gpu-pci", "-device", "virtio-keyboard-pci", "-device", "virtio-tablet-pci",
                  "-qmp", f"unix:{qmp_path},server=on,wait=off"]
+    if sc.get("net"): args = hermetic_hosts(d) + args
     p = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     log = b""; t0 = time.time(); err = None
     print("[ARM64] scenario starting: " + sc["name"], flush=True)
@@ -348,7 +399,7 @@ def run(sc, out):
         return False
 
     try:
-        if not wait(READY, 60):
+        if not wait(READY, sc.get("ready_timeout", 60)):
             err = "не дождались готовности"
         else:
             text = log.decode(errors="replace")
@@ -444,7 +495,7 @@ def run(sc, out):
     finally:
         p.kill(); p.wait()
         open(os.path.join(d, "serial.log"), "wb").write(log)
-        for im in ("disk.img", "flash.img"):
+        for im in ("disk.img", "flash.img", "vars.fd"):
             if os.path.exists(os.path.join(d, im)): os.unlink(os.path.join(d, im))
         dbg = os.path.join(d, "qemu-debug.log")
         if os.path.exists(dbg):                     # начало журнала исключений QEMU - самое ценное, остальное - тики
@@ -458,5 +509,8 @@ def run(sc, out):
 
 if __name__ == "__main__":
     out = sys.argv[1] if len(sys.argv) > 1 else "ci-out"
-    ok = all([run(s, out) for s in SC])
+    only = sys.argv[2:]                              # необязательно: имена сценариев (или их начала), остальные пропускаются
+    todo = [s for s in SC if not only or any(s["name"] == o or s["name"].startswith(o) for o in only)]
+    if only and not todo: sys.exit("нет такого сценария: " + " ".join(only))
+    ok = all([run(s, out) for s in todo])
     sys.exit(0 if ok else 1)

@@ -14,7 +14,8 @@ _start:
     .quad   0x80000                     // text_offset
     .quad   __image_size                // image_size (с .bss)
     .quad   0xA                         // flags
-    .quad   0, 0, 0
+    .quad   0                           // res2 (смещение 40): метка загрузчика; наш UEFI-загрузчик пишет сюда "KIRAUEFI"
+    .quad   0, 0
     .ascii  "ARM\x64"                   // magic
     .long   0
 
@@ -22,6 +23,8 @@ real_start:
     mov     x19, x0                     // адрес дерева устройств
     mrs     x21, CurrentEL              // уровень, на котором отдали управление (для отчёта)
     lsr     x21, x21, #2
+    adr     x22, _start
+    ldr     x22, [x22, #40]             // метка загрузчика (до перемещений: образ ещё не правился, поле читается как есть)
     bl      drop_to_el1
     // Перемещение: ядро собрано с адреса 0, исполняется там, куда положили; поправить абсолютные указатели
     adr     x20, _start                 // база = смещение загрузки
@@ -54,6 +57,7 @@ real_start:
 2:  bl      cpu_common
     mov     x0, x19
     mov     x1, x21
+    mov     x2, x22
     bl      arm_main
 3:  wfe
     b       3b
