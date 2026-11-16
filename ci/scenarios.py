@@ -246,7 +246,7 @@ ALL = [
         {"log": [r"\[KIRA DOCK\] закрыта: plasma «Плазма» \(значок остаётся: закреплена\)"]},
         {"shot": "dock-plasma-closed"},
         {"log_forbid": NO_ERR + [r"wasm: stopped"]},
-    ], smp=2, mem="1G", files=True),
+    ], smp=2, mem="1G", files=True, put={"/var/dock": "ci/fixtures/dock_plasma.txt"}),
     sc("apps-wasm", "WebAssembly: тот же /wasm/wtest.wasm, что у ARM64, - результат равен эталону, собранному обычным компилятором", [
         {"log": BOOT_LOG},
         {"cmd": "wasm /wasm/wtest.wasm"}, {"sleep": 4},
