@@ -626,6 +626,18 @@ ALL.append(sc("mind-levers", "Разум: 11 рычагов (13-23) в `ai lever
     {"log_forbid": NO_ERR},
 ], smp=4, mem="2G", extra=["-device", "intel-hda", "-device", "hda-duplex,audiodev=a0"]))
 
+# Испытательное семя опыта собирается на лету, если его ещё нет (ci-out не в git).
+def _mind_seed_fixture():
+    import os, subprocess
+    out = "ci-out/mind_seed_fixture.bin"
+    if os.path.exists(out):
+        return
+    os.makedirs("ci-out", exist_ok=True)
+    exe = "ci-out/mindseed_tool"
+    subprocess.run(["cc", "-O1", "-I.", "-o", exe, "tools/mindseed.c", "mind.c", "mindnet.c"], check=True)
+    subprocess.run([exe, "--fixture", out], check=True, stdout=subprocess.DEVNULL)
+_mind_seed_fixture()
+
 # Повреждённый основной файл Mind не должен ломать запуск: архив проверяется, затем используется
 # ограниченное семя, а нормы текущей машины обучаются заново.
 ALL.append(sc("mind-corrupt-state", "Разум: восстановление после повреждённого основного файла опыта", [
