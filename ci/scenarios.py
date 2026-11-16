@@ -433,6 +433,13 @@ ALL = [
         {"log_forbid": NO_ERR + [r"virtio-(rng|gpu): .*NOT isolated", r"virtio-gpu found but did not start", r"virtio-gpu stopped answering"]},
     ], smp=2, mem="1G", machine="q35", extra=["-device", "intel-iommu,aw-bits=48", "-device", "virtio-rng-pci,disable-legacy=on,iommu_platform=on",
                                              "-device", "virtio-keyboard-pci,disable-legacy=on,iommu_platform=on", "-device", "virtio-gpu-pci,disable-legacy=on,iommu_platform=on"], vga="none"),
+    sc("net-e1000-iommu", "e1000 под VT-d (q35): свой домен, проверка принуждения, кольца выданы устройству, DHCP и ping работают", [
+        {"log": BOOT_LOG}, {"sleep": 8},
+        {"log": [r"\[KIRA IOMMU\] e1000: enforcement check passed", r"\[KIRA NET\] e1000 \(8086:"]},
+        {"cmd": "net", "must": [r"адрес 10\.0\.2\.15"]},
+        {"cmd": "ping 10.0.2.2 3", "must": [r"отправлено 3, получено [1-3]"], "timeout": 20},
+        {"log_forbid": NO_ERR + [r"e1000: .*NOT isolated", r"e1000: could not grant"]},
+    ], smp=2, mem="1G", machine="q35", extra=["-device", "intel-iommu,aw-bits=48", "-netdev", "user,id=n0", "-device", "e1000,netdev=n0"]),
     sc("net-virtio", "сеть: virtio-net (MSI-X будит поток сети), DHCP, ping, программа fetch", [
         {"log": BOOT_LOG}, {"sleep": 8},
         {"log": [r"\[KIRA NET\] virtio-net: MAC 52:54:00.*MSI-X", r"\[KIRA NET\] DHCP: address 10\.0\.2\.15/24"]},
