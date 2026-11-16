@@ -176,9 +176,10 @@ SC = [
                ("@log drvman: пакет abad \\| abad\\s+v\\d+\\s+лицензия: не записана\\s+не запущен\\s+сверка: НЕ СОВПАДАЕТ", []),
                ("@log drvman: пакет eduun \\| eduun\\s+v\\d+\\s+лицензия: не записана\\s+не запущен\\s+сверка: не подтверждён", []),
                ("@log drvman: готово", []),
+                # edu and edunc both match; after stop the first valid /drv package is shown.
                ("drvman do stop edunc;pci", []), ("@sleep 8", []),
                ("@log drvman: драйвер edunc остановлен, устройство возвращено ядру", []),
-               ("@log drvman: pci \\d\\d:\\d\\d\\.\\d\\s+1234:11e8\\s+[0-9a-f]{6}\\s+.*пакет edunc установлен, не запущен", []),
+               ("@log drvman: pci \\d\\d:\\d\\d\\.\\d\\s+1234:11e8\\s+[0-9a-f]{6}\\s+.*пакет edu установлен, не запущен", []),
                ("drvman do start edunc", []), ("@sleep 8", []),
                ("@log drvman: драйвер edunc запущен на устройстве \\d\\d:\\d\\d\\.\\d \\(1234:11e8\\)", []),
                ("drv", [r"drv-edunc pid \\d+"])]),
