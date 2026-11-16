@@ -57,6 +57,8 @@ void iommu_unmap_all(const pci_dev_t* dev);
 
 /* Collect hardware fault records, log each as one line. Returns the number consumed. */
 int iommu_fault_poll(void);
+/* Проверка принуждения нарочно вызывает отказ: пока on=1, отказы этого устройства считаются, но в журнал не пишутся. */
+void iommu_expect_fault(const pci_dev_t* d, int on);
 /* Faults attributed to the device since boot (needs iommu_fault_poll to run). */
 uint32_t iommu_fault_count(const pci_dev_t* dev);
 
@@ -99,6 +101,7 @@ static inline void iommu_unmap_all(const pci_dev_t* dev)
 {
     (void)dev;
 }
+static inline void iommu_expect_fault(const pci_dev_t* d, int on) { (void)d; (void)on; }
 static inline int iommu_fault_poll(void)
 {
     return 0;

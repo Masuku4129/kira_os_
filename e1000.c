@@ -110,12 +110,14 @@ static int iommu_enforced(const pci_dev_t* p) {
     if (!c) return 0;
     for (int i = 0; i < 4096 / (int)sizeof(txd_t); i++) { c[i].addr = 0; c[i].len = 0; c[i].cmd = 0; c[i].status = 0; }
     uint32_t before = iommu_fault_count(p);
+    iommu_expect_fault(p, 1);
     wr(TDBAL, (uint32_t)cp); wr(TDBAH, (uint32_t)(cp >> 32)); wr(TDLEN, 128 * (unsigned)sizeof(txd_t));
     wr(TDH, 0); wr(TDT, 0);
     wr(TCTL, (1u << 1) | (1u << 3));
     wr(TDT, 1);                                                   /* карта идёт читать дескриптор из невыданной памяти */
     int seen = 0;
     for (uint32_t i = 0; i < 200000 && !seen; i++) { (void)iommu_fault_poll(); seen = iommu_fault_count(p) > before; if (!seen) cpu_relax(); }
+    iommu_expect_fault(p, 0);
     wr(TCTL, 0);
     wr(CTRL, rd(CTRL) | (1u << 26));                              /* сброс: карта больше не обращается к памяти */
     for (int i = 0; i < 1000000 && (rd(CTRL) & (1u << 26)); i++) cpu_relax();

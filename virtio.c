@@ -279,8 +279,9 @@ int virtio_iommu_check_q(virtio_dev_t* v, uint16_t qidx, int device_writes) {
     if (virtio_begin(v, VIRTIO_F_ACCESS_PLATFORM) != 0) return 0;
     if (!(v->features & VIRTIO_F_ACCESS_PLATFORM)) { virtio_fail(v); return -1; }
     uint32_t before = iommu_fault_count(v->pci);
+    iommu_expect_fault(v->pci, 1);                              /* отказ здесь - цель проверки: в журнал не идёт */
     virtq_t q;
-    if (queue_setup(v, &q, qidx, 16, 0) != 0) { virtio_fail(v); return 0; }
+    if (queue_setup(v, &q, qidx, 16, 0) != 0) { iommu_expect_fault(v->pci, 0); virtio_fail(v); return 0; }
     virtio_driver_ok(v);
     virtq_post(&q, 0, q.mem_phys, 16, (uint8_t)(device_writes != 0));
     virtq_kick(&q);
@@ -290,6 +291,7 @@ int virtio_iommu_check_q(virtio_dev_t* v, uint16_t qidx, int device_writes) {
         seen = iommu_fault_count(v->pci) > before;
         if (!seen) CPU_RELAX();
     }
+    iommu_expect_fault(v->pci, 0);
     virtio_fail(v);                                              /* сброс: устройство больше не обращается к памяти */
     pmm_free_contiguous(q.mem_phys, (q.used_off + 6 + 8 * (uint32_t)q.size + 4095) / 4096);
     return seen;

@@ -292,6 +292,7 @@ static void ctl_init(const pci_dev_t* pd, int ci) {
         int seen = 0;
         if (cm) {
             uint32_t before = iommu_fault_count(pd);
+            iommu_expect_fault(pd, 1);
             w32(rg, R_AQA, (uint32_t)(QN - 1) << 16 | (QN - 1));
             w64(rg, R_ASQ, cp); w64(rg, R_ACQ, cp);
             w32(rg, R_CC, (6u << 16) | (4u << 20) | 1u);
@@ -299,6 +300,7 @@ static void ctl_init(const pci_dev_t* pd, int ci) {
                 w32(rg, 0x1000, 1);                                     /* хвост очереди администратора: одна команда */
                 for (uint32_t i = 0; i < 200000 && !seen; i++) { (void)iommu_fault_poll(); seen = iommu_fault_count(pd) > before; if (!seen) cpu_relax(); }
             }
+            iommu_expect_fault(pd, 0);
             w32(rg, R_CC, r32(rg, R_CC) & ~1u);
             (void)wait_rdy(c, 0);
             pmm_free_contiguous(cp, 1);

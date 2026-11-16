@@ -225,6 +225,46 @@ static void model_string(const uint16_t* id, char* out, unsigned cap) {
     if (s) { unsigned i = 0; while (out[s + i]) { out[i] = out[s + i]; i++; } out[i] = 0; }
 }
 
+#ifndef KIRA_HOST_TEST
+/* Проверка принуждения IOMMU на уровне контроллера: у первого порта с устройством список команд и приёмник FIS - в невыданной памяти, в слоте 0
+   команда. Контроллер идёт за ними и должен получить отказ (запись нарушения). После проверки контроллер сбрасывается целиком: он не
+   должен продолжать обращаться к освобождённой странице. Не получил отказ - изоляция не объявляется, домен снимается. */
+static void iso_check(ahci_ctl_t* c, uint32_t pi) {
+    int seen = 0, tried = 0;
+    for (int pn = 0; pn < MAXPORT && !tried; pn++) {
+        if (!(pi & (1u << pn))) continue;
+        volatile uint8_t* pr = c->abar + 0x100 + (uint32_t)pn * 0x80;
+        if ((r32(pr, P_SSTS) & 0xF) != 3) continue;
+        ahci_port_t pt = { 0 }; pt.c = c; pt.pr = pr; pt.port = pn;
+        if (port_stop(&pt)) continue;
+        uint64_t cp; void* cm = virtio_dma_alloc(4096, &cp);
+        if (!cm) break;
+        tried = 1;
+        uint32_t before = iommu_fault_count(c->pd);
+        iommu_expect_fault(c->pd, 1);
+        w32(pr, P_CLB, (uint32_t)cp); w32(pr, P_CLB + 4, (uint32_t)(cp >> 32));
+        w32(pr, P_FB, (uint32_t)(cp + 0x400)); w32(pr, P_FB + 4, (uint32_t)((cp + 0x400) >> 32));
+        (void)port_start(&pt);
+        w32(pr, P_CI, 1u);
+        for (uint32_t i = 0; i < 200000 && !seen; i++) { (void)iommu_fault_poll(); seen = iommu_fault_count(c->pd) > before; if (!seen) cpu_relax(); }
+        (void)port_stop(&pt);
+        iommu_expect_fault(c->pd, 0);
+        w32(c->abar, GHC, r32(c->abar, GHC) | GHC_HR);                  /* сброс контроллера: ни одна команда не остаётся в работе */
+        (void)wait_reg(c->abar, GHC, GHC_HR, 0, 1000);
+        pmm_free_contiguous(cp, 1);
+        w32(c->abar, IS, 0xFFFFFFFFu);
+        w32(c->abar, GHC, c->irq ? GHC_AE | GHC_IE : GHC_AE);
+        blk_udelay(10000);                                              /* линии поднимаются заново после сброса */
+    }
+    if (seen) uart_print("[KIRA IOMMU] ahci: enforcement check passed - DMA to memory that was not granted is blocked.\n");
+    else {
+        uart_print(tried ? "[KIRA IOMMU] ahci: no DMA fault seen in the enforcement check: isolation NOT confirmed, device stays passthrough.\n"
+                         : "[KIRA IOMMU] ahci: no device on the ports, nothing to check: isolation NOT confirmed, controller stays passthrough.\n");
+        iommu_release_device(c->pd); c->iso = 0;
+    }
+}
+#endif
+
 static void port_init(ahci_ctl_t* c, int pn, int ctl_index) {
     volatile uint8_t* pr = c->abar + 0x100 + (uint32_t)pn * 0x80;
     uint32_t ssts = r32(pr, P_SSTS);
@@ -247,26 +287,6 @@ static void port_init(ahci_ctl_t* c, int pn, int ctl_index) {
         uart_print("[KIRA AHCI] controller is 32-bit, DMA memory above 4 GB: port skipped\n"); return;
     }
 #ifndef KIRA_HOST_TEST
-    if (c->iso && !c->iso_checked) {
-        /* Проверка принуждения IOMMU: список команд и приёмник FIS - в невыданной памяти, команда в слоте 0. Контроллер идёт за ними и
-           должен получить отказ (запись нарушения). Не получил - изоляция не объявляется, домен снимается. */
-        c->iso_checked = 1;
-        uint64_t cp; void* cm = virtio_dma_alloc(4096, &cp);
-        int seen = 0;
-        if (cm) {
-            uint32_t before = iommu_fault_count(c->pd);
-            w32(pr, P_CLB, (uint32_t)cp); w32(pr, P_CLB + 4, (uint32_t)(cp >> 32));
-            w32(pr, P_FB, (uint32_t)(cp + 0x400)); w32(pr, P_FB + 4, (uint32_t)((cp + 0x400) >> 32));
-            (void)port_start(p);
-            w32(pr, P_CI, 1u);
-            for (uint32_t i = 0; i < 200000 && !seen; i++) { (void)iommu_fault_poll(); seen = iommu_fault_count(c->pd) > before; if (!seen) cpu_relax(); }
-            (void)port_stop(p);
-            w32(pr, P_SERR, 0xFFFFFFFFu); w32(pr, P_IS, 0xFFFFFFFFu);
-            pmm_free_contiguous(cp, 1);
-        }
-        if (seen) uart_print("[KIRA IOMMU] ahci: enforcement check passed - DMA to memory that was not granted is blocked.\n");
-        else { uart_print("[KIRA IOMMU] ahci: no DMA fault seen in the enforcement check: isolation NOT confirmed, device stays passthrough.\n"); iommu_release_device(c->pd); c->iso = 0; }
-    }
     if (c->iso && (iommu_map(c->pd, p->mem_phys, p->mem_phys, 4096, IOMMU_R | IOMMU_W) || iommu_map(c->pd, p->buf_phys, p->buf_phys, BOUNCE, IOMMU_R | IOMMU_W))) {
         uart_print("[KIRA AHCI] could not grant buffers to the controller: port skipped\n"); return;
     }
@@ -364,6 +384,9 @@ static void ctl_init(const pci_dev_t* pd, int ci) {
     uart_print(c->irq ? ", completion by MSI interrupt\n" : ", polled\n");
     blk_udelay(10000);                                                 /* линии успевают подняться после сброса */
     if ((uint64_t)0x100 + 0x80 * MAXPORT > sz) pi &= (uint32_t)((1ull << ((sz - 0x100) / 0x80)) - 1);
+#ifndef KIRA_HOST_TEST
+    if (c->iso) iso_check(c, pi);
+#endif
     for (int pn = 0; pn < MAXPORT; pn++) if (pi & (1u << pn)) port_init(c, pn, ci);
     c->used = 1;
 }

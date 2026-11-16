@@ -33,6 +33,7 @@ typedef struct {
     imap_t maps[IOMMU_MAX_MAPS];
     uint32_t nmaps;
     uint32_t faults, logged;
+    uint8_t quiet;                       /* ожидаемые отказы (проверка принуждения): считаются, в журнал не идут */
 } idom_t;
 
 static struct {
@@ -431,7 +432,7 @@ int iommu_fault_poll(void) {
         uint8_t bus = (uint8_t)(out[i].source_id >> 8), dev = (uint8_t)((out[i].source_id >> 3) & 31), fn = (uint8_t)(out[i].source_id & 7);
         f = spin_lock_irqsave(&G.lock);
         idom_t* x = dom_find(bus, dev, fn);
-        int skip = x && x->logged >= IOMMU_FAULT_LOG_PER_DEVICE;
+        int skip = x && (x->quiet || x->logged >= IOMMU_FAULT_LOG_PER_DEVICE);
         if (x && !skip) x->logged++;
         spin_unlock_irqrestore(&G.lock, f);
         if (skip) continue;                                          /* counted, not logged */
@@ -443,6 +444,14 @@ int iommu_fault_poll(void) {
     if (dropped) { uart_print("[KIRA IOMMU] "); uart_print_dec(dropped); uart_print(" more fault record(s) not listed\n"); }
     __atomic_store_n(&G.polling, 0, __ATOMIC_RELEASE);
     return total;
+}
+
+void iommu_expect_fault(const pci_dev_t* d, int on) {
+    if (!d || !G.active) return;
+    uint64_t f = spin_lock_irqsave(&G.lock);
+    idom_t* x = dom_find(d->bus, d->dev, d->fn);
+    if (x) x->quiet = on ? 1 : 0;
+    spin_unlock_irqrestore(&G.lock, f);
 }
 
 uint32_t iommu_fault_count(const pci_dev_t* d) {
