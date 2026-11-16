@@ -3,6 +3,10 @@
 #include "msi.h"
 #include "pci.h"
 #include "uart.h"
+#ifndef KIRA_HOST_TEST
+#include "iommu.h"
+#include "pmm.h"
+#endif
 
 /* AHCI (SATA): контроллер в памяти (BAR5, «ABAR»), у каждого порта - список команд, область принятых FIS и таблица
    команды с PRDT. Порядок по спецификации AHCI 1.3: передача от BIOS (BOHC), включение AHCI (GHC.AE), сброс
@@ -60,6 +64,9 @@ typedef struct {
     int s64;
     uint32_t cap;
     int irq;                            /* события портов приходят сообщением MSI */
+    const pci_dev_t* pd;
+    int iso;                            /* у контроллера свой домен VT-d: порты выдают ему свои буферы */
+    int iso_checked;                    /* проверка принуждения сделана (по первому порту с устройством) */
 } ahci_ctl_t;
 
 typedef struct {
@@ -239,6 +246,31 @@ static void port_init(ahci_ctl_t* c, int pn, int ctl_index) {
     if (!c->s64 && (p->mem_phys + 4096 > 0x100000000ull || p->buf_phys + BOUNCE > 0x100000000ull)) {
         uart_print("[KIRA AHCI] controller is 32-bit, DMA memory above 4 GB: port skipped\n"); return;
     }
+#ifndef KIRA_HOST_TEST
+    if (c->iso && !c->iso_checked) {
+        /* Проверка принуждения IOMMU: список команд и приёмник FIS - в невыданной памяти, команда в слоте 0. Контроллер идёт за ними и
+           должен получить отказ (запись нарушения). Не получил - изоляция не объявляется, домен снимается. */
+        c->iso_checked = 1;
+        uint64_t cp; void* cm = virtio_dma_alloc(4096, &cp);
+        int seen = 0;
+        if (cm) {
+            uint32_t before = iommu_fault_count(c->pd);
+            w32(pr, P_CLB, (uint32_t)cp); w32(pr, P_CLB + 4, (uint32_t)(cp >> 32));
+            w32(pr, P_FB, (uint32_t)(cp + 0x400)); w32(pr, P_FB + 4, (uint32_t)((cp + 0x400) >> 32));
+            (void)port_start(p);
+            w32(pr, P_CI, 1u);
+            for (uint32_t i = 0; i < 200000 && !seen; i++) { (void)iommu_fault_poll(); seen = iommu_fault_count(c->pd) > before; if (!seen) cpu_relax(); }
+            (void)port_stop(p);
+            w32(pr, P_SERR, 0xFFFFFFFFu); w32(pr, P_IS, 0xFFFFFFFFu);
+            pmm_free_contiguous(cp, 1);
+        }
+        if (seen) uart_print("[KIRA IOMMU] ahci: enforcement check passed - DMA to memory that was not granted is blocked.\n");
+        else { uart_print("[KIRA IOMMU] ahci: no DMA fault seen in the enforcement check: isolation NOT confirmed, device stays passthrough.\n"); iommu_release_device(c->pd); c->iso = 0; }
+    }
+    if (c->iso && (iommu_map(c->pd, p->mem_phys, p->mem_phys, 4096, IOMMU_R | IOMMU_W) || iommu_map(c->pd, p->buf_phys, p->buf_phys, BOUNCE, IOMMU_R | IOMMU_W))) {
+        uart_print("[KIRA AHCI] could not grant buffers to the controller: port skipped\n"); return;
+    }
+#endif
     w32(pr, P_CLB, (uint32_t)p->mem_phys); w32(pr, P_CLB + 4, (uint32_t)(p->mem_phys >> 32));
     uint64_t fb = p->mem_phys + 0x400;
     w32(pr, P_FB, (uint32_t)fb); w32(pr, P_FB + 4, (uint32_t)(fb >> 32));
@@ -296,12 +328,17 @@ static void ahci_irq(void* ctx) {
 
 static void ctl_init(const pci_dev_t* pd, int ci) {
     if (pd->bar[5].io || !pd->bar[5].base || pd->bar[5].size < 0x180) { uart_print("[KIRA AHCI] controller without ABAR: skipped\n"); return; }
+    int iso = 0;
+    (void)iso;
+#ifndef KIRA_HOST_TEST
+    iso = iommu_isolate_device(pd) == 0;                               /* свой домен VT-d без отображений - до включения bus mastering */
+#endif
     pci_enable(pd, PCI_CMD_MEM | PCI_CMD_MASTER | PCI_CMD_INTX_OFF);
     uint64_t sz = pd->bar[5].size > 0x1100 ? 0x1100 : pd->bar[5].size;
     volatile uint8_t* ab = (volatile uint8_t*)pci_map_bar(pd, 5, 0, sz);
     if (!ab) { uart_print("[KIRA AHCI] cannot map ABAR\n"); return; }
     ahci_ctl_t* c = &ctls[ci];
-    c->abar = ab;
+    c->abar = ab; c->pd = pd; c->iso = iso; c->iso_checked = 0;
     w32(ab, GHC, r32(ab, GHC) | GHC_AE);
     if (r32(ab, CAP2) & 1u) {                                          /* BIOS/OS handoff */
         w32(ab, BOHC, r32(ab, BOHC) | 2u);
