@@ -63,6 +63,7 @@ int  virtio_dma_grant(virtio_dev_t* v, uint64_t phys, uint32_t bytes);
    (записана ошибка DMA), 0 - ошибки не было (изоляция не подтверждена), -1 - устройство не согласует
    VIRTIO_F_ACCESS_PLATFORM, его DMA идёт мимо IOMMU. Устройство после проверки сброшено. */
 int  virtio_iommu_check(virtio_dev_t* v);
+int  virtio_iommu_check_q(virtio_dev_t* v, uint16_t qidx, int device_writes);   /* то же, но по выбранной очереди */
 
 /* Непрерывная память для DMA (обнулена). Возвращает указатель; *phys - адрес для устройства. 0 - нет памяти. */
 void* virtio_dma_alloc(uint32_t bytes, uint64_t* phys);

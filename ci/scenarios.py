@@ -362,6 +362,13 @@ ALL = [
         {"cmd": "sound", "must": [r"от программ смешано (7[6-9]|[89]\d)\d\d\d", r"недоборов 0", r"карта забрала кадров [1-9]\d{5,}", r"блоков подтверждено [1-9]"]},
         {"log_forbid": NO_ERR},
     ], smp=2, mem="512M", extra=["-device", "sb16,audiodev=a0"]),
+    sc("net-virtio-iommu", "virtio-net под VT-d (q35): свой домен устройства, проверка принуждения, DHCP и ping работают, нарушений DMA нет", [
+        {"log": BOOT_LOG}, {"sleep": 8},
+        {"log": [r"\[KIRA IOMMU\] VT-d translation enabled on [1-9]", r"\[KIRA IOMMU\] virtio-net: enforcement check passed", r"\[KIRA NET\] virtio-net: MAC 52:54:00"]},
+        {"cmd": "net", "must": [r"карта virtio-net, канал есть", r"адрес 10\.0\.2\.15"]},
+        {"cmd": "ping 10.0.2.2 3", "must": [r"отправлено 3, получено [1-3]"], "timeout": 20},
+        {"log_forbid": NO_ERR + [r"virtio-net: .*NOT isolated"]},
+    ], smp=2, mem="1G", machine="q35", extra=["-device", "intel-iommu,aw-bits=48", "-netdev", "user,id=n0", "-device", "virtio-net-pci,netdev=n0,disable-legacy=on,iommu_platform=on"]),
     sc("net-virtio", "сеть: virtio-net (MSI-X будит поток сети), DHCP, ping, программа fetch", [
         {"log": BOOT_LOG}, {"sleep": 8},
         {"log": [r"\[KIRA NET\] virtio-net: MAC 52:54:00.*MSI-X", r"\[KIRA NET\] DHCP: address 10\.0\.2\.15/24"]},

@@ -267,18 +267,22 @@ int virtq_run(virtq_t* q, const virtq_buf_t* bufs, int n) {
     }
 }
 
-int virtio_iommu_check(virtio_dev_t* v) {
+int virtio_iommu_check(virtio_dev_t* v) { return virtio_iommu_check_q(v, 0, 1); }
+
+/* qidx - очередь, в которой устройство само обращается к памяти по подкладке (у диска очередь 0; у сети приём молчит, пока нет
+   кадра, поэтому берётся передача, очередь 1); device_writes - буфер для записи устройством (1) или для чтения (0). */
+int virtio_iommu_check_q(virtio_dev_t* v, uint16_t qidx, int device_writes) {
 #ifdef KIRA_HOST_TEST
-    (void)v;
+    (void)v; (void)qidx; (void)device_writes;
     return 0;
 #else
     if (virtio_begin(v, VIRTIO_F_ACCESS_PLATFORM) != 0) return 0;
     if (!(v->features & VIRTIO_F_ACCESS_PLATFORM)) { virtio_fail(v); return -1; }
     uint32_t before = iommu_fault_count(v->pci);
     virtq_t q;
-    if (queue_setup(v, &q, 0, 16, 0) != 0) { virtio_fail(v); return 0; }
+    if (queue_setup(v, &q, qidx, 16, 0) != 0) { virtio_fail(v); return 0; }
     virtio_driver_ok(v);
-    virtq_post(&q, 0, q.mem_phys, 16, 1);
+    virtq_post(&q, 0, q.mem_phys, 16, (uint8_t)(device_writes != 0));
     virtq_kick(&q);
     int seen = 0;
     for (uint32_t i = 0; i < 200000 && !seen; i++) {

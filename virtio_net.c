@@ -7,6 +7,9 @@
 #include "msi.h"
 #include "uart.h"
 #include "spinlock.h"
+#ifndef KIRA_HOST_TEST
+#include "iommu.h"
+#endif
 
 #define NRX 64
 #define NTX 32
@@ -76,7 +79,24 @@ int virtio_net_probe(void) {
     const pci_dev_t* p = pci_find(VIRTIO_VENDOR, 0x1041);
     if (!p) p = pci_find(VIRTIO_VENDOR, 0x1000);                  /* переходный с capabilities 1.0 */
     if (!p) return -1;
-    if (virtio_attach(&v.dev, p) || !v.dev.devcfg || virtio_begin(&v.dev, F_MAC | (1ull << 16))) {
+    int isolated = 0;
+#ifndef KIRA_HOST_TEST
+    isolated = iommu_isolate_device(p) == 0;                      /* свой домен VT-d без отображений - до включения bus mastering */
+#endif
+    if (virtio_attach(&v.dev, p) != 0 || !v.dev.devcfg) { uart_print("[KIRA NET] virtio-net: no virtio 1.0 interface.\n"); return -2; }
+#ifndef KIRA_HOST_TEST
+    if (isolated) {                                               /* изоляцию не объявляем, пока IOMMU не остановила обращение к невыданной памяти */
+        int chk = virtio_iommu_check_q(&v.dev, 1, 0);   /* передача: устройство читает подкладку само, приём без кадра молчит */
+        if (chk == 1) uart_print("[KIRA IOMMU] virtio-net: enforcement check passed - DMA to memory that was not granted is blocked.\n");
+        else {
+            uart_print(chk < 0 ? "[KIRA IOMMU] virtio-net: device does not negotiate ACCESS_PLATFORM (its DMA bypasses the IOMMU): NOT isolated.\n"
+                               : "[KIRA IOMMU] virtio-net: no DMA fault seen in the enforcement check: isolation NOT confirmed, device stays passthrough.\n");
+            iommu_release_device(p);
+            isolated = 0;
+        }
+    }
+#endif
+    if (virtio_begin(&v.dev, F_MAC | (1ull << 16) | VIRTIO_F_ACCESS_PLATFORM)   /* устройство с iommu_platform требует признак всегда; без изоляции домен сквозной */) {
         uart_print("[KIRA NET] virtio-net: no virtio 1.0 interface.\n");
         return -2;
     }
@@ -86,6 +106,7 @@ int virtio_net_probe(void) {
     v.rxb = (uint8_t*)virtio_dma_alloc(NRX * BUF, &v.rxb_p);
     v.txb = (uint8_t*)virtio_dma_alloc(NTX * BUF, &v.txb_p);
     if (!v.rxb || !v.txb) { virtio_fail(&v.dev); return -4; }
+    if (isolated && (virtio_dma_grant(&v.dev, v.rxb_p, NRX * BUF) || virtio_dma_grant(&v.dev, v.txb_p, NTX * BUF))) { virtio_fail(&v.dev); return -5; }   /* буферы кадров - устройству */
     unsigned nrx = v.rx.size < NRX ? v.rx.size : NRX;
     for (unsigned i = 0; i < nrx; i++) virtq_post(&v.rx, (uint16_t)i, v.rxb_p + i * BUF, BUF, 1);
     virtio_driver_ok(&v.dev);
