@@ -249,9 +249,13 @@ echo "== hardware profile (CPUID decoding on synthetic CPUs, scaling limits) =="
 $CC $FLAGS -fsanitize=undefined -o $T/hw tests/hwprofile_test.c hwprofile.c uheap.c
 $T/hw
 
-echo "== user programs: cube3d (3D renderer, z-buffer in heap), fpu, burn =="
-$CC $FLAGS $SSE -Itests -fsanitize=undefined -o $T/cube3d tests/cube3d_test.c
-$T/cube3d
+echo "== 3D engine k3d (tiles, z-buffer, perspective, clipping, light, textures, alpha, threads) =="
+$CC $FLAGS $SSE -fsanitize=address,undefined -o $T/k3d tests/k3d_test.c userland/k3d.c -lm -lpthread
+$T/k3d
+
+echo "== user programs: cube3d (scene on k3d), fpu, burn =="
+$CC $FLAGS $SSE -Itests -fsanitize=address,undefined -o $T/cube3d tests/cube3d_test.c userland/k3d.c -lpthread -lm
+ASAN_OPTIONS=detect_leaks=0 $T/cube3d
 $CC $FLAGS $SSE -Itests -o $T/fpuburn tests/fpu_burn_test.c
 $T/fpuburn
 

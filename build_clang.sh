@@ -106,11 +106,16 @@ ld.lld $ULINK -o userland/drvman.elf userland/drvman.o userland/drvget_lib.o use
 UELF="$UELF userland/drvman.elf"
 # Программы с вещественной арифметикой (3D, тест FPU): SSE2 разрешён только им, ядро собирается без SSE.
 USSE_FLAGS="-ffreestanding -fPIE -fvisibility=hidden -mno-red-zone -msse2 -mfpmath=sse -mno-mmx -fno-math-errno -fno-stack-protector -fno-asynchronous-unwind-tables -O2 -Wall -Wextra"
-for app in cube3d fpu wasm; do
+for app in fpu wasm; do
     $CC $USSE_FLAGS -c userland/$app.c -o userland/$app.o
     ld.lld $ULINK -o userland/$app.elf userland/$app.o
     UELF="$UELF userland/$app.elf"
 done
+# cube3d: сцена (userland/cube3d.c) + 3D-движок k3d (userland/k3d.c, плиточный растеризатор с потоками) + мини-libc (компилятор сам вызывает memcpy/memset)
+$CC $USSE_FLAGS -c userland/cube3d.c -o userland/cube3d.o
+$CC $USSE_FLAGS -c userland/k3d.c -o userland/k3d.o
+ld.lld $ULINK -o userland/cube3d.elf userland/cube3d.o userland/k3d.o userland/u_libc_min.o
+UELF="$UELF userland/cube3d.elf"
 # Программы с текстом: шрифт ядра (font8x16.c) собирается вместе с программой
 for app in edit view; do
     $CC $UCFLAGS -I. -c userland/$app.c -o userland/$app.o

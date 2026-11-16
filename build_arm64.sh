@@ -13,7 +13,7 @@ HOSTCC="${HOSTCC:-clang}"
 [ -x tools/kfstool ] || $HOSTCC -O1 -Wall -DKFS_NO_THREADS -I. -Iarch/x86_64 -o tools/kfstool tools/kfstool.c kfs.c zstd.c store.c sha256.c sysseal.c cbor.c json.c cas.c
 UCFLAGS="-ffreestanding -fno-builtin -fno-math-errno -fPIE -fvisibility=hidden -fno-stack-protector -fno-asynchronous-unwind-tables -O2 -Wall -Wextra"
 UELF=""
-for app in mt burn plasma cube3d paint fpu demo atk-mem atk-priv atk-sys atk-jmp atk-cap ipcx serve melody wasm udpecho rec; do   # fpu проверяет x87 (long double): на ARM64 - отдельная проверка позже
+for app in mt burn plasma paint fpu demo atk-mem atk-priv atk-sys atk-jmp atk-cap ipcx serve melody wasm udpecho rec; do   # fpu проверяет x87 (long double): на ARM64 - отдельная проверка позже
     $CC $UCFLAGS -c userland/$app.c -o build-arm64/u_$app.o
     ld.lld -T userland/user_arm64.ld -z max-page-size=4096 -z noseparate-code -z norelro -o build-arm64/$app.elf build-arm64/u_$app.o
     UELF="$UELF build-arm64/$app.elf"
@@ -31,6 +31,12 @@ UELF="$UELF build-arm64/fsport.elf"
 $CC $UCFLAGS -I. -Iuserland -c userland/gfxport.c -o build-arm64/fp_gfxport.o
 ld.lld -T userland/user_arm64.ld -z max-page-size=4096 -z noseparate-code -z norelro -o build-arm64/gfxport.elf build-arm64/fp_gfxport.o build-arm64/ui_cbor.o build-arm64/ui_libc_min.o
 UELF="$UELF build-arm64/gfxport.elf"
+# cube3d: сцена + 3D-движок k3d (потоки-помощники, вещественная арифметика EL0) + мини-libc
+$CC $UCFLAGS -c userland/cube3d.c -o build-arm64/u_cube3d.o
+$CC $UCFLAGS -c userland/k3d.c -o build-arm64/u_k3d.o
+$CC $UCFLAGS -c userland/libc_min.c -o build-arm64/u_cube3d_libc.o
+ld.lld -T userland/user_arm64.ld -z max-page-size=4096 -z noseparate-code -z norelro -o build-arm64/cube3d.elf build-arm64/u_cube3d.o build-arm64/u_k3d.o build-arm64/u_cube3d_libc.o
+UELF="$UELF build-arm64/cube3d.elf"
 # fetch: HTTP и HTTPS (TLS 1.3 и криптография внутри программы)
 for f in userland/fetch.c userland/tls.c userland/x509.c pk.c crypto.c sha256.c userland/libc_min.c; do
     $CC $UCFLAGS -I. -Iuserland -c $f -o build-arm64/uf_$(basename $f .c).o

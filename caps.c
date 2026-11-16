@@ -3,7 +3,7 @@
 
 static const struct { const char* name; uint32_t caps; } table[] = {
     { "plasma",   CAP_GFX },
-    { "cube3d",   CAP_GFX },
+    { "cube3d",   CAP_GFX | CAP_THREAD },     /* окно и потоки-помощники движка k3d (растеризация плиток параллельно) */
     { "paint",    CAP_GFX | CAP_FS },
     { "edit",     CAP_GFX | CAP_FS },
     { "view",     CAP_GFX | CAP_GRANT },

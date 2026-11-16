@@ -1,315 +1,324 @@
-/* 3D лаборатория: программный рендерер в программе Ring 3. Раньше жил в ядре (gfx3d.c) и требовал SSE в ядре;
-   теперь ядро без SSE, а это обычная программа со своим окном, своим z-буфером в куче и своим состоянием FPU/SSE.
-   Геометрия считается на float (SSE2), внутренний цикл растеризации - целочисленный (фиксированная точка
-   28.4 для границ и 40.16 для глубины): быстро и без аппаратного ускорения. */
+/* 3D лаборатория: сцена на движке k3d (userland/k3d.c) - плиточный растеризатор с буфером глубины, перспективно-верными цветом
+   и текстурами, билинейной выборкой, отсечением, светом Ламберта и прозрачностью; плитки считают несколько потоков процесса.
+   Раньше здесь был свой простой растеризатор без текстур; всё, что он умел (вращающийся куб и октаэдр на орбите, свет, глубина,
+   самопроверка, выход по q и закрытию окна, отчёт в журнал), осталось. Ядро собирается без SSE, а это обычная программа со своим
+   состоянием FPU/SSE: геометрия считается на float (SSE2), внутренний цикл плиток - тоже.
+   Аргументы запуска (run cube3d ...): threads=N (потоков-помощников 0..8, по умолчанию 3), bench (замер без пауз: кадры/с и
+   время геометрии и растеризации для 0 помощников и для N). */
 #include "kira.h"
+#include "k3d_kira.h"
 KIRA_ENTRY()
 
 #define W 360
 #define H 270
-
-#define PI_F      3.14159265358979f
-#define TWO_PI_D  6.283185307179586
+#define DEFAULT_WORKERS 3
 
 typedef struct { u32* px; int w, h, pitch; } surf_t;
 typedef struct { float x, y, z; } v3;
-typedef struct { float m[3][3]; } m3;
 
-static inline float f_min(float a, float b) { return a < b ? a : b; }
-static inline float f_max(float a, float b) { return a > b ? a : b; }
 static inline v3 v_sub(v3 a, v3 b) { v3 r = {a.x - b.x, a.y - b.y, a.z - b.z}; return r; }
 static inline v3 v_cross(v3 a, v3 b) { v3 r = {a.y*b.z - a.z*b.y, a.z*b.x - a.x*b.z, a.x*b.y - a.y*b.x}; return r; }
 static inline float v_dot(v3 a, v3 b) { return a.x*b.x + a.y*b.y + a.z*b.z; }
-static inline float v_len(v3 a) { return __builtin_sqrtf(v_dot(a, a)); }
-
-/* ---- sin/cos без libm: ряд Тейлора до x^11 на [-pi/2, pi/2], погрешность < 1e-6 ---- */
-static float k_sin_range(float x) {
-    if (x > PI_F * 0.5f) x = PI_F - x;
-    else if (x < -PI_F * 0.5f) x = -PI_F - x;
-    float x2 = x * x;
-    return x * (1.0f + x2 * (-1.6666667e-1f + x2 * (8.3333333e-3f + x2 * (-1.9841270e-4f
-             + x2 * (2.7557319e-6f + x2 * -2.5052108e-8f)))));
-}
-static float k_sinf(float x) {
-    while (x > PI_F) x -= 2.0f * PI_F;
-    while (x < -PI_F) x += 2.0f * PI_F;
-    return k_sin_range(x);
-}
-static float k_cosf(float x) { return k_sinf(x + PI_F * 0.5f); }
 
 /* Угол 0..2pi из времени: периодизация в целых числах, чтобы не терять точность за часы работы */
 static float angle_ns(u64 t_ns, u64 period_ns) {
     double ph = (double)(t_ns % period_ns) / (double)period_ns;
-    return (float)(ph * TWO_PI_D);
+    return (float)(ph * 6.283185307179586);
 }
 
-static m3 m_rot_x(float a) { float c = k_cosf(a), s = k_sinf(a); m3 r = {{{1,0,0},{0,c,-s},{0,s,c}}}; return r; }
-static m3 m_rot_y(float a) { float c = k_cosf(a), s = k_sinf(a); m3 r = {{{c,0,s},{0,1,0},{-s,0,c}}}; return r; }
-static m3 m_mul(const m3* a, const m3* b) {
-    m3 r;
-    for (int i = 0; i < 3; i++) for (int j = 0; j < 3; j++)
-        r.m[i][j] = a->m[i][0]*b->m[0][j] + a->m[i][1]*b->m[1][j] + a->m[i][2]*b->m[2][j];
-    return r;
+/* ---- модели: вершины и индексы для движка ---- */
+#define MAX_V 512
+#define MAX_I 2048
+typedef struct { k3d_vertex_t v[MAX_V]; k3d_u16 i[MAX_I]; u32 nv, ni; } mesh_t;
+static mesh_t m_cube, m_oct, m_sphere;
+
+static v3 mesh_pos(const k3d_vertex_t* v) { v3 r = {v->x, v->y, v->z}; return r; }
+
+/* Добавляет треугольник; обход выбирается так, чтобы грань с внешней нормалью n была ЛИЦЕВОЙ: лицевая - против часовой с точки зрения камеры
+   (y вверх, z вперёд), для неё векторное произведение (b-a)x(c-a) смотрит ВНУТРЬ фигуры (против нормали). */
+static void add_tri(mesh_t* m, u32 a, u32 b, u32 c, v3 n) {
+    v3 cr = v_cross(v_sub(mesh_pos(&m->v[b]), mesh_pos(&m->v[a])), v_sub(mesh_pos(&m->v[c]), mesh_pos(&m->v[a])));
+    if (v_dot(cr, n) > 0.0f) { u32 t = b; b = c; c = t; }
+    m->i[m->ni++] = (k3d_u16)a; m->i[m->ni++] = (k3d_u16)b; m->i[m->ni++] = (k3d_u16)c;
 }
-static v3 m_apply(const m3* m, v3 v, float scale, v3 t) {
-    v3 r = { (m->m[0][0]*v.x + m->m[0][1]*v.y + m->m[0][2]*v.z) * scale + t.x,
-             (m->m[1][0]*v.x + m->m[1][1]*v.y + m->m[1][2]*v.z) * scale + t.y,
-             (m->m[2][0]*v.x + m->m[2][1]*v.y + m->m[2][2]*v.z) * scale + t.z };
-    return r;
+static u32 add_vert(mesh_t* m, v3 p, v3 n, float u, float v, u32 color) {
+    k3d_vertex_t* d = &m->v[m->nv];
+    d->x = p.x; d->y = p.y; d->z = p.z; d->nx = n.x; d->ny = n.y; d->nz = n.z; d->u = u; d->v = v; d->color = color;
+    return m->nv++;
 }
 
-/* ---- модели ---- */
-typedef struct { u8 a, b, c; u32 color; } tri_t;
-
-static v3 cube_v[8] = {
-    {-1,-1,-1}, {1,-1,-1}, {1,1,-1}, {-1,1,-1}, {-1,-1,1}, {1,-1,1}, {1,1,1}, {-1,1,1}
-};
-static tri_t cube_t[12] = {
-    {0,1,2,0xE0453A}, {0,2,3,0xE0453A},   /* -z  красный */
-    {5,4,7,0x3AB0E0}, {5,7,6,0x3AB0E0},   /* +z  голубой */
-    {4,0,3,0x4CC76B}, {4,3,7,0x4CC76B},   /* -x  зелёный */
-    {1,5,6,0xF0C040}, {1,6,2,0xF0C040},   /* +x  жёлтый */
-    {3,2,6,0xA070E0}, {3,6,7,0xA070E0},   /* +y  фиолетовый */
-    {4,5,1,0xF08A3A}, {4,1,0,0xF08A3A},   /* -y  оранжевый */
-};
-static v3 oct_v[6] = { {1,0,0}, {-1,0,0}, {0,1,0}, {0,-1,0}, {0,0,1}, {0,0,-1} };
-static tri_t oct_t[8] = {
-    {0,2,4,0xFFFFFF}, {2,1,4,0xD8E8FF}, {1,3,4,0xFFFFFF}, {3,0,4,0xD8E8FF},
-    {2,0,5,0xD8E8FF}, {1,2,5,0xFFFFFF}, {3,1,5,0xD8E8FF}, {0,3,5,0xFFFFFF},
-};
-
-/* Приводит обход каждой грани к "нормаль смотрит наружу" (фигуры выпуклые и центрированы в 0). */
-static int models_ready;
-static void fix_winding(const v3* v, tri_t* t, int n) {
-    for (int i = 0; i < n; i++) {
-        v3 a = v[t[i].a], b = v[t[i].b], c = v[t[i].c];
-        v3 nrm = v_cross(v_sub(b, a), v_sub(c, a));
-        v3 cen = { a.x + b.x + c.x, a.y + b.y + c.y, a.z + b.z + c.z };
-        if (v_dot(nrm, cen) < 0) { u8 tmp = t[i].b; t[i].b = t[i].c; t[i].c = tmp; }
+static void build_cube(void) {
+    static const v3 cv[8] = { {-1,-1,-1}, {1,-1,-1}, {1,1,-1}, {-1,1,-1}, {-1,-1,1}, {1,-1,1}, {1,1,1}, {-1,1,1} };
+    static const struct { u8 q[4]; v3 n; u32 color; } faces[6] = {
+        {{0,3,2,1}, { 0, 0,-1}, 0xFFE0453A}, {{5,6,7,4}, { 0, 0, 1}, 0xFF3AB0E0},   /* -z красный, +z голубой */
+        {{4,7,3,0}, {-1, 0, 0}, 0xFF4CC76B}, {{1,2,6,5}, { 1, 0, 0}, 0xFFF0C040},   /* -x зелёный, +x жёлтый */
+        {{3,7,6,2}, { 0, 1, 0}, 0xFFA070E0}, {{4,0,1,5}, { 0,-1, 0}, 0xFFF08A3A},   /* +y фиолетовый, -y оранжевый */
+    };
+    m_cube.nv = m_cube.ni = 0;
+    for (int f = 0; f < 6; f++) {
+        static const float uu[4] = {0, 0, 1, 1}, vv[4] = {0, 1, 1, 0};
+        u32 id[4];
+        for (int k = 0; k < 4; k++) id[k] = add_vert(&m_cube, cv[faces[f].q[k]], faces[f].n, uu[k], vv[k], faces[f].color);
+        add_tri(&m_cube, id[0], id[1], id[2], faces[f].n); add_tri(&m_cube, id[0], id[2], id[3], faces[f].n);
     }
 }
-static void prepare_models(void) {
-    if (models_ready) return;
-    fix_winding(cube_v, cube_t, 12);
-    fix_winding(oct_v, oct_t, 8);
-    models_ready = 1;
+
+static void build_oct(void) {
+    m_oct.nv = m_oct.ni = 0;
+    for (int s = 0; s < 8; s++) {
+        float sx = (s & 1) ? -1.0f : 1.0f, sy = (s & 2) ? -1.0f : 1.0f, sz = (s & 4) ? -1.0f : 1.0f;
+        v3 p[3] = { {sx, 0, 0}, {0, sy, 0}, {0, 0, sz} };
+        v3 n = { sx * 0.57735027f, sy * 0.57735027f, sz * 0.57735027f };
+        u32 col = ((s ^ (s >> 1) ^ (s >> 2)) & 1) ? 0xFFFFFFFF : 0xFFD8E8FF, id[3];    /* грани в шахматном порядке: белая / бледно-голубая */
+        for (int k = 0; k < 3; k++) id[k] = add_vert(&m_oct, p[k], n, 0.0f, 0.0f, col);
+        add_tri(&m_oct, id[0], id[1], id[2], n);
+    }
 }
 
-/* ---- растеризатор ---- */
-typedef struct { float x, y, d; } sv_t;       /* экранные координаты и глубина 0..1 */
-
-static u32* zbuf;
-static int zw, zh;
-static u32 stat_px, stat_tris;
-typedef struct { u64 frames; u32 tris_drawn, pixels_written; } stats_t;
-static stats_t stats;
-
-#define ZMAX 16777215.0
-
-/* Треугольник в экранных координатах: целочисленные граничные функции (28.4, центры пикселей),
-   плоскость глубины в фиксированной точке. Порядок обхода любой. */
-static void raster_tri(surf_t* t, sv_t a, sv_t b, sv_t c, u32 color) {
-    i64 ax = (i64)(a.x * 16.0f + (a.x >= 0 ? 0.5f : -0.5f)), ay = (i64)(a.y * 16.0f + (a.y >= 0 ? 0.5f : -0.5f));
-    i64 bx = (i64)(b.x * 16.0f + (b.x >= 0 ? 0.5f : -0.5f)), by = (i64)(b.y * 16.0f + (b.y >= 0 ? 0.5f : -0.5f));
-    i64 cx = (i64)(c.x * 16.0f + (c.x >= 0 ? 0.5f : -0.5f)), cy = (i64)(c.y * 16.0f + (c.y >= 0 ? 0.5f : -0.5f));
-
-    i64 area2 = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
-    if (area2 == 0) return;
-    if (area2 < 0) { /* единая ориентация */
-        i64 tx = bx, ty = by; bx = cx; by = cy; cx = tx; cy = ty;
-        sv_t ts = b; b = c; c = ts;
-        area2 = -area2;
-    }
-
-    i64 minx = ax < bx ? (ax < cx ? ax : cx) : (bx < cx ? bx : cx);
-    i64 maxx = ax > bx ? (ax > cx ? ax : cx) : (bx > cx ? bx : cx);
-    i64 miny = ay < by ? (ay < cy ? ay : cy) : (by < cy ? by : cy);
-    i64 maxy = ay > by ? (ay > cy ? ay : cy) : (by > cy ? by : cy);
-    int x0 = (int)(minx >> 4), x1 = (int)(maxx >> 4), y0 = (int)(miny >> 4), y1 = (int)(maxy >> 4);
-    if (x0 < 0) x0 = 0;
-    if (y0 < 0) y0 = 0;
-    if (x1 > t->w - 1) x1 = t->w - 1;
-    if (y1 > t->h - 1) y1 = t->h - 1;
-    if (x0 > x1 || y0 > y1) return;
-
-    /* E(p) = (q.x-p.x)*(y-p.y) - (q.y-p.y)*(x-p.x); внутри треугольника все три >= 0 */
-    i64 px0 = (i64)x0 * 16 + 8, py0 = (i64)y0 * 16 + 8;
-    i64 e0 = (bx - ax) * (py0 - ay) - (by - ay) * (px0 - ax);
-    i64 e1 = (cx - bx) * (py0 - by) - (cy - by) * (px0 - bx);
-    i64 e2 = (ax - cx) * (py0 - cy) - (ay - cy) * (px0 - cx);
-    i64 a0 = -(by - ay) * 16, b0 = (bx - ax) * 16;
-    i64 a1 = -(cy - by) * 16, b1 = (cx - bx) * 16;
-    i64 a2 = -(ay - cy) * 16, b2 = (ax - cx) * 16;
-
-    /* плоскость глубины d(x,y) по вершинам (double: настройка раз на треугольник) */
-    double fax = (double)ax / 16.0, fay = (double)ay / 16.0;
-    double fbx = (double)bx / 16.0, fby = (double)by / 16.0;
-    double fcx = (double)cx / 16.0, fcy = (double)cy / 16.0;
-    double det = (fbx - fax) * (fcy - fay) - (fcx - fax) * (fby - fay);
-    double dzdx = ((double)(b.d - a.d) * (fcy - fay) - (double)(c.d - a.d) * (fby - fay)) / det;
-    double dzdy = ((double)(c.d - a.d) * (fbx - fax) - (double)(b.d - a.d) * (fcx - fax)) / det;
-    double zc = (double)a.d + dzdx * ((double)x0 + 0.5 - fax) + dzdy * ((double)y0 + 0.5 - fay);
-    const double S = ZMAX * 65536.0;
-    i64 z_row = (i64)(zc * S);
-    i64 z_dx = (i64)(dzdx * S);
-    i64 z_dy = (i64)(dzdy * S);
-
-    for (int y = y0; y <= y1; y++) {
-        i64 E0 = e0, E1 = e1, E2 = e2, Z = z_row;
-        u32* row = t->px + (long)y * t->pitch;
-        u32* zr = zbuf + (long)y * zw;
-        for (int x = x0; x <= x1; x++) {
-            if ((E0 | E1 | E2) >= 0) {
-                i64 zz = Z >> 16;
-                if (zz < 0) zz = 0;
-                u32 zi = (u32)zz;
-                if (zi < zr[x]) { zr[x] = zi; row[x] = color; stat_px++; }
-            }
-            E0 += a0; E1 += a1; E2 += a2; Z += z_dx;
+#define SPH_R 12
+#define SPH_S 20
+static void build_sphere(void) {
+    m_sphere.nv = m_sphere.ni = 0;
+    for (int i = 0; i <= SPH_R; i++) {
+        float th = 3.14159265f * (float)i / (float)SPH_R, st = k3d_sinf(th), ct = k3d_cosf(th);
+        for (int j = 0; j <= SPH_S; j++) {
+            float ph = 6.2831853f * (float)j / (float)SPH_S;
+            v3 p = { st * k3d_cosf(ph), ct, st * k3d_sinf(ph) };
+            add_vert(&m_sphere, p, p, (float)j / (float)SPH_S, (float)i / (float)SPH_R, 0xFFFFFFFF);
         }
-        e0 += b0; e1 += b1; e2 += b2; z_row += z_dy;
     }
-    stat_tris++;
+    for (int i = 0; i < SPH_R; i++) for (int j = 0; j < SPH_S; j++) {
+        u32 a = (u32)(i * (SPH_S + 1) + j), b = a + 1, c = a + (SPH_S + 1), d = c + 1;
+        v3 pa = mesh_pos(&m_sphere.v[a]), pd = mesh_pos(&m_sphere.v[d]);
+        v3 n = { pa.x + pd.x, pa.y + pd.y, pa.z + pd.z };
+        if (i > 0) add_tri(&m_sphere, a, c, b, n);                  /* у полюса квад вырождается в один треугольник */
+        if (i < SPH_R - 1) add_tri(&m_sphere, b, c, d, n);
+    }
+}
+
+/* ---- текстуры (процедурные, без файлов) ---- */
+static u32 hash32(u32 x) { x ^= x >> 16; x *= 0x7feb352dU; x ^= x >> 15; x *= 0x846ca68bU; x ^= x >> 16; return x; }
+static u32 tex_brick[128 * 128], tex_planet[128 * 64];
+static void build_textures(void) {
+    for (int y = 0; y < 128; y++) for (int x = 0; x < 128; x++) {                 /* кирпичи 32x16 со швом 2 пикселя, ряды сдвинуты */
+        int row = y / 16, xx = (x + (row & 1) * 16) & 127, bx = xx / 32, ly = y & 15, lx = xx & 31;
+        u32 col;
+        if (ly < 2 || lx < 2) col = 0x9A968C;
+        else {
+            u32 h = hash32((u32)(row * 8 + bx) * 2654435761u + 77), n = hash32((u32)(x * 131 + y * 71)) & 15;
+            int r = 150 + (int)(h & 31) - 16 + (int)n - 8, g = 70 + (int)((h >> 5) & 15) - 8 + (int)n / 2, b = 50 + (int)((h >> 9) & 15) - 8 + (int)n / 2;
+            col = ((u32)r << 16) | ((u32)g << 8) | (u32)b;
+        }
+        tex_brick[y * 128 + x] = 0xFF000000u | col;
+    }
+    for (int y = 0; y < 64; y++) for (int x = 0; x < 128; x++) {                  /* планета: полосы по широте и пятна */
+        int band = (y * 7 / 64) & 1;
+        u32 n = hash32((u32)((x >> 2) * 97 + (y >> 2) * 1013)) & 63;
+        int r = band ? 70 : 205, g = band ? 120 : 160, b = band ? 190 : 90;
+        r += (int)n - 32; g += (int)n / 2 - 16; b += (int)n / 3 - 10;
+        if (n > 52) { r = 235; g = 235; b = 245; }                                 /* "облака" */
+        r = r < 0 ? 0 : (r > 255 ? 255 : r); g = g < 0 ? 0 : (g > 255 ? 255 : g); b = b < 0 ? 0 : (b > 255 ? 255 : b);
+        tex_planet[y * 128 + x] = 0xFF000000u | ((u32)r << 16) | ((u32)g << 8) | (u32)b;
+    }
 }
 
 /* ---- сцена ---- */
-typedef struct { float zn, zf, f_over_aspect, f; float hw, hh; } cam_t;
+typedef struct {
+    k3d_ctx* c; int w, h;
+    int vb[3], ib[3], tex[2];
+    k3d_stats_t last;                         /* статистика последнего кадра */
+    u64 ns_geom, ns_raster;                   /* накоплено за все кадры */
+    int ready;
+} scene_t;
+static scene_t sc;
+static int models_ready;
+static u32 cfg_tris = 4096, cfg_res = 1u << 20;       /* профиль памяти движка (grab_arena подбирает по куче) */
 
-static int project(const cam_t* c, v3 p, sv_t* out) {
-    if (p.z < c->zn) return 0;                    /* отсечения нет: треугольники у камеры пропускаются */
-    float inv = 1.0f / p.z;
-    out->x = c->hw * (1.0f + c->f_over_aspect * p.x * inv);
-    out->y = c->hh * (1.0f - c->f * p.y * inv);
-    out->d = (c->zf / (c->zf - c->zn)) * (1.0f - c->zn * inv);
-    return 1;
+static void prepare_models(void) {
+    if (models_ready) return;
+    build_cube(); build_oct(); build_sphere(); build_textures();
+    models_ready = 1;
 }
 
-static void draw_model(surf_t* t, const cam_t* cam, const v3* mv, int nv, const tri_t* tr, int nt,
-                       const m3* rot, float scale, v3 pos, v3 light) {
-    v3 w[8]; sv_t s[8]; int ok[8];
-    for (int i = 0; i < nv; i++) {
-        w[i] = m_apply(rot, mv[i], scale, pos);
-        ok[i] = project(cam, w[i], &s[i]);
-    }
-    for (int i = 0; i < nt; i++) {
-        int a = tr[i].a, b = tr[i].b, c = tr[i].c;
-        if (!ok[a] || !ok[b] || !ok[c]) continue;
-        v3 n = v_cross(v_sub(w[b], w[a]), v_sub(w[c], w[a]));
-        v3 cen = { (w[a].x + w[b].x + w[c].x) / 3.0f, (w[a].y + w[b].y + w[c].y) / 3.0f, (w[a].z + w[b].z + w[c].z) / 3.0f };
-        float len = v_len(n);
-        if (len < 1e-9f) continue;
-        float inv = 1.0f / len;
-        n.x *= inv; n.y *= inv; n.z *= inv;
-        if (v_dot(n, cen) >= 0) continue;         /* грань смотрит от камеры (камера в начале координат) */
-        float diff = f_max(0.0f, v_dot(n, light));
-        float k = 0.22f + 0.78f * diff;
-        float r = (float)((tr[i].color >> 16) & 255) * k, g = (float)((tr[i].color >> 8) & 255) * k, bl = (float)(tr[i].color & 255) * k;
-        u32 col = ((u32)f_min(r, 255.0f) << 16) | ((u32)f_min(g, 255.0f) << 8) | (u32)f_min(bl, 255.0f);
-        raster_tri(t, s[a], s[b], s[c], col);
-    }
-}
-
-/* z-буфер даёт вызывающий: в программе - кусок кучи, в хост-тесте - malloc. */
-static int scene_init(u32* z, int width, int height) {
+/* Память: arena от программы (k_heap_grow). Возвращает 0 или -1. */
+static int scene_init(void* mem, u64 bytes, int width, int height, int workers) {
     prepare_models();
-    if (!z || width <= 0 || height <= 0) return -1;
-    zbuf = z; zw = width; zh = height;
-    stats.frames = 0;
+    sc.ready = 0; sc.c = 0;
+    if (!mem || width <= 0 || height <= 0) return -1;
+    k3d_config_t cfg; k3d_config_default(&cfg, width, height, workers); k3d_kira_sys(&cfg.sys);
+    cfg.max_tris = cfg_tris; cfg.res_bytes = cfg_res;
+    sc.c = k3d_create(&cfg, mem, bytes);
+    if (!sc.c) return -1;
+    mesh_t* ms[3] = { &m_cube, &m_oct, &m_sphere };
+    for (int i = 0; i < 3; i++) {
+        sc.vb[i] = k3d_vbuf_create(sc.c, ms[i]->v, ms[i]->nv); sc.ib[i] = k3d_ibuf_create(sc.c, ms[i]->i, ms[i]->ni);
+        if (sc.vb[i] < 0 || sc.ib[i] < 0) { k3d_destroy(sc.c); sc.c = 0; return -1; }
+    }
+    sc.tex[0] = k3d_tex_create(sc.c, 128, 128, tex_brick, 1); sc.tex[1] = k3d_tex_create(sc.c, 128, 64, tex_planet, 1);
+    if (sc.tex[0] < 0 || sc.tex[1] < 0) { k3d_destroy(sc.c); sc.c = 0; return -1; }
+    sc.w = width; sc.h = height; sc.ns_geom = sc.ns_raster = 0; sc.ready = 1;
     return 0;
 }
+static void scene_close(void) { if (sc.c) k3d_destroy(sc.c); sc.c = 0; sc.ready = 0; }
 
-static void render_scene(surf_t* t, u64 t_ns) {
-    if (!zbuf || t->w != zw || t->h != zh) return;
-    stat_px = 0; stat_tris = 0;
+static k3d_u32 words[1024];
 
-    /* фон: вертикальный градиент, z-буфер на бесконечность */
-    for (int y = 0; y < t->h; y++) {
-        unsigned k = (unsigned)y * 255u / (unsigned)t->h;
-        u32 c = ((10 + k / 12) << 16) | ((14 + k / 9) << 8) | (34 + k / 5);
-        u32* row = t->px + (long)y * t->pitch;
-        for (int x = 0; x < t->w; x++) row[x] = c;
-    }
-    for (long i = 0; i < (long)zw * zh; i++) zbuf[i] = 0xFFFFFFFFu;
+static void draw_model(k3d_cmdbuf_t* cb, int mesh, const k3d_mat4* model, k3d_u32 flags, k3d_u32 tint, int tex) {
+    k3d_cb_matrix(cb, K3D_SLOT_MODEL, model);
+    k3d_cb_state(cb, flags, tint);
+    k3d_cb_bind(cb, K3D_BIND_VERTEX, sc.vb[mesh]); k3d_cb_bind(cb, K3D_BIND_INDEX, sc.ib[mesh]);
+    k3d_cb_bind(cb, K3D_BIND_TEXTURE, tex);
+    mesh_t* ms[3] = { &m_cube, &m_oct, &m_sphere };
+    k3d_cb_draw(cb, 0, ms[mesh]->ni, 0);
+}
 
-    cam_t cam;
+/* Кадр в момент t_ns. surf должен совпадать с размером сцены; строка (pitch) может быть шире окна. */
+static int render_scene(surf_t* t, u64 t_ns) {
+    if (!sc.ready || t->w != sc.w || t->h != sc.h) return -1;
+    k3d_cmdbuf_t cb; k3d_cb_init(&cb, words, sizeof words / 4);
     float aspect = (float)t->w / (float)t->h;
-    cam.zn = 0.5f; cam.zf = 30.0f;
-    cam.f = 1.7320508f;                            /* fov 60 градусов по вертикали */
-    cam.f_over_aspect = cam.f / aspect;
-    cam.hw = (float)t->w * 0.5f; cam.hh = (float)t->h * 0.5f;
+    k3d_mat4 proj = k3d_mat4_perspective(1.7320508f, aspect, 0.5f, 30.0f);      /* fov 60 градусов по вертикали, камера в начале, смотрит в +z */
+    v3 l = {-0.45f, 0.70f, -0.55f};
+    float ll = __builtin_sqrtf(v_dot(l, l));
+    float ldir[3] = { l.x / ll, l.y / ll, l.z / ll }, lcol[3] = { 0.78f, 0.78f, 0.78f }, lamb[3] = { 0.22f, 0.22f, 0.22f };   /* как у прежнего куба: 0.22 + 0.78 * диффузный */
 
-    v3 light = {-0.45f, 0.70f, -0.55f};
-    float ll = v_len(light); light.x /= ll; light.y /= ll; light.z /= ll; /* "к свету" (камера смотрит в +z) */
+    k3d_cb_clear(&cb, 0x000A0E22, 0x001F2A55, 1.0f);                           /* фон: вертикальный градиент, глубина на бесконечность */
+    k3d_cb_matrix(&cb, K3D_SLOT_PROJ, &proj);
+    k3d_cb_light(&cb, ldir, lcol, lamb);
+    const k3d_u32 OPAQUE = K3D_CULL_BACK | K3D_DEPTH_TEST | K3D_DEPTH_WRITE;
+    const k3d_u32 TEXLIT = OPAQUE | K3D_TEXTURE | K3D_FILTER_BILINEAR;
 
+    /* центральный куб (кирпичи, цвет граней как раньше, свет по пикселям) */
     float ay = angle_ns(t_ns, 14000000000ULL), ax = angle_ns(t_ns, 23000000000ULL);
-    m3 ry = m_rot_y(ay), rx = m_rot_x(ax);
-    m3 cube_rot = m_mul(&ry, &rx);
-    v3 cube_pos = {0.0f, 0.0f, 6.2f};
-    draw_model(t, &cam, cube_v, 8, cube_t, 12, &cube_rot, 1.25f, cube_pos, light);
+    k3d_mat4 ry = k3d_mat4_rot_y(ay), rx = k3d_mat4_rot_x(ax), rot = k3d_mat4_mul(&ry, &rx);
+    k3d_mat4 sc125 = k3d_mat4_scale(1.25f, 1.25f, 1.25f), pos = k3d_mat4_translate(0.0f, 0.0f, 6.2f);
+    k3d_mat4 m = k3d_mat4_mul(&rot, &sc125); m = k3d_mat4_mul(&pos, &m);
+    draw_model(&cb, 0, &m, TEXLIT | K3D_LIGHT_PIXEL, 0xFFFFFFFF, sc.tex[0]);
 
-    /* октаэдр на наклонной орбите: проходит и перед кубом, и за ним (проверка z-буфера) */
+    /* октаэдр на наклонной орбите: проходит и перед кубом, и за ним (проверка буфера глубины); грани плоские, свет по вершинам */
     float ao = angle_ns(t_ns, 6000000000ULL);
-    v3 opos = { 3.0f * k_cosf(ao), 1.1f * k_sinf(ao * 2.0f), 6.2f + 2.6f * k_sinf(ao) };
-    m3 ory = m_rot_y(-ao * 3.0f);
-    m3 orx = m_rot_x(ao * 2.0f);
-    m3 orot = m_mul(&ory, &orx);
-    draw_model(t, &cam, oct_v, 6, oct_t, 8, &orot, 0.75f, opos, light);
+    k3d_mat4 ory = k3d_mat4_rot_y(-ao * 3.0f), orx = k3d_mat4_rot_x(ao * 2.0f), orot = k3d_mat4_mul(&ory, &orx);
+    k3d_mat4 os = k3d_mat4_scale(0.75f, 0.75f, 0.75f), opos = k3d_mat4_translate(3.0f * k3d_cosf(ao), 1.1f * k3d_sinf(ao * 2.0f), 6.2f + 2.6f * k3d_sinf(ao));
+    m = k3d_mat4_mul(&orot, &os); m = k3d_mat4_mul(&opos, &m);
+    draw_model(&cb, 1, &m, OPAQUE | K3D_LIGHT_VERTEX, 0xFFFFFFFF, -1);
 
-    stats.frames++;
-    stats.tris_drawn = stat_tris;
-    stats.pixels_written = stat_px;
+    /* планета на встречной орбите: текстура с мип-уровнями, билинейно, свет по вершинам */
+    float ap = angle_ns(t_ns, 9000000000ULL) + 3.14159265f, as = angle_ns(t_ns, 11000000000ULL);
+    k3d_mat4 pr = k3d_mat4_rot_y(as), ps = k3d_mat4_scale(0.95f, 0.95f, 0.95f), pp = k3d_mat4_translate(-3.3f * k3d_cosf(ap), -1.2f * k3d_sinf(ap), 6.6f + 2.2f * k3d_sinf(ap));
+    m = k3d_mat4_mul(&pr, &ps); m = k3d_mat4_mul(&pp, &m);
+    draw_model(&cb, 2, &m, TEXLIT | K3D_LIGHT_VERTEX, 0xFFFFFFFF, sc.tex[1]);
+
+    /* стеклянный куб вокруг центрального: прозрачность, глубина проверяется, но не пишется */
+    float ag = angle_ns(t_ns, 31000000000ULL), ag2 = angle_ns(t_ns, 17000000000ULL);
+    k3d_mat4 gy = k3d_mat4_rot_y(ag), gz = k3d_mat4_rot_z(ag2), gr = k3d_mat4_mul(&gy, &gz), gs = k3d_mat4_scale(2.3f, 2.3f, 2.3f);
+    m = k3d_mat4_mul(&gr, &gs); m = k3d_mat4_mul(&pos, &m);
+    draw_model(&cb, 0, &m, K3D_CULL_BACK | K3D_DEPTH_TEST | K3D_BLEND | K3D_LIGHT_VERTEX, 0x60A8D8FF, -1);
+
+    if (cb.err) return cb.err;
+    int rc = k3d_submit(sc.c, words, cb.n, (k3d_u32*)t->px, t->pitch);
+    sc.last = *k3d_stats(sc.c);
+    sc.ns_geom += sc.last.ns_geometry; sc.ns_raster += sc.last.ns_raster;
+    return rc;
 }
 
 /* ---- самопроверка ---- */
 static int absf_lt(float a, float b, float tol) { float d = a - b; if (d < 0) d = -d; return d < tol; }
 
+#define ST_W 40
+#define ST_H 40
+static u64 st_arena[16384] __attribute__((aligned(16)));       /* 128 КБ: движок самопроверки (40x40, 2 помощника) без кучи */
+
+static u32 st_hash(const u32* p, int n) { u32 h = 2166136261u; for (int i = 0; i < n; i++) { h ^= p[i]; h *= 16777619u; } return h; }
+
+/* Прямоугольный треугольник (0,0)-(w,0)-(0,w) в пикселях окна ST_W x ST_H, глубина z; цвет - flat */
+static void st_tri(k3d_vertex_t* v, float sz, float z, u32 color, int flip) {
+    float px[3] = {0, sz, 0}, py[3] = {0, 0, sz};
+    for (int i = 0; i < 3; i++) {
+        v[i].x = px[i] / (float)ST_W * 2.0f - 1.0f; v[i].y = 1.0f - py[i] / (float)ST_H * 2.0f; v[i].z = z;
+        v[i].nx = v[i].ny = 0.0f; v[i].nz = -1.0f; v[i].u = v[i].v = 0.0f; v[i].color = color;
+    }
+    if (flip) { k3d_vertex_t t = v[1]; v[1] = v[2]; v[2] = t; }
+}
+
 static int selftest(void) {
     prepare_models();
     /* 1. тригонометрия */
-    if (!absf_lt(k_sinf(0.0f), 0.0f, 1e-6f)) return 1;
-    if (!absf_lt(k_sinf(PI_F / 6.0f), 0.5f, 2e-6f)) return 2;
-    if (!absf_lt(k_cosf(PI_F / 3.0f), 0.5f, 2e-6f)) return 3;
-    if (!absf_lt(k_cosf(PI_F), -1.0f, 2e-6f)) return 4;
-    if (!absf_lt(k_sinf(4.0f), -0.7568025f, 3e-6f)) return 5;
-    if (!absf_lt(k_cosf(-2.5f), -0.8011436f, 3e-6f)) return 6;
-    /* 2. все нормали смотрят наружу */
-    for (int i = 0; i < 12; i++) {
-        v3 a = cube_v[cube_t[i].a], b = cube_v[cube_t[i].b], c = cube_v[cube_t[i].c];
-        v3 n = v_cross(v_sub(b, a), v_sub(c, a));
-        v3 cen = { a.x + b.x + c.x, a.y + b.y + c.y, a.z + b.z + c.z };
-        if (v_dot(n, cen) <= 0) return 7;
+    if (!absf_lt(k3d_sinf(0.0f), 0.0f, 1e-6f)) return 1;
+    if (!absf_lt(k3d_sinf(3.14159265f / 6.0f), 0.5f, 2e-6f)) return 2;
+    if (!absf_lt(k3d_cosf(3.14159265f / 3.0f), 0.5f, 2e-6f)) return 3;
+    if (!absf_lt(k3d_cosf(3.14159265f), -1.0f, 2e-6f)) return 4;
+    if (!absf_lt(k3d_sinf(4.0f), -0.7568025f, 3e-6f)) return 5;
+    if (!absf_lt(k3d_cosf(-2.5f), -0.8011436f, 3e-6f)) return 6;
+    /* 2. обход всех граней: лицевая сторона (против часовой для камеры) смотрит наружу, т.е. (b-a)x(c-a) направлено внутрь фигуры */
+    mesh_t* ms[3] = { &m_cube, &m_oct, &m_sphere };
+    for (int k = 0; k < 3; k++) {
+        int degenerate = 0;
+        for (u32 i = 0; i < ms[k]->ni; i += 3) {
+            v3 a = mesh_pos(&ms[k]->v[ms[k]->i[i]]), b = mesh_pos(&ms[k]->v[ms[k]->i[i + 1]]), c = mesh_pos(&ms[k]->v[ms[k]->i[i + 2]]);
+            v3 cr = v_cross(v_sub(b, a), v_sub(c, a)), cen = { a.x + b.x + c.x, a.y + b.y + c.y, a.z + b.z + c.z };
+            if (v_dot(cr, cr) < 1e-12f) { degenerate++; continue; }
+            if (v_dot(cr, cen) >= 0) return 7 + k;
+        }
+        if (degenerate > 2 * SPH_S) return 10;
     }
-    for (int i = 0; i < 8; i++) {
-        v3 a = oct_v[oct_t[i].a], b = oct_v[oct_t[i].b], c = oct_v[oct_t[i].c];
-        v3 n = v_cross(v_sub(b, a), v_sub(c, a));
-        v3 cen = { a.x + b.x + c.x, a.y + b.y + c.y, a.z + b.z + c.z };
-        if (v_dot(n, cen) <= 0) return 8;
+    /* 3. растеризация и буфер глубины на движке 40x40 (память - статический массив): половина квадрата 16x16 = 128 пикселей */
+    k3d_config_t cfg; k3d_config_default(&cfg, ST_W, ST_H, 2); k3d_kira_sys(&cfg.sys); cfg.par_min_cost = 0;
+    cfg.max_tris = 32; cfg.max_bins = 64; cfg.max_states = 8; cfg.max_verts = 64; cfg.res_bytes = 4096; cfg.stack_bytes = 8192;
+    u64 need = k3d_mem_size(&cfg);
+    if (!need || need > sizeof st_arena) return 11;
+    static u32 pix[ST_W * ST_H], pix2[ST_W * ST_H];
+    int rc = 0, cnt = 0;
+    for (int pass = 0; pass < 2 && !rc; pass++) {                    /* pass 0: без помощников, pass 1: два помощника - кадр обязан совпасть */
+        cfg.workers = pass ? 2 : 0;
+        k3d_ctx* c = k3d_create(&cfg, st_arena, sizeof st_arena);
+        if (!c) { rc = 12; break; }
+        if (pass && k3d_workers(c) != 2) rc = 13;
+        k3d_vertex_t v[12]; k3d_u16 idx[12] = {0,1,2, 3,4,5, 6,7,8, 9,10,11};
+        st_tri(v, 16.0f, 0.5f, 0x111111, 0); st_tri(v + 3, 16.0f, 0.8f, 0x222222, 0); st_tri(v + 6, 16.0f, 0.2f, 0x333333, 0); st_tri(v + 9, 16.0f, 0.5f, 0x444444, 1);
+        if (k3d_vbuf_create(c, v, 12) < 0 || k3d_ibuf_create(c, idx, 12) < 0) rc = 14;
+        u32* out = pass ? pix2 : pix;
+        k3d_u32 w[64]; k3d_cmdbuf_t cb;
+        for (int step = 0; step < 4 && !rc; step++) {
+            /* шаг 0: треугольник; шаг 1: дальше - не перекрывает; шаг 2: ближе - перекрывает; шаг 3: другой обход без отбраковки - то же покрытие */
+            k3d_cb_init(&cb, w, 64);
+            if (step == 0 || step == 3) k3d_cb_clear(&cb, 0, 0, 1.0f);
+            k3d_cb_state(&cb, K3D_CULL_NONE | K3D_DEPTH_TEST | K3D_DEPTH_WRITE, 0xFFFFFFFF);
+            k3d_cb_bind(&cb, K3D_BIND_VERTEX, 0); k3d_cb_bind(&cb, K3D_BIND_INDEX, 0);
+            k3d_cb_draw(&cb, (u32)step * 3, 3, 0);
+            if (k3d_submit(c, w, cb.n, out, ST_W)) { rc = 15; break; }
+            int n0 = 0, n1 = 0, n2 = 0, n3 = 0;
+            for (int i = 0; i < ST_W * ST_H; i++) { u32 p = out[i]; n0 += p == 0x111111; n1 += p == 0x222222; n2 += p == 0x333333; n3 += p == 0x444444; }
+            if (step == 0) { cnt = n0; if (cnt < 120 || cnt > 136) rc = 16; }
+            if (step == 1 && n1 != 0) rc = 17;                                 /* дальше (глубина больше) - не перекрыл */
+            if (step == 2 && n2 != cnt) rc = 18;                               /* ближе - перекрыл всё */
+            if (step == 3 && n3 != cnt) rc = 19;                               /* обратный обход - то же покрытие */
+        }
+        if (!rc) {
+            /* 4. текстура и свет: 2x2 текстура на экранном квадрате; билинейно в центре - средний цвет четырёх текселей */
+            k3d_u32 t2[4] = { 0xFF000000, 0xFFFFFFFF, 0xFFFFFFFF, 0xFF000000 };
+            k3d_vertex_t q[4]; k3d_u16 qi[6] = { 0, 2, 1, 0, 3, 2 };
+            for (int i = 0; i < 4; i++) {
+                q[i].x = (i == 1 || i == 2) ? 1.0f : -1.0f; q[i].y = i >= 2 ? -1.0f : 1.0f; q[i].z = 0.5f; q[i].nx = q[i].ny = 0.0f; q[i].nz = -1.0f;
+                q[i].u = (i == 1 || i == 2) ? 1.0f : 0.0f; q[i].v = i >= 2 ? 1.0f : 0.0f; q[i].color = 0xFFFFFFFF;
+            }
+            k3d_res_reset(c);
+            if (k3d_vbuf_create(c, q, 4) < 0 || k3d_ibuf_create(c, qi, 6) < 0 || k3d_tex_create(c, 2, 2, t2, 0) < 0) { rc = 20; }
+            else {
+                k3d_cb_init(&cb, w, 64);
+                float ld[3] = {0, 0, -1}, lc[3] = {0.5f, 0.5f, 0.5f}, la[3] = {0.5f, 0.5f, 0.5f};
+                k3d_cb_clear(&cb, 0, 0, 1.0f); k3d_cb_light(&cb, ld, lc, la);
+                k3d_cb_state(&cb, K3D_CULL_NONE | K3D_TEXTURE | K3D_FILTER_BILINEAR | K3D_LIGHT_PIXEL, 0xFFFFFFFF);
+                k3d_cb_bind(&cb, K3D_BIND_VERTEX, 0); k3d_cb_bind(&cb, K3D_BIND_INDEX, 0); k3d_cb_bind(&cb, K3D_BIND_TEXTURE, 0); k3d_cb_draw(&cb, 0, 6, 0);
+                if (k3d_submit(c, w, cb.n, out, ST_W)) rc = 21;
+                else {
+                    u32 mid = out[(ST_H / 2) * ST_W + ST_W / 2] & 255;         /* (0 + 255 + 255 + 0) / 4 = 127.5, свет 0.5 + 0.5 * 1 = 1 */
+                    if (mid < 124 || mid > 131) rc = 22;
+                }
+            }
+        }
+        k3d_destroy(c);
     }
-    /* 3. растеризация и z-тест на буфере 16x16 (на стеке) */
-    u32 pix[16 * 16], zb[16 * 16];
-    surf_t s = { pix, 16, 16, 16 };
-    u32* saved_z = zbuf; int saved_w = zw, saved_h = zh;
-    u32 sp = stat_px, st = stat_tris;
-    zbuf = zb; zw = 16; zh = 16;
-    for (int i = 0; i < 256; i++) { pix[i] = 0; zb[i] = 0xFFFFFFFFu; }
-    sv_t a = {0, 0, 0.5f}, b = {16, 0, 0.5f}, c = {0, 16, 0.5f};
-    raster_tri(&s, a, b, c, 0x111111);
-    int cnt = 0; for (int i = 0; i < 256; i++) if (pix[i]) cnt++;
-    int rc = 0;
-    if (cnt < 120 || cnt > 136) rc = 9;                         /* половина квадрата 16x16 = 128 */
-    sv_t a2 = {0, 0, 0.8f}, b2 = {16, 0, 0.8f}, c2 = {0, 16, 0.8f}; /* дальше (больше d) - не должен перекрыть */
-    raster_tri(&s, a2, b2, c2, 0x222222);
-    for (int i = 0; i < 256; i++) if (pix[i] == 0x222222) rc = rc ? rc : 10;
-    sv_t a3 = {0, 0, 0.2f}, b3 = {16, 0, 0.2f}, c3 = {0, 16, 0.2f}; /* ближе - перекрывает */
-    raster_tri(&s, a3, b3, c3, 0x333333);
-    int near_cnt = 0; for (int i = 0; i < 256; i++) if (pix[i] == 0x333333) near_cnt++;
-    if (near_cnt != cnt) rc = rc ? rc : 11;
-    /* обратный обход даёт то же самое */
-    for (int i = 0; i < 256; i++) { pix[i] = 0; zb[i] = 0xFFFFFFFFu; }
-    raster_tri(&s, a, c, b, 0x444444);
-    int cnt2 = 0; for (int i = 0; i < 256; i++) if (pix[i] == 0x444444) cnt2++;
-    if (cnt2 != cnt) rc = rc ? rc : 12;
-    zbuf = saved_z; zw = saved_w; zh = saved_h; stat_px = sp; stat_tris = st;
+    if (!rc && st_hash(pix, ST_W * ST_H) != st_hash(pix2, ST_W * ST_H)) rc = 23;   /* помощники дают тот же кадр, что и без них */
     return rc;
 }
 
@@ -322,16 +331,77 @@ static void say_u(u64 v) {
     k_write(o, (u64)i);
 }
 
+/* Память движка из кучи программы; пробует профили от большого к малому (на машине с малой ОЗУ квота кучи - 1 МБ). */
+static void* grab_arena(int workers, u64* bytes_out) {
+    static const u32 tris[3] = { 4096, 2048, 1024 }, res[3] = { 1u << 20, 768u << 10, 512u << 10 };
+    for (int p = 0; p < 3; p++) {
+        k3d_config_t cfg; k3d_config_default(&cfg, W, H, workers); k3d_kira_sys(&cfg.sys);
+        cfg.max_tris = tris[p]; cfg.res_bytes = res[p];
+        u64 need = k3d_mem_size(&cfg);
+        if (!need) return 0;
+        u64 pages = (need + 4095) / 4096;
+        void* m = k_heap_grow(pages);
+        if (m) { *bytes_out = pages * 4096; cfg_tris = tris[p]; cfg_res = res[p]; return m; }
+    }
+    return 0;
+}
+
+static int parse_workers(const char* a, int def) {
+    for (; *a; a++) if (a[0] == 't' && a[1] == 'h' && a[2] == 'r' && a[3] == 'e' && a[4] == 'a' && a[5] == 'd' && a[6] == 's' && a[7] == '=' ) {
+        int v = 0; const char* p = a + 8;
+        if (*p < '0' || *p > '9') return def;
+        while (*p >= '0' && *p <= '9' && v < 100) v = v * 10 + (*p++ - '0');
+        return v > K3D_MAX_WORKERS ? K3D_MAX_WORKERS : v;
+    }
+    return def;
+}
+static int has_word(const char* a, const char* w) {
+    u64 n = k_strlen(w);
+    for (; *a; a++) if (a[0] == w[0]) { u64 i = 0; while (i < n && a[i] == w[i]) i++; if (i == n && (a[n] == 0 || a[n] == ' ')) return 1; }
+    return 0;
+}
+
+/* Замер без пауз: фиксированная анимация, N кадров на каждое число помощников. Печатает кадры/с и время фаз. */
+static int run_bench(u32* px, void* arena, u64 bytes, int workers) {
+    int configs[2] = { 0, workers }, ncfg = workers > 0 ? 2 : 1;
+    u64 per[2] = { 0, 0 };
+    for (int k = 0; k < ncfg; k++) {
+        if (scene_init(arena, bytes, W, H, configs[k]) != 0) { say("cube3d: bench: cannot start the engine\n"); return 1; }
+        surf_t s = { px, W, H, W };
+        for (int i = 0; i < 4; i++) render_scene(&s, (u64)i * 16666667ULL);            /* прогрев */
+        sc.ns_geom = sc.ns_raster = 0;
+        enum { N = 60 };
+        u64 t0 = k_clock_ns(), tris = 0, pxw = 0;
+        for (int i = 0; i < N; i++) { render_scene(&s, (u64)(i + 4) * 16666667ULL); tris += sc.last.tris_drawn; pxw += sc.last.px_written; }
+        u64 dt = k_clock_ns() - t0;
+        per[k] = dt / N;
+        say("cube3d: bench helpers="); say_u((u64)k3d_workers(sc.c)); say(": "); say_u(N); say(" frames, ");
+        say_u(dt ? (u64)N * 1000000000ULL / dt : 0); say(" fps, "); say_u(per[k] / 1000); say(" us/frame (geometry "); say_u(sc.ns_geom / N / 1000);
+        say(" us, tiles "); say_u(sc.ns_raster / N / 1000); say(" us), "); say_u(tris / N); say(" triangles, "); say_u(pxw / N); say(" px written per frame, ");
+        say_u(pxw ? dt / pxw : 0); say(" ns/px, "); say_u(tris ? dt / tris : 0); say(" ns/triangle\n");
+        scene_close();
+    }
+    if (ncfg == 2 && per[1]) { say("cube3d: bench speedup x"); say_u(per[0] * 100 / per[1] / 100); say("."); say_u(per[0] * 100 / per[1] % 100 / 10); say_u(per[0] * 100 / per[1] % 10); say("\n"); }
+    return 0;
+}
+
 int umain(void) {
+    char args[96]; args[0] = 0;
+    i64 al = k_args(args, sizeof args - 1);
+    if (al > 0) args[al] = 0; else args[0] = 0;
+    int workers = parse_workers(args, DEFAULT_WORKERS), bench = has_word(args, "bench");
+
     int rc = selftest();
     if (rc) { say("cube3d: selftest FAILED, check #"); say_u((u64)rc); say("\n"); return 1; }
-    say("cube3d: selftest PASS (trig, face winding, rasterizer, z-test)\n");
+    say("cube3d: selftest PASS (trig, face winding, rasterizer, z-test, texture, light, helper threads)\n");
 
     u32* px = k_gfx_create(W, H);
     if (!px) { say("cube3d: cannot create window\n"); return 1; }
-    u32* z = (u32*)k_heap_grow((W * H * 4 + 4095) / 4096);       /* z-буфер: 95 страниц кучи */
-    if (!z || scene_init(z, W, H) != 0) { say("cube3d: cannot allocate the z-buffer\n"); return 1; }
-    say("cube3d: software renderer running; close the window or press q to exit\n");
+    u64 bytes = 0;
+    void* arena = grab_arena(workers, &bytes);                                         /* буфер глубины, треугольники, ресурсы, стеки помощников */
+    if (!arena || scene_init(arena, bytes, W, H, workers) != 0) { say("cube3d: cannot allocate the z-buffer and engine memory\n"); return 1; }
+    say("cube3d: k3d engine running, "); say_u((u64)k3d_workers(sc.c)); say(" helper threads + main; close the window or press q to exit\n");
+    if (bench) { scene_close(); return run_bench(px, arena, bytes, workers); }
 
     surf_t s = { px, W, H, W };
     u64 t0 = k_ticks(), frames = 0;
@@ -351,7 +421,10 @@ int umain(void) {
     }
     u64 dt = k_ticks() - t0;
     say("cube3d: "); say_u(frames); say(" frames, ");
-    say_u(dt ? frames * 100 / dt : 0); say(" fps average, last frame "); say_u(stats.tris_drawn);
-    say(" triangles, "); say_u(stats.pixels_written); say(" px shaded\n");
+    say_u(dt ? frames * 100 / dt : 0); say(" fps average, last frame "); say_u(sc.last.tris_drawn);
+    say(" triangles, "); say_u(sc.last.px_written); say(" px shaded");
+    if (frames) { say(" (average geometry "); say_u(sc.ns_geom / frames / 1000); say(" us, tiles "); say_u(sc.ns_raster / frames / 1000); say(" us per frame)"); }
+    say("\n");
+    scene_close();
     return 0;
 }
