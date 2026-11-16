@@ -979,11 +979,7 @@ static void update_hover(void) {
         damage_hover_item(side_hover, side_hover_desk);                       /* и новый */
     }
     int th = fs >= 0 ? -1 : tab_hit(cx, cy);
-    if (th != tab_hover) {
-        if (tab_hover >= 0 && tab_hover < tab_n) damage(tab_x(tab_hover) - 4, 2, tab_x(tab_hover) + tab_w(tab_hover) + 4, 7 + TAB_H + 6);
-        tab_hover = th;
-        if (th >= 0) damage(tab_x(th) - 4, 2, tab_x(th) + tab_w(th) + 4, 7 + TAB_H + 6);
-    }
+    if (th != tab_hover) { tab_hover = th; damage_top(); }
     int lh = -1;
     if (fs < 0 && cy >= WM_TOP_H) {
         int id = hit_window(cx, cy);
