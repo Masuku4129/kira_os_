@@ -52,6 +52,8 @@ void aml_set_limits(aml_ctx_t* c, uint32_t steps, uint32_t td, uint32_t md, uint
     if (sl) c->max_sleep = sl;
 }
 
+void aml_set_stack_floor(aml_ctx_t* c, const void* floor) { c->stack_floor = (uintptr_t)floor; }
+
 void aml_set_os(aml_ctx_t* c, const char* os, uint32_t rev) {
     static const uint8_t s_os[4] = { '_', 'O', 'S', '_' }, s_rev[4] = { '_', 'R', 'E', 'V' };
     c->os = os; c->rev = rev;
@@ -607,6 +609,7 @@ int a_call_node(aml_ctx_t* c, aml_node_t* n, const aml_val_t* args, unsigned arg
     if (argc != n->u.m.argc) return AML_E_ARGS;
     if (n->u.m.native) return a_native_call(c, n, args, argc, out);
     if (c->mdepth >= c->max_mdepth) return AML_E_DEPTH;
+    if (c->stack_floor && (uintptr_t)__builtin_frame_address(0) < c->stack_floor) return AML_E_DEPTH;
     size_t sz = sizeof(frame_t) + (AML_MAX_ARGS + AML_MAX_LOCALS) * sizeof(aml_val_t);
     frame_t* fr = (frame_t*)a_alloc(c, sz, 0);
     if (!fr) return AML_E_NOMEM;

@@ -14,6 +14,7 @@ static int is_name_lead(uint8_t b) { return (b >= 'A' && b <= 'Z') || b == '_' |
 int a_term(aml_ctx_t* c, frame_t* f, cur_t* cu, aml_val_t* out) {
     if (++c->steps > c->max_steps) return AML_E_STEPS;
     if (c->tdepth >= c->max_tdepth) return AML_E_DEPTH;
+    if (c->stack_floor && (uintptr_t)__builtin_frame_address(0) < c->stack_floor) return AML_E_DEPTH;
     c->tdepth++;
     mset(out, 0, sizeof *out);
     int r = term_in(c, f, cu, out);

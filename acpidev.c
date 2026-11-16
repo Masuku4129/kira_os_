@@ -43,7 +43,8 @@ static struct {
 /* ---------------- мелочи ---------------- */
 
 static void run_job(void (*fn)(void*), void* a) { if (S.runner) S.runner(fn, a); else fn(a); }
-void acpidev_set_runner(void (*run)(void (*fn)(void*), void* arg)) { S.runner = run; }
+static const void* g_floor;
+void acpidev_set_runner(void (*run)(void (*fn)(void*), void* arg), const void* stack_floor) { S.runner = run; g_floor = stack_floor; if (S.ctx) aml_set_stack_floor(S.ctx, stack_floor); }
 void acpidev_set_hook(void (*fn)(int, int, void*), void* user) { S.hook = fn; S.hook_user = user; }
 void acpidev_sci(void) { __atomic_store_n(&S.sci_flag, 1, __ATOMIC_RELEASE); }
 int  acpidev_sci_take(void) { return (int)__atomic_exchange_n(&S.sci_flag, 0, __ATOMIC_ACQ_REL); }
@@ -303,6 +304,7 @@ static void init_job(void* p) {
     aml_ops_t o = { w_rw, w_sleep, w_stall, w_timer, w_notify, w_log, 0 };
     S.ctx = aml_create(tp, size - (size_t)(tp - m), &o);
     if (!S.ctx) { IJ.rc = AML_E_NOMEM; return; }
+    aml_set_stack_floor(S.ctx, g_floor);
     int r = aml_load(S.ctx, dcopy, dlen);
     if (r) { IJ.rc = r; S.ctx = 0; return; }
     for (unsigned i = 0; i < ns; i++) (void)aml_load(S.ctx, scopy[i], slen[i]);    /* битая SSDT не должна лишать нас остальных */
@@ -322,7 +324,9 @@ static void init_job(void* p) {
 }
 
 int acpidev_init(void* mem, size_t size, const aml_ops_t* ops, const acpidev_hw_t* hw, const acpidev_tab_t* dsdt, const acpidev_tab_t* ssdt, unsigned nssdt) {
-    for (unsigned i = 0; i < sizeof S; i++) ((volatile uint8_t*)&S)[i] = 0;   /* повторная инициализация (тесты) - с чистого листа; runner и hook теряются, ставьте после */
+    void (*keep_run)(void (*)(void*), void*) = S.runner;
+    for (unsigned i = 0; i < sizeof S; i++) ((volatile uint8_t*)&S)[i] = 0;   /* повторная инициализация (тесты) - с чистого листа */
+    S.runner = keep_run;
     IJ.mem = mem; IJ.size = size; IJ.ops = ops; IJ.hw = hw; IJ.dsdt = dsdt; IJ.ssdt = ssdt; IJ.nssdt = nssdt; IJ.rc = 0;
     run_job(init_job, 0);
     if (IJ.rc == 0) acpidev_power_refresh();

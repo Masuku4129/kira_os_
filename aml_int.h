@@ -53,6 +53,7 @@ struct aml_ctx {
     uint32_t max_steps, max_tdepth, max_mdepth, max_sleep;
     uint32_t steps, tdepth, mdepth, slept, fdepth;
     const char* os; uint32_t rev;
+    uintptr_t stack_floor;
     uint32_t nodes, dups, load_errors, tables, steps_last;
 };
 

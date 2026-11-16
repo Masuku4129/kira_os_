@@ -28,8 +28,9 @@ size_t acpidev_arena_size(const acpidev_tab_t* dsdt, const acpidev_tab_t* ssdt, 
    0 - успех; иначе код aml (таблицы не загружены или DSDT не принята). ops.rw получает чтение/запись портов, памяти и PCI; EC модуль берёт на себя. */
 int  acpidev_init(void* mem, size_t size, const aml_ops_t* ops, const acpidev_hw_t* hw, const acpidev_tab_t* dsdt, const acpidev_tab_t* ssdt, unsigned nssdt);
 int  acpidev_ready(void);
-/* Все вызовы AML выполняются через этот запуск (ядро подставляет переход на отдельный стек); по умолчанию - прямой вызов. */
-void acpidev_set_runner(void (*run)(void (*fn)(void*), void* arg));
+/* Все вызовы AML выполняются через этот запуск (ядро подставляет переход на отдельный стек); по умолчанию - прямой вызов.
+   stack_floor - нижняя граница того стека (с запасом на мелкие функции): ниже интерпретатор отказывается углубляться (0 - без проверки). Ставить до acpidev_init. */
+void acpidev_set_runner(void (*run)(void (*fn)(void*), void* arg), const void* stack_floor);
 
 /* Режим контроллера прерываний для прошивки: \_PIC(0) - PIC, 1 - APIC (после настройки IOAPIC). */
 int  acpidev_pic_mode(int apic);

@@ -53,6 +53,8 @@ typedef enum { AML_N_SCOPE = 1, AML_N_DEVICE, AML_N_PROC, AML_N_THERMAL, AML_N_P
 /* Арена: mem/size - единственная память интерпретатора (выравнивание 16). Возврат 0 - арена слишком мала. */
 aml_ctx_t* aml_create(void* mem, size_t size, const aml_ops_t* ops);
 void aml_set_limits(aml_ctx_t* c, uint32_t max_steps, uint32_t max_tdepth, uint32_t max_mdepth, uint32_t max_sleep_ms);
+/* Нижняя граница стека, на котором идёт разбор: ниже неё интерпретатор возвращает AML_E_DEPTH, не рискуя переполнением. 0 - без проверки. */
+void aml_set_stack_floor(aml_ctx_t* c, const void* floor);
 void aml_set_os(aml_ctx_t* c, const char* os_name, uint32_t rev);    /* значение \_OS_ и \_REV (строка должна жить дольше) */
 /* Загрузить таблицу целиком (36-байтовый заголовок ACPI + AML): DSDT или SSDT. Байты должны оставаться на месте и не меняться. */
 int  aml_load(aml_ctx_t* c, const uint8_t* table, uint32_t len);
