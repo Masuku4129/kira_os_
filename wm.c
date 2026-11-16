@@ -1143,6 +1143,15 @@ static void draw_lights(surface_t* c, int x, int y, int hover) {
     }
 }
 
+/* Горизонтальный отрезок цвета с прозрачностью (как ui_blend по точкам, но целой строкой). */
+static void row_blend(surface_t* c, int x, int y, int n, uint32_t col, unsigned alpha) {
+    if (y < 0 || y >= c->h || alpha == 0) return;
+    int xa = x < 0 ? 0 : x, xb = x + n > c->w ? c->w : x + n;
+    if (xa >= xb) return;
+    if (alpha >= 255) gfx_hline(c, xa, y, xb - xa, col & 0x00FFFFFF);
+    else gfx_span_blend(&c->px[(long)y * c->pitch + xa], xb - xa, col, alpha + (alpha >> 7));
+}
+
 static void draw_panel(surface_t* c, int ox, int oy, int id) {
     const win_t* w = &win[id];
     int x = w->x + ox, y = w->y + oy, ow = outer_w(w), oh = outer_h(w);
@@ -1151,14 +1160,15 @@ static void draw_panel(surface_t* c, int ox, int oy, int id) {
     if (focused && !w->pinned) ui_glow(c, x, y, ow, oh, PANEL_R, WM_GLOW, accent, 150);
     /* Стеклянная рамка: заголовок и поля вокруг содержимого полупрозрачны, обои просвечивают; само содержимое непрозрачно. */
     unsigned glass = wp_rgb ? (focused ? 178u : 150u) : 255u;
-    ui_round_rect(c, x, y, ow, oh, PANEL_R, TH_PANEL1, glass);
+    /* Под содержимым (оно непрозрачное и рисуется последним) стекло смешивать незачем. */
+    ui_round_rect_hole(c, x, y, ow, oh, PANEL_R, TH_PANEL1, glass, x + WM_PAD, y + WM_HEAD, disp_w(w), disp_h(w));
     ui_round_rect(c, x, y, ow, WM_HEAD, PANEL_R, TH_PANEL0, glass);
     for (int j = PANEL_R; j < WM_HEAD; j++) {                                    /* мягкий градиент заголовка (с прозрачностью) */
         unsigned t = (unsigned)(j - PANEL_R) * 256u / (unsigned)(WM_HEAD - PANEL_R);
         uint32_t gc = ui_mix(focused ? TH_PANEL0 : ui_mix(TH_PANEL0, TH_PANEL1, 48), TH_PANEL1, t);
-        for (int i = 1; i < ow - 1; i++) ui_blend(c, x + i, y + j, gc, glass);
+        row_blend(c, x + 1, y + j, ow - 2, gc, glass);
     }
-    if (wp_rgb) for (int i = PANEL_R; i < ow - PANEL_R; i++) ui_blend(c, x + i, y + 1, 0x00FFFFFF, 34u); /* блик по верхней кромке стекла */
+    if (wp_rgb) row_blend(c, x + PANEL_R, y + 1, ow - 2 * PANEL_R, 0x00FFFFFF, 34u);  /* блик по верхней кромке стекла */
     for (int i = 0; i < ow - 2 * PANEL_R; i++) {                                 /* неоновая черта под заголовком: к краям гаснет */
         int e = i < (ow - 2 * PANEL_R) / 2 ? i : ow - 2 * PANEL_R - 1 - i;       /* расстояние до ближайшего края */
         unsigned fade = e >= 40 ? 256u : (unsigned)e * 256u / 40u;

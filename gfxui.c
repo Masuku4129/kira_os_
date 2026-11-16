@@ -29,78 +29,115 @@ uint32_t ui_mix(uint32_t a, uint32_t b, unsigned t) {
 void ui_blend(surface_t* s, int x, int y, uint32_t color, unsigned alpha) {
     if (x < 0 || y < 0 || x >= s->w || y >= s->h || alpha == 0) return;
     uint32_t* p = &s->px[(long)y * s->pitch + x];
-    *p = alpha >= 255 ? (color & 0x00FFFFFF) : ui_mix(*p, color, alpha + (alpha >> 7));
+    if (alpha >= 255) { *p = color & 0x00FFFFFF; return; }
+    gfx_span_blend(p, 1, color, alpha + (alpha >> 7));
 }
 
-/* Покрытие 0..16 пикселя (px,py) кругом радиуса r16 (1/16 px) с центром (cx16,cy16). */
-static int disc_cov(int px, int py, int cx16, int cy16, int r16) {
-    int dx = px * 16 + 8 - cx16, dy = py * 16 + 8 - cy16;
+/* Покрытие 0..16 четверти круга радиуса r (в пикселях): пиксель (i,j) - число пикселей от центра по x и y
+   (0 - ближайший к центру). Центр пикселя отстоит от центра круга на 16*i+8 и 16*j+8 (1/16 px). */
+static int disc16(int r, int i, int j) {
+    int dx = 16 * i + 8, dy = 16 * j + 8;
     int d = (int)isqrt64((uint64_t)((int64_t)dx * dx + (int64_t)dy * dy));
-    int c = r16 - d + 8;
+    int c = r * 16 - d + 8;
     return c < 0 ? 0 : (c > 16 ? 16 : c);
 }
 
-/* Покрытие скруглённым прямоугольником: внутри полосы, не затронутой углами, - 16. */
-static int rr_cov(int px, int py, int x, int y, int w, int h, int r) {
-    if (px < x || py < y || px >= x + w || py >= y + h) return 0;
-    if (r > w / 2) r = w / 2;
-    if (r > h / 2) r = h / 2;
-    int ccx, ccy;
-    if (px < x + r) ccx = x + r; else if (px >= x + w - r) ccx = x + w - r; else return 16;
-    if (py < y + r) ccy = y + r; else if (py >= y + h - r) ccy = y + h - r; else return 16;
-    return disc_cov(px, py, ccx * 16, ccy * 16, r * 16);
+/* Готовые маски углов для радиусов 1..CM_MAX: считаются один раз при первом обращении (корень - только здесь),
+   дальше рисование углов - чтение из таблицы. Параллельная сборка кадра может строить одну маску на двух ядрах
+   сразу: значения одинаковые, готовность выставляется после записи (release/acquire). */
+#define CM_MAX 48
+#define CM_OFF(r) ((r) * ((r) - 1) * (2 * (r) - 1) / 6)       /* сумма k*k для k < r */
+static uint8_t cm_pool[CM_OFF(CM_MAX + 1)];
+static uint8_t cm_ready[CM_MAX + 1];
+static const uint8_t* corner_mask(int r) {
+    if (r < 1 || r > CM_MAX) return 0;
+    uint8_t* m = cm_pool + CM_OFF(r);
+    if (!__atomic_load_n(&cm_ready[r], __ATOMIC_ACQUIRE)) {
+        for (int j = 0; j < r; j++) for (int i = 0; i < r; i++) m[j * r + i] = (uint8_t)disc16(r, i, j);
+        __atomic_store_n(&cm_ready[r], 1, __ATOMIC_RELEASE);
+    }
+    return m;
+}
+static inline int cov_at(const uint8_t* m, int r, int i, int j) { return m ? m[j * r + i] : disc16(r, i, j); }
+
+/* Отрезок строки py от xa до xb (не включая) в поверхности, без дыры [hx0,hx1) по x на строках [hy0,hy1). */
+static inline void rr_span(surface_t* s, int py, int xa, int xb, uint32_t color, unsigned alpha,
+                           int hx0, int hy0, int hx1, int hy1) {
+    if (xa < 0) xa = 0;
+    if (xb > s->w) xb = s->w;
+    if (xa >= xb) return;
+    if (py >= hy0 && py < hy1) {                              /* строка пересекает дыру: рисуем куски слева и справа */
+        if (xb > hx0 && xa < hx1) {
+            if (xa < hx0) rr_span(s, py, xa, hx0, color, alpha, 0, 0, 0, 0);
+            if (xb > hx1) rr_span(s, py, hx1, xb, color, alpha, 0, 0, 0, 0);
+            return;
+        }
+    }
+    uint32_t* row = &s->px[(long)py * s->pitch];
+    if (alpha >= 255) gfx_hline(s, xa, py, xb - xa, color & 0x00FFFFFF);
+    else gfx_span_blend(row + xa, xb - xa, color, alpha + (alpha >> 7));
 }
 
-void ui_round_rect(surface_t* s, int x, int y, int w, int h, int r, uint32_t color, unsigned alpha) {
-    if (w <= 0 || h <= 0) return;
+static void rr_fill(surface_t* s, int x, int y, int w, int h, int r, uint32_t color, unsigned alpha,
+                    int hx0, int hy0, int hx1, int hy1) {
+    if (w <= 0 || h <= 0 || alpha == 0) return;
     if (r > w / 2) r = w / 2;
     if (r > h / 2) r = h / 2;
+    if (r < 0) r = 0;
+    const uint8_t* m = corner_mask(r);
     int y0 = y < 0 ? 0 : y, y1 = y + h > s->h ? s->h : y + h;
-    int x0 = x < 0 ? 0 : x, x1 = x + w > s->w ? s->w : x + w;
     for (int py = y0; py < y1; py++) {
-        int in_corner = (py < y + r) || (py >= y + h - r);
-        int ia = x + r, ib = x + w - r;              /* прямой отрезок строки без влияния углов */
-        if (!in_corner) { ia = x; ib = x + w; }
-        for (int px = x0; px < x1; px++) {
-            if (px >= ia && px < ib) {
-                if (alpha >= 255) {                  /* быстрый путь: сплошная заливка отрезка */
-                    int e = ib < x1 ? ib : x1;
-                    uint32_t* row = &s->px[(long)py * s->pitch];
-                    for (; px < e; px++) row[px] = color & 0x00FFFFFF;
-                    px--;
-                    continue;
-                }
-                ui_blend(s, px, py, color, alpha);
-            } else {
-                int c = rr_cov(px, py, x, y, w, h, r);
-                if (c) ui_blend(s, px, py, color, (unsigned)c * alpha / 16);
-            }
+        int jr = -1;                                          /* строка угла: 0 - ближайшая к центру угла */
+        if (py < y + r) jr = y + r - 1 - py; else if (py >= y + h - r) jr = py - (y + h - r);
+        if (jr < 0) { rr_span(s, py, x, x + w, color, alpha, hx0, hy0, hx1, hy1); continue; }
+        rr_span(s, py, x + r, x + w - r, color, alpha, hx0, hy0, hx1, hy1);
+        for (int i = 0; i < r; i++) {
+            int c = cov_at(m, r, i, jr);
+            if (!c) continue;
+            unsigned a = (unsigned)c * alpha / 16;
+            int lx = x + r - 1 - i, rx = x + w - r + i;
+            if (!(py >= hy0 && py < hy1 && lx >= hx0 && lx < hx1)) ui_blend(s, lx, py, color, a);
+            if (!(py >= hy0 && py < hy1 && rx >= hx0 && rx < hx1)) ui_blend(s, rx, py, color, a);
         }
     }
 }
 
+void ui_round_rect(surface_t* s, int x, int y, int w, int h, int r, uint32_t color, unsigned alpha) {
+    rr_fill(s, x, y, w, h, r, color, alpha, 0, 0, 0, 0);
+}
+
+/* То же, но без дыры (hx,hy,hw,hh) - там всё равно будет непрозрачное содержимое окна, смешивать под ним незачем. */
+void ui_round_rect_hole(surface_t* s, int x, int y, int w, int h, int r, uint32_t color, unsigned alpha,
+                        int hx, int hy, int hw, int hh) {
+    rr_fill(s, x, y, w, h, r, color, alpha, hx, hy, hx + hw, hy + hh);
+}
+
+/* Контур 1 px скруглённого прямоугольника: на прямых участках - полоса, в углах - разность двух кругов
+   (радиуса r и r-1 с общим центром). Обходит только строки внутри поверхности. */
 void ui_round_frame(surface_t* s, int x, int y, int w, int h, int r, uint32_t color, unsigned alpha) {
-    if (w < 4 || h < 4) return;
+    if (w < 4 || h < 4 || alpha == 0) return;
     if (r > w / 2) r = w / 2;
     if (r > h / 2) r = h / 2;
-    for (int j = 0; j < h; j++) {
+    if (r < 0) r = 0;
+    const uint8_t* m = corner_mask(r);
+    const uint8_t* mi = r > 1 ? corner_mask(r - 1) : 0;
+    int j0 = y < 0 ? -y : 0, j1 = y + h > s->h ? s->h - y : h;
+    for (int j = j0; j < j1; j++) {
         int py = y + j;
-        if (py < 0 || py >= s->h) continue;
-        int edge_row = (j == 0 || j == h - 1);
-        for (int i = 0; i < w; i++) {
-            int px = x + i;
-            if (px < 0 || px >= s->w) continue;
-            int near_corner = (j < r || j >= h - r) && (i < r || i >= w - r);
-            int c;
-            if (near_corner) {
-                c = rr_cov(px, py, x, y, w, h, r) - rr_cov(px, py, x + 1, y + 1, w - 2, h - 2, r - 1);
-                if (c < 0) c = 0;
-            } else if (edge_row || i == 0 || i == w - 1) c = 16;
-            else {                                    /* внутренность строки пропускаем до правого угла */
-                i = (j < r || j >= h - r) ? w - r - 1 : w - 2;
-                continue;
-            }
-            if (c) ui_blend(s, px, py, color, (unsigned)c * alpha / 16);
+        int jr = -1;
+        if (j < r) jr = r - 1 - j; else if (j >= h - r) jr = j - (h - r);
+        if (j == 0 || j == h - 1) rr_span(s, py, x + r, x + w - r, color, alpha, 0, 0, 0, 0);
+        if (jr < 0) {
+            if (j != 0 && j != h - 1) { ui_blend(s, x, py, color, alpha); ui_blend(s, x + w - 1, py, color, alpha); }
+            continue;
+        }
+        for (int i = 0; i < r; i++) {
+            int c = cov_at(m, r, i, jr);
+            if (i < r - 1 && jr < r - 1) { c -= r > 1 ? cov_at(mi, r - 1, i, jr) : 0; if (c < 0) c = 0; }
+            if (!c) continue;
+            unsigned a = (unsigned)c * alpha / 16;
+            ui_blend(s, x + r - 1 - i, py, color, a);
+            ui_blend(s, x + w - r + i, py, color, a);
         }
     }
 }
