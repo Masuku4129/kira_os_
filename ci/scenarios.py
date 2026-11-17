@@ -658,6 +658,15 @@ ALL = [
        machine="q35", smp=4, mem="512M", extra=S3_Q35 + ["-nic", "user,model=e1000", "-device", "AC97,audiodev=a0"]),
     sc("sleep-s3-sb16", "сон S3: Sound Blaster 16 (ISA)", s3_steps(before=[S3_BEEP], after=[S3_BEEP], boot=[r"\[KIRA SB16\] Sound: Sound Blaster 16"]),
        smp=4, mem="512M", extra=["-global", "PIIX4_PM.disable_s3=0", "-global", "PIIX4_PM.disable_s4=1", "-nic", "user,model=e1000", "-device", "sb16,audiodev=a0"]),
+    sc("sleep-s3-virtio-iommu", "сон S3: virtio-rng, virtio-input, virtio-gpu и virtio-net под VT-d (q35): домены возвращаются, экран, ввод и сеть работают", s3_steps(
+        before=[{"cmd": "fb", "must": [r"\[PERIOD\] ms \d+ frames \d+"]}], after=[{"cmd": "fb", "must": [r"\[PERIOD\] ms \d+ frames \d+"]}],
+        boot=[r"\[KIRA IOMMU\] virtio-rng: enforcement check passed", r"\[KIRA GPU\] virtio-gpu: \d+x\d+ 2D scanout"], net=True),
+       smp=4, mem="1G", machine="q35", vga="none",
+       extra=S3_Q35 + ["-device", "intel-iommu,aw-bits=48", "-device", "virtio-rng-pci,disable-legacy=on,iommu_platform=on", "-device", "virtio-keyboard-pci,disable-legacy=on,iommu_platform=on",
+                       "-device", "virtio-gpu-pci,disable-legacy=on,iommu_platform=on", "-netdev", "user,id=n0", "-device", "virtio-net-pci,netdev=n0,disable-legacy=on,iommu_platform=on"]),
+    sc("tmp-a", "tmp", s3_steps(net=False), smp=4, mem="1G", machine="q35", vga="none", extra=S3_Q35 + ["-device", "intel-iommu,aw-bits=48", "-device", "virtio-gpu-pci,disable-legacy=on,iommu_platform=on"]),
+    sc("tmp-b", "tmp", s3_steps(net=False), smp=4, mem="1G", machine="q35", vga="none", extra=S3_Q35 + ["-device", "intel-iommu,aw-bits=48", "-device", "virtio-rng-pci,disable-legacy=on,iommu_platform=on", "-device", "virtio-keyboard-pci,disable-legacy=on,iommu_platform=on"]),
+    sc("tmp-c", "tmp", s3_steps(net=True), smp=4, mem="1G", machine="q35", extra=S3_Q35 + ["-device", "intel-iommu,aw-bits=48", "-netdev", "user,id=n0", "-device", "virtio-net-pci,netdev=n0,disable-legacy=on,iommu_platform=on"]),
     sc("power-reboot","перезагрузка на q35 (регистр сброса FADT / 0xCF9): система поднимается снова, файл, записанный до сброса, на месте", [
         {"log": BOOT_LOG},
         {"cmd": "write /reboot.txt kira-before-reboot"},
