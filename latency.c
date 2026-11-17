@@ -76,7 +76,7 @@ uint64_t lat_cycles_to_ns(uint64_t cycles, uint64_t mul) {
     return (uint64_t)(((unsigned __int128)cycles * mul) >> 32);
 }
 
-static const char* const kind_names[LAT_KINDS] = { "irq", "isr", "irqoff", "spin", "sched-normal", "sched-critical", "sched-realtime", "tick-part" };
+static const char* const kind_names[LAT_KINDS] = { "irq", "irq-idle", "isr", "irqoff", "spin", "sched-normal", "sched-critical", "sched-realtime", "tick-part" };
 const char* lat_kind_name(unsigned k) { return k < LAT_KINDS ? kind_names[k] : "?"; }
 int lat_kind_from_name(const char* n) {
     if (!n) return -1;

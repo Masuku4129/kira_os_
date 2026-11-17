@@ -25,7 +25,7 @@ static lat_set_t* ioff_set = &g;            /* куда пишутся секц�
 
 /* Пороги записи в чёрный ящик по умолчанию - только «явно неисправно» (границы-требования лежат в политике ci/latency_policy.json и ставятся
    командой latency limit). normal порога не имеет: ждать своей очереди в круговом разделении времени ему положено. */
-static const uint64_t default_limit_ns[LAT_KINDS] = { 10000000ULL, 10000000ULL, 10000000ULL, 10000000ULL, 0, 50000000ULL, 50000000ULL, 0 };
+static const uint64_t default_limit_ns[LAT_KINDS] = { 10000000ULL, 0, 10000000ULL, 10000000ULL, 10000000ULL, 0, 50000000ULL, 50000000ULL, 0 };
 
 static bb_gate_t gate[LAT_KINDS];
 
@@ -70,7 +70,7 @@ void lat_irq_entry(uint64_t rip) {
         if (n > 1) d = e + (n - 1) * per;                   /* первый непринятый срок - prev + per */
     }
     me->lat_fire_ns = fire ? fire : 1;
-    note(LAT_IRQ, d, rip);
+    note(me->current && me->current == me->idle ? LAT_IRQ_IDLE : LAT_IRQ, d, rip);
 }
 
 void lat_timer_restart(void) { this_cpu()->lat_fire_ns = 0; }
@@ -184,7 +184,7 @@ static uint64_t parse_num(const char* s, int* ok) {
 static void pk(const char* label, uint64_t v) { uart_print(" "); uart_print(label); uart_print("="); uart_print_dec(v); }
 
 static void print_site(unsigned kind, uint64_t site) {
-    if (kind == LAT_IRQOFF || kind == LAT_IRQ) { kptr_print(site); }
+    if (kind == LAT_IRQOFF || kind == LAT_IRQ || kind == LAT_IRQ_IDLE) { kptr_print(site); }
     else if (kind == LAT_SPIN) {
         if (site >> 32 == 1) { uart_print("замок планировщика №"); uart_print_dec(site & 0xFFFFFFFFu); }
         else { uart_print("замок "); kptr_print(site); }

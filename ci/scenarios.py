@@ -31,6 +31,21 @@ BASIC = [
 ]
 
 
+# Нагрузка сценария latency (А8): burn на всех ядрах, сеть, диск. Первые три шага - загрузка, замер секций, сброс гистограмм.
+# -icount: виртуальное время идёт по числу выполненных команд (1 нс на команду), а не по часам хозяина: простои виртуальных ядер из-за
+# хозяина (на стенде 2 настоящих ядра, чужие сборки) не попадают в измерение, и границы можно держать узкими. На настоящем железе - иначе.
+LATENCY_EXTRA = ["-icount", "shift=0,sleep=on"]
+LATENCY_LOAD = [
+    {"log": BOOT_LOG + [r"\[KIRA LAT\] latency histograms online"]},
+    {"cmd": "latency irqoff on", "must": [r"замер секций с выключенными прерываниями: включён"]},
+    {"cmd": "latency reset", "must": [r"гистограммы и счётчики превышений сброшены"]},
+    {"send": "burnall"},
+    *[{"cmd": "ping 10.0.2.2 3", "must": [r"получено [1-9]"], "timeout": 90} for _ in range(4)],
+    *[{"cmd": "write /lat%d.txt kira-latency-load-%d" % (i, i), "timeout": 60} for i in range(12)],
+    *[{"cmd": "cat /lat%d.txt" % i, "must": [r"kira-latency-load-%d" % i], "timeout": 60} for i in range(0, 12, 3)],
+    {"send": "burnall"}, {"sleep": 4},
+]
+
 def sc(name, about, steps, **kw):
     d = {"name": name, "about": about, "steps": steps}
     d.update(kw)
@@ -397,20 +412,16 @@ ALL = [
         {"sleep": 10}, {"cmd": "fb", "must": [r"\[PERIOD\] ms \d+ frames \d+"]},
         {"cmd": "ai", "must": [r"."]},
     ], smp=4, mem="512M"),
-    sc("latency", "время реакции под нагрузкой (А8): burn на всех ядрах + сеть + диск; гистограммы задержек прерывания, обработчика, критических секций и планировщика; максимумы не выше границ ci/latency_policy.json", [
-        {"log": BOOT_LOG + [r"\[KIRA LAT\] latency histograms online"]},
-        {"sleep": 4},
-        {"cmd": "latency irqoff on", "must": [r"замер секций с выключенными прерываниями: включён"]},
-        {"cmd": "latency reset", "must": [r"гистограммы и счётчики превышений сброшены"]},
-        {"send": "burnall"},
-        *[{"cmd": "ping 10.0.2.2 3", "must": [r"получено [1-9]"], "timeout": 60} for _ in range(4)],
-        *[{"cmd": "write /lat%d.txt kira-latency-load-%d" % (i, i), "timeout": 30} for i in range(12)],
-        *[{"cmd": "cat /lat%d.txt" % i, "must": [r"kira-latency-load-%d" % i], "timeout": 30} for i in range(0, 12, 3)],
-        {"send": "burnall"}, {"sleep": 4},
-        {"cmd": "ai", "timeout": 30},
-        {"cmd": "latency", "must": [r"\[LAT\] irq: n=[1-9]", r"\[LAT\] isr: n=[1-9]", r"\[LAT\] sched-critical:"], "timeout": 30},
+    sc("latency", "время реакции под нагрузкой (А8): burn на всех ядрах + сеть + диск; гистограммы задержек прерывания, обработчика, критических секций и планировщика; границы из ci/latency_policy.json (стенд: QEMU TCG, -icount: время считается по числу выполненных команд, шум хозяина исключён)", LATENCY_LOAD + [
+        {"latency_policy": "latency_policy.json", "timeout": 120},
         {"log_forbid": NO_ERR},
-    ], smp=2, mem="512M", extra=["-icount", "shift=0,sleep=on"]),
+    ], smp=2, mem="512M", extra=LATENCY_EXTRA),
+    sc("latency-mutation", "проверка границ мутацией (А8): в обработчик таймера вносится искусственная задержка (latency inject isr), проверка границ ОБЯЗАНА нарушиться; сценарий проходит, когда она нарушилась", LATENCY_LOAD[:3] + [
+        {"cmd": "latency inject isr 3000000", "must": [r"проверочная задержка обработчика таймера: 3000000 нс"]},
+    ] + LATENCY_LOAD[3:] + [
+        {"latency_policy": "latency_policy.json", "timeout": 120, "expect_fail": True},
+        {"log_forbid": NO_ERR},
+    ], smp=2, mem="512M", extra=LATENCY_EXTRA),
     sc("blackbox", "чёрный ящик: событие записывается (проверочная пауза 1,3 с), кольцо сбрасывается на диск само, переживает обрыв питания и выключение; прежний запуск читается как bb old, два файла по очереди", [
         {"log": BOOT_LOG + [r"\[KIRA BLACKBOX\] flight recorder online"]},
         {"sleep": 3},
