@@ -588,7 +588,11 @@ b = bytearray(open(d + "/audit.0000000001.log", "rb").read()); b[256 + 160 * 5 +
 open(d + "/mut_modify.log", "wb").write(b)
 b = bytearray(open(d + "/audit.0000000001.log", "rb").read()); del b[256 + 160 * 9: 256 + 160 * 10]      # удалена запись
 open(d + "/mut_delete.log", "wb").write(b)
-b = open(d + "/audit.log", "rb").read(); open(d + "/mut_trunc.log", "wb").write(b[:-3 * 160])         # отрезан хвост (свидетель audit.ckpt остался)
+import struct
+b = open(d + "/audit.log", "rb").read()
+first = struct.unpack_from("<Q", b, 16)[0]; last = first + (len(b) - 256) // 160 - 1                  # номера записей активного файла
+wit = struct.unpack_from("<Q", open(d + "/audit.ckpt", "rb").read(), 0)[0]                           # номер записи в файле-свидетеле
+open(d + "/mut_trunc.log", "wb").write(b[:len(b) - (last - wit + 1) * 160])                         # отрезан хвост вместе с записью свидетеля (подписанный хвост пропал)
 PYEOF
 if python3 -I tools/auditverify.py --pub $AD/pub.hex $AD/mut_modify.log $AD/audit.0000000257.log $AD/audit.log >/dev/null; then echo "FAIL: auditverify.py пропустил изменённую запись"; exit 1; fi
 if python3 -I tools/auditverify.py --pub $AD/pub.hex $AD/mut_delete.log $AD/audit.0000000257.log $AD/audit.log >/dev/null; then echo "FAIL: auditverify.py пропустил удалённую запись"; exit 1; fi
