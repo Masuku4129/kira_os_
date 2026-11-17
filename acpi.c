@@ -91,9 +91,10 @@ static int aml_int(const uint8_t* p, const uint8_t* e, uint32_t* v, const uint8_
     return -1;
 }
 
-int acpi_find_s5(const uint8_t* aml, uint32_t len, uint8_t* a, uint8_t* b) {
+int acpi_find_sx(const uint8_t* aml, uint32_t len, char state, uint8_t* a, uint8_t* b) {
+    if (state < '0' || state > '5') return -1;
     for (uint32_t i = 1; i + 8 < len; i++) {
-        if (aml[i] != '_' || aml[i + 1] != 'S' || aml[i + 2] != '5' || aml[i + 3] != '_') continue;
+        if (aml[i] != '_' || aml[i + 1] != 'S' || aml[i + 2] != (uint8_t)state || aml[i + 3] != '_') continue;
         /* имя объявлено: NameOp (0x08) перед именем, возможно с корнем '\\' */
         if (!(aml[i - 1] == 0x08 || (aml[i - 1] == '\\' && i >= 2 && aml[i - 2] == 0x08))) continue;
         const uint8_t* p = aml + i + 4; const uint8_t* e = aml + len;
@@ -111,6 +112,29 @@ int acpi_find_s5(const uint8_t* aml, uint32_t len, uint8_t* a, uint8_t* b) {
     return -1;
 }
 
+int acpi_find_s5(const uint8_t* aml, uint32_t len, uint8_t* a, uint8_t* b) { return acpi_find_sx(aml, len, '5', a, b); }
+
+uint16_t acpi_pm1_sleep_value(uint16_t old, uint8_t slp_typ) {
+    return (uint16_t)((old & ~(7u << 10)) | ((uint16_t)(slp_typ & 7) << 10) | (1u << 13));
+}
+
+int acpi_facs_parse(const uint8_t* p, uint32_t avail, acpi_facs_t* o) {
+    uint8_t* z = (uint8_t*)o; for (uint32_t i = 0; i < sizeof(*o); i++) z[i] = 0;
+    if (!p || avail < 24) return -1;
+    if (p[0] != 'F' || p[1] != 'A' || p[2] != 'C' || p[3] != 'S') return -2;
+    uint32_t len = rd32(p + 4);
+    if (len < 24 || len > avail) return -3;                    /* длина в таблице больше доступного или меньше обязательной части */
+    o->length = len;
+    o->hw_signature = rd32(p + 8);
+    o->wake32 = rd32(p + ACPI_FACS_WAKE32_OFF);
+    o->flags = rd32(p + 20);
+    if (len >= 32) o->wake64 = rd64(p + ACPI_FACS_WAKE64_OFF);
+    if (len >= 33) o->version = p[32];
+    if (len >= 40) o->ospm_flags = rd32(p + 36);
+    o->valid = 1;
+    return 0;
+}
+
 static void parse_fadt(const sdt_t* t, uint64_t max_phys, acpi_info_t* o) {
     const uint8_t* f = (const uint8_t*)t;
     uint32_t len = t->len;
@@ -122,6 +146,12 @@ static void parse_fadt(const sdt_t* t, uint64_t max_phys, acpi_info_t* o) {
     o->pm1a_evt = rd32(f + 56); o->pm1b_evt = rd32(f + 60); o->pm1_evt_len = f[88];
     o->gpe0_blk = rd32(f + 80); o->gpe1_blk = rd32(f + 84); o->gpe0_len = f[92]; o->gpe1_len = f[93]; o->gpe1_base = f[94];
     o->fadt_flags = flags;
+    o->pm1_cnt_len = f[89];
+    {   /* FACS: 64-битный адрес (X_FIRMWARE_CTRL, смещение 132, ACPI 2.0+) важнее 32-битного (смещение 36) */
+        uint64_t facs = rd32(f + 36);
+        if (len >= 140 && rd64(f + 132)) facs = rd64(f + 132);
+        o->facs_phys = facs;
+    }
     if (len >= 111 && f[8] >= 2 && (f[109] & 1)) o->legacy_isa = 1;   /* IAPC_BOOT_ARCH: LEGACY_DEVICES */
     if (len >= 129 && (flags & (1u << 10))) {                    /* RESET_REG_SUP */
         o->reset_space = f[116]; o->reset_addr = rd64(f + 120); o->reset_value = f[128];
@@ -135,6 +165,7 @@ static void parse_fadt(const sdt_t* t, uint64_t max_phys, acpi_info_t* o) {
     if (!(d = (const sdt_t*)reach(dsdt, dl, max_phys))) return;
     if (sum_ok(d, dl)) { o->dsdt_phys = dsdt; o->dsdt_len = dl; }
     if (acpi_find_s5((const uint8_t*)d + sizeof(sdt_t), dl - (uint32_t)sizeof(sdt_t), &o->slp_typa, &o->slp_typb) == 0) o->s5_valid = 1;
+    if (acpi_find_sx((const uint8_t*)d + sizeof(sdt_t), dl - (uint32_t)sizeof(sdt_t), '3', &o->slp_typa_s3, &o->slp_typb_s3) == 0) o->s3_valid = 1;
 }
 
 static void parse_table(uint64_t phys, uint64_t max_phys, acpi_info_t* o) {

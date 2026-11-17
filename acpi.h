@@ -33,6 +33,10 @@ typedef struct {
     uint8_t  acpi_enable;          /* значение для SMI_CMD: перейти в режим ACPI */
     int      s5_valid;             /* найден пакет \_S5: SLP_TYPa/b для выключения */
     uint8_t  slp_typa, slp_typb;
+    int      s3_valid;             /* найден пакет \_S3 (сон в ОЗУ): SLP_TYPa/b */
+    uint8_t  slp_typa_s3, slp_typb_s3;
+    uint64_t facs_phys;            /* FACS (адрес вектора пробуждения): X_FIRMWARE_CTRL, иначе FIRMWARE_CTRL; 0 - нет */
+    uint8_t  pm1_cnt_len;
     int      reset_valid;          /* регистр сброса FADT (ACPI 2.0+) */
     uint8_t  reset_space;          /* 0 - память, 1 - порт */
     uint64_t reset_addr;
@@ -52,6 +56,25 @@ typedef struct {
 
 /* Пакет \_S5 в байт-коде AML (чистая функция, тест на хосте): 0 - найден, в a и b - SLP_TYPa и SLP_TYPb. */
 int acpi_find_s5(const uint8_t* aml, uint32_t len, uint8_t* a, uint8_t* b);
+/* То же для любого состояния сна: state '0'..'5' - пакет \_S0 ... \_S5 (для S3 - '3'). */
+int acpi_find_sx(const uint8_t* aml, uint32_t len, char state, uint8_t* a, uint8_t* b);
+/* Значение для записи в PM1x_CNT при входе в сон: SLP_TYP в битах 10-12 и SLP_EN (бит 13). Остальные биты регистра (SCI_EN и др.) сохраняет вызывающий. */
+uint16_t acpi_pm1_sleep_value(uint16_t old, uint8_t slp_typ);
+
+/* FACS (Firmware ACPI Control Structure): здесь - только то, что нужно для сна. */
+typedef struct {
+    int      valid;
+    uint32_t length;
+    uint32_t hw_signature;
+    uint32_t wake32;               /* Firmware_Waking_Vector (смещение 12) */
+    uint32_t flags;                /* бит 0 - S4BIOS_F, бит 1 - 64BIT_WAKE_SUPPORTED_F */
+    uint64_t wake64;               /* X_Firmware_Waking_Vector (смещение 24; версия FACS >= 1) */
+    uint8_t  version;
+    uint32_t ospm_flags;           /* смещение 36 (версия >= 2) */
+} acpi_facs_t;
+#define ACPI_FACS_WAKE32_OFF 12
+#define ACPI_FACS_WAKE64_OFF 24
+int acpi_facs_parse(const uint8_t* p, uint32_t avail, acpi_facs_t* out);   /* 0 - таблица принята */
 
 /* Разбор по физическому адресу RSDP. Таблицы выше max_phys пропускаются (ещё не отображены). */
 int acpi_parse(uint64_t rsdp_phys, uint64_t max_phys, acpi_info_t* out);
