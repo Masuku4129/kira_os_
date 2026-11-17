@@ -995,7 +995,7 @@ void sched_set_affinity_self(cpumask_t m) {
 void sched_freeze(unsigned level, thread_t* owner) {
     freeze_owner = owner;
     __atomic_store_n(&freeze_level, level, __ATOMIC_RELEASE);
-    for (unsigned i = 0; i < percpu_count(); i++) smp_resched_cpu(i);    /* ядра выбирают поток заново: замороженные уступают */
+    for (unsigned i = 0; i < percpu_count(); i++) RESCHED_CPU(i);    /* ядра выбирают поток заново: замороженные уступают */
     this_cpu()->need_resched = 1;
 }
 
@@ -1013,7 +1013,7 @@ int sched_freeze_settled(void) {
 void sched_thaw(void) {
     __atomic_store_n(&freeze_level, 0, __ATOMIC_RELEASE);
     freeze_owner = 0;
-    for (unsigned i = 0; i < percpu_count(); i++) smp_resched_cpu(i);
+    for (unsigned i = 0; i < percpu_count(); i++) RESCHED_CPU(i);
 }
 
 unsigned sched_freeze_level(void) { return __atomic_load_n(&freeze_level, __ATOMIC_ACQUIRE); }
