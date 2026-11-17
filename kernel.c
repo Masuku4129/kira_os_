@@ -166,7 +166,8 @@ void kernel_main(unsigned long magic, unsigned long addr) {
     // Загрузчик (UEFI) мог положить Multiboot2-структуру выше 1 ГБ: переносим её в ядро
     // и сразу включаем раннюю консоль на экране, чтобы любой сбой дальше был виден.
     addr = mbinfo_relocate(magic, addr);
-    if (mbinfo_cmdline_has(addr, "kira.debug")) kptr_set_debug(1);   // политика kptr: настоящие адреса ядра в журнале только в режиме отладки
+    if (mbinfo_cmdline_has(addr, "kira.debug")) kptr_set_debug(1);
+    progs_set_signed_apps_flag(mbinfo_cmdline_has(addr, "kira.signedapps"));   // А3: подписанный манифест приложений и вне доверенной загрузки (в ней он обязателен всегда)   // политика kptr: настоящие адреса ядра в журнале только в режиме отладки
     kaslr_log();                     // образ мог быть перемещён ещё до первой строки ядра (arch/x86_64/kaslr_arch.c): итог и источник энтропии
     const void* bootinfo = 0;
     uint32_t bootinfo_size = 0;
@@ -242,6 +243,7 @@ void kernel_main(unsigned long magic, unsigned long addr) {
     proc_init(hw_get()->cpus, hw_get()->ram_kb);
     syscall_init();
     trustanchor_init();  // TPM: счётчик выпуска образа и якорь эпохи диска (А3); до монтирования тома, которое сверяет эпоху с якорем
+    progs_policy_report();   // как допускаются программы: подписанный манифест или встроенный SHA-256
     experience_init();   // опыт прошлых жизней: если есть диск, организм вспоминает
     fs_init();           // файловая система на том же диске (после хранилища опыта)
     life_init();         // журнал организма и профили программ в /var

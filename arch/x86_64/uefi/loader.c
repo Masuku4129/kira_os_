@@ -471,45 +471,25 @@ static void boot_log_nums(const char *a, uint64_t x, const char *b, uint64_t y, 
     boot_log(line);
 }
 
-/* Сверка выпуска со счётчиком. Возвращает EFI_SUCCESS (загрузка разрешена) или отказ через secure_refuse. */
+/* Сверка выпуска со счётчиком. Возвращает EFI_SUCCESS (загрузка разрешена) или отказ через secure_refuse. Порядок решения - rb_release_boot_check (rollback.c),
+   тот же код проверяют хост-тесты. */
 static EFI_STATUS release_counter_check(void)
 {
-    rb_release_in_t in;
-    rb_source_t src;
-    uint32_t rc = 0;
-    uint64_t value = 0;
-    int e, r;
+    rb_release_result_t res;
+    int r = rb_release_boot_check(g_tcg2 ? tcg2_xfer : NULL, NULL, g_image_version, KIRA_MIN_IMAGE_VERSION, KIRA_REQUIRE_TPM, &res);
 
-    SetMem(&in, sizeof(in), 0);
-    in.static_min = KIRA_MIN_IMAGE_VERSION;
-    in.require_tpm = KIRA_REQUIRE_TPM;
-    if (g_tcg2) {
-        e = tpm2_nv_counter_read(tcg2_xfer, NULL, KIRA_NV_RELEASE_COUNTER, &value, &rc);
-        if (e == TPM2_E_ABSENT) {
-            /* первое использование этого TPM: счётчик создаётся; значение 0 (ни разу не увеличен) - пол, равный нулю */
-            e = tpm2_nv_define(tcg2_xfer, NULL, KIRA_NV_RELEASE_COUNTER, TPM2_NV_ATTR_COUNTER, 8, &rc);
-            if (e == TPM2_OK) {
-                boot_log("rollback: TPM release counter created (first use of this TPM)");
-                e = TPM2_E_EMPTY;
-            }
-        }
-        if (e == TPM2_E_EMPTY) { value = 0; e = TPM2_OK; }
-        if (e == TPM2_OK) {
-            in.tpm_counter_ok = 1;
-            in.counter = value;
-        } else {
-            boot_log_rc("rollback: TPM release counter is not usable: ", tpm2_strerror(e));
-        }
-    }
-    r = rb_release_decide(g_image_version, &in, &src);
+    if (res.created)
+        boot_log("rollback: TPM release counter created (first use of this TPM)");
+    if (res.tpm_err)
+        boot_log_rc("rollback: TPM release counter is not usable: ", tpm2_strerror(res.tpm_err));
     if (r != RB_OK) {
         if (r == RB_E_ROLLBACK_TPM)
-            boot_log_nums("rollback: release ", g_image_version, " is older than the TPM counter ", value, " (rollback refused)");
+            boot_log_nums("rollback: release ", g_image_version, " is older than the TPM counter ", res.counter, " (rollback refused)");
         return secure_refuse("signed manifest KIRA.SIG", rb_release_strerror(r));
     }
-    if (src == RB_SRC_TPM_COUNTER) {
+    if (res.src == RB_SRC_TPM_COUNTER) {
         g_trust_flags |= KBI_TRUST_ROLLBACK_TPM;
-        boot_log_nums("rollback: release ", g_image_version, " is not older than the TPM counter ", value, " (the kernel raises the counter after a confirmed good boot)");
+        boot_log_nums("rollback: release ", g_image_version, " is not older than the TPM counter ", res.counter, " (the kernel raises the counter after a confirmed good boot)");
     } else {
         boot_log_nums("rollback: no TPM counter: only the embedded minimum release ", KIRA_MIN_IMAGE_VERSION,
                       " protects from rollback; release ", g_image_version, "");

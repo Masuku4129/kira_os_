@@ -10,6 +10,7 @@
 #include "kfs.h"
 #include "immune.h"
 #include "sysseal.h"
+#include "appman.c"     /* формат манифеста приложений подключается исходником: список файлов в десятке скриптов сборки kfstool не меняется */
 #include "zstd.h"
 #include <fcntl.h>
 #include <stdio.h>
@@ -127,7 +128,28 @@ int main(int argc, char** argv) {
         printf("};\n#define PROG_MANIFEST_COUNT %d\n", argc - 2);
         return 0;
     }
-    if (argc < 3) { fprintf(stderr, "использование: kfstool образ init|put|ls|cat ...  |  kfstool manifest файл...\n"); return 2; }
+    if (argc >= 5 && !strcmp(argv[1], "appman")) {      /* kfstool appman СЕРИЙНЫЙ_НОМЕР ВЫХОД.manifest ELF...: бинарный манифест приложений (appman.h) под подпись издателя */
+        unsigned n = (unsigned)(argc - 4);
+        if (n > APPMAN_MAX) { fprintf(stderr, "kfstool: слишком много программ для манифеста (%u > %u)\n", n, APPMAN_MAX); return 1; }
+        trust_entry_t* e = calloc(n, sizeof *e);
+        for (unsigned i = 0; i < n; i++) {
+            size_t sz; uint8_t* b = slurp(argv[4 + i], &sz);
+            const char* base = strrchr(argv[4 + i], '/'); base = base ? base + 1 : argv[4 + i];
+            char* name = calloc(1, strlen(base) + 1); strcpy(name, base);
+            char* dot = strrchr(name, '.'); if (dot && !strcmp(dot, ".elf")) *dot = 0;
+            e[i].name = name;
+            sha256(b, sz, (uint8_t*)e[i].sha);
+            free(b);
+        }
+        static uint8_t out[APPMAN_MAX_LEN];
+        size_t len = appman_build((uint32_t)strtoul(argv[2], 0, 10), e, n, out, sizeof out);
+        if (!len) { fprintf(stderr, "kfstool: манифест приложений не собрался (имя длиннее 23 символов или повтор)\n"); return 1; }
+        FILE* f = fopen(argv[3], "wb");
+        if (!f || fwrite(out, 1, len, f) != len || fclose(f)) { perror(argv[3]); return 1; }
+        printf("kfstool: манифест приложений: %u программ, %zu байт -> %s (подписать: tools/kdrvsign.py --domain apps)\n", n, len, argv[3]);
+        return 0;
+    }
+    if (argc < 3) { fprintf(stderr, "использование: kfstool образ init|put|ls|cat ...  |  kfstool manifest файл...  |  kfstool appman N ВЫХОД ELF...\n"); return 2; }
     const char* cmd = argv[2];
     if (!strcmp(cmd, "init")) { open_image(argv[1], 1); printf("kfstool: KiraFS готова\n"); return 0; }
     open_image(argv[1], 0);

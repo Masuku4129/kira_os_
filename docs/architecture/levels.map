@@ -99,6 +99,7 @@ kapi kstack.h
 4 kdrv_fmt.*
 4 kdrv_format.*
 4 immune.*
+4 appman.*   # подписанный манифест приложений: формат и политика допуска, подпись проверяет kdrv_apps_sig_check (А3)
 3 wx.*
 4 drivers/kdrv/kdrv_trust.*
 4 drivers/kdrv/kdrv_catalogue.*

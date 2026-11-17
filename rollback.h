@@ -12,6 +12,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include "tpm2.h"
 
 #define RB_MAX_RAISE 256u    /* предел увеличений счётчика за одну загрузку (каждое - запись в NV) */
 
@@ -41,6 +42,16 @@ int rb_release_decide(uint32_t image_version, const rb_release_in_t* in, rb_sour
 
 /* Сколько раз увеличить счётчик, чтобы пол стал равен выпуску (но не больше RB_MAX_RAISE); 0 - не нужно. Пол НИКОГДА не выше выпуска. */
 uint32_t rb_release_raise_steps(uint32_t image_version, uint64_t counter);
+
+/* Полный порядок загрузчика над TPM (общий код загрузчика и хост-тестов): прочитать счётчик (создать при первом использовании TPM), решить.
+   x == 0 - TPM нет. Результат: src - чем защищено, counter - значение (если читалось), created - счётчик создан сейчас, tpm_err - ошибка TPM2_E_*
+   при недоступном счётчике (0 - не было). Возвращает RB_OK или причину отказа; при отказе *out заполнен для сообщения. */
+typedef struct { rb_source_t src; uint64_t counter; int created; int tpm_err; } rb_release_result_t;
+int rb_release_boot_check(tpm2_xfer_t x, void* ctx, uint32_t image_version, uint32_t static_min, int require_tpm, rb_release_result_t* out);
+
+/* Подтверждение хорошей загрузки (ядро): поднять счётчик до выпуска, но не выше (rb_release_raise_steps). *after - значение после; 0 - успех,
+   иначе TPM2_E_* (счётчик остаётся не выше выпуска). Выпуск ниже счётчика счётчик не меняет и не понижает: понизить его нельзя. */
+int rb_release_commit(tpm2_xfer_t x, void* ctx, uint32_t image_version, uint64_t* after);
 
 /* Сообщения (английский ASCII: выводятся до шрифтов). */
 const char* rb_release_strerror(int rc);

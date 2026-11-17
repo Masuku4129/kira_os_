@@ -16,4 +16,8 @@ int  prog_run_local_image(const char* file, uint8_t* image, size_t size);   /* �
 void prog_poll(void);                   /* основной цикл ядра */
 void prog_list(void);                   /* /bin с вердиктом доверия */
 
+/* Политика допуска (А3, appman.h): строка ядра kira.signedapps включает проверку подписанного манифеста и в режиме разработки; в доверенной загрузке она включена всегда. */
+void progs_set_signed_apps_flag(int on);
+void progs_policy_report(void);   /* строка [KIRA APPS] policy: ... в журнал загрузки */
+
 #endif

@@ -57,3 +57,41 @@ int rb_anchor_decode(const uint8_t in[RB_ANCHOR_LEN], uint64_t* epoch) {
     *epoch = v;
     return RB_OK;
 }
+
+int rb_release_boot_check(tpm2_xfer_t x, void* ctx, uint32_t image_version, uint32_t static_min, int require_tpm, rb_release_result_t* out) {
+    rb_release_in_t in;
+    uint32_t rc = 0;
+    uint64_t value = 0;
+    if (!out) return RB_E_ARGS;
+    out->src = RB_SRC_STATIC_MIN; out->counter = 0; out->created = 0; out->tpm_err = 0;
+    in.tpm_counter_ok = 0; in.counter = 0; in.static_min = static_min; in.require_tpm = require_tpm;
+    if (x) {
+        int e = tpm2_nv_counter_read(x, ctx, KIRA_NV_RELEASE_COUNTER, &value, &rc);
+        if (e == TPM2_E_ABSENT) {
+            /* первое использование этого TPM: счётчик создаётся; «определён, но ни разу не увеличен» читается как пол 0 */
+            e = tpm2_nv_define(x, ctx, KIRA_NV_RELEASE_COUNTER, TPM2_NV_ATTR_COUNTER, 8, &rc);
+            if (e == TPM2_OK) { out->created = 1; e = TPM2_E_EMPTY; }
+        }
+        if (e == TPM2_E_EMPTY) { value = 0; e = TPM2_OK; }
+        if (e == TPM2_OK) { in.tpm_counter_ok = 1; in.counter = value; out->counter = value; }
+        else out->tpm_err = e;
+    }
+    return rb_release_decide(image_version, &in, &out->src);
+}
+
+int rb_release_commit(tpm2_xfer_t x, void* ctx, uint32_t image_version, uint64_t* after) {
+    uint32_t rc = 0;
+    uint64_t v = 0;
+    int e = tpm2_nv_counter_read(x, ctx, KIRA_NV_RELEASE_COUNTER, &v, &rc);
+    if (e == TPM2_E_EMPTY) { v = 0; e = TPM2_OK; }
+    if (e != TPM2_OK) return e;
+    uint32_t steps = rb_release_raise_steps(image_version, v);
+    for (uint32_t i = 0; i < steps; i++) {
+        e = tpm2_nv_increment(x, ctx, KIRA_NV_RELEASE_COUNTER, &rc);
+        if (e != TPM2_OK) return e;
+    }
+    e = tpm2_nv_counter_read(x, ctx, KIRA_NV_RELEASE_COUNTER, &v, &rc);
+    if (e != TPM2_OK) return e;
+    if (after) *after = v;
+    return TPM2_OK;
+}

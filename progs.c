@@ -5,6 +5,8 @@
 #include "proc.h"
 #include "immune.h"
 #include "trust.h"
+#include "appman.h"
+#include "boottrust.h"
 #include "life.h"
 #include "fsrv.h"
 #include "uart.h"
@@ -37,6 +39,63 @@ static uint64_t image_cap(void) { return (uint64_t)pmm_get_free_memory_kb() * 10
 
 static void hex(const uint8_t* d, unsigned n) {
     for (unsigned i = 0; i < n; i++) { uart_putchar("0123456789abcdef"[d[i] >> 4]); uart_putchar("0123456789abcdef"[d[i] & 15]); }
+}
+
+
+/* ---- Допуск по подписанному манифесту приложений (А3, appman.h) ---------------------------------------------------------------------------
+   Режим выбирается один раз: доверенная загрузка (boottrust_is_trusted) ВСЕГДА требует подпись; в режиме разработки - только со строкой ядра
+   kira.signedapps (для проверки и для тех, кто хочет строгость без Secure Boot). Без неё - встроенный манифест SHA-256, как раньше. */
+static int signed_apps_dev_flag;
+void progs_set_signed_apps_flag(int on) { signed_apps_dev_flag = on ? 1 : 0; }
+static appman_mode_t apps_mode(void) { return appman_mode(boottrust_is_trusted(boottrust_get()), signed_apps_dev_flag); }
+
+void progs_policy_report(void) {
+    if (apps_mode() == APPMAN_SIGNED) {
+        uart_print("[KIRA APPS] policy: signed application manifest required (");
+        uart_print(boottrust_is_trusted(boottrust_get()) ? "trusted boot" : "kira.signedapps, development boot");
+        uart_print("): /bin programs run only if " APPMAN_PATH " carries a valid publisher signature (" APPMAN_SIG_PATH ")\n");
+    } else {
+        uart_print("[KIRA APPS] policy: development mode, programs are admitted by the SHA-256 manifest built into the kernel (signature not required)\n");
+    }
+}
+
+/* Загрузить и проверить подписанный манифест. 0 - манифест верен (в *out буфер, освобождает вызывающий, *len - длина), иначе причина в *why. */
+static int signed_manifest_load(uint8_t** out, size_t* len, const char** why) {
+    static char reason[80];
+    kfs_stat_t st;
+    *out = 0;
+    int r = kfs_stat(APPMAN_PATH, &st);
+    if (r) { *why = r == KFS_ERR_NOENT ? "signed manifest " APPMAN_PATH " is missing" : "cannot read the signed manifest"; return -1; }
+    if (st.type != KFS_FILE || st.size < APPMAN_HEADER + APPMAN_ENTRY || st.size > APPMAN_MAX_LEN) { *why = "signed manifest has a wrong size"; return -1; }
+    uint8_t* m = (uint8_t*)kmalloc((size_t)st.size);
+    if (!m) { *why = "no memory for the signed manifest"; return -1; }
+    if (kfs_read(APPMAN_PATH, 0, m, (size_t)st.size) != (int64_t)st.size) { kfree(m); *why = "cannot read the signed manifest"; return -1; }
+    int missing = 0;
+    int se = kdrv_apps_sig_check(m, (size_t)st.size, &missing);      /* подпись, часы, отзыв и срок ключа - при КАЖДОМ запуске: отзыв действует сразу */
+    if (se != 0) {
+        kfree(m);
+        unsigned k = 0; const char* pre = missing ? "signature file " APPMAN_SIG_PATH " is missing" : "manifest signature rejected: ";
+        for (; pre[k] && k < sizeof reason - 1; k++) reason[k] = pre[k];
+        if (!missing) { const char* e = kdrv_sig_strerror(se); for (unsigned q = 0; e[q] && k < sizeof reason - 1; q++) reason[k++] = e[q]; }
+        reason[k] = 0; *why = reason; return -1;
+    }
+    if (appman_parse(m, (size_t)st.size, 0, 0) != APPMAN_OK) { kfree(m); *why = "signed manifest has an invalid format"; return -1; }
+    *out = m; *len = (size_t)st.size;
+    return 0;
+}
+
+/* Вердикт по подписанному манифесту; при отказе подписи пишет причину и возвращает TRUST_UNKNOWN (программа не допускается). */
+static trust_verdict_t signed_manifest_verdict(const char* path, const char* name, const uint8_t digest[32], int* sig_failed) {
+    uint8_t* m; size_t ml; const char* why = "";
+    *sig_failed = 0;
+    if (signed_manifest_load(&m, &ml, &why) != 0) {
+        *sig_failed = 1;
+        uart_print("[PROG] "); uart_print(path); uart_print(": signed application manifest: "); uart_print(why); uart_print("; launch refused\n");
+        return TRUST_UNKNOWN;
+    }
+    trust_verdict_t t = appman_check(m, ml, name, digest);
+    kfree(m);
+    return t;
 }
 
 /* Допуск запуска: бюджет Разума (сколько экземпляров, сколько всего). 1 - можно. */
@@ -91,7 +150,9 @@ static int prog_run_ex(const char* name, const char* grant, const char* args) {
 
     uint8_t digest[32];
     sha256(image, (size_t)st.size, digest);
-    trust_verdict_t t = trust_check(PROG_MANIFEST, PROG_MANIFEST_COUNT, name, digest);
+    int sig_failed = 0;
+    trust_verdict_t t = apps_mode() == APPMAN_SIGNED ? signed_manifest_verdict(path, name, digest, &sig_failed)
+                                                      : trust_check(PROG_MANIFEST, PROG_MANIFEST_COUNT, name, digest);
     if (t == TRUST_UNKNOWN) {
         /* Не из манифеста, но с подписью издателя в /bin/ИМЯ.sig: запускается, как runlocal, без прав. Подмена программы из манифеста (TAMPERED) сюда не попадает. */
         int missing = 0;
@@ -107,7 +168,8 @@ static int prog_run_ex(const char* name, const char* grant, const char* args) {
     if (t != TRUST_OK) {
         immune_verdict_t v = immune_classify(image, (size_t)st.size);      /* заносит в карантин, запоминается в опыте */
         uart_print("[IMMUNE] "); uart_print(path);
-        uart_print(t == TRUST_TAMPERED ? ": содержимое не совпадает с манифестом сборки (подмена?)" : ": нет в манифесте сборки (чужая программа)");
+        uart_print(t == TRUST_TAMPERED ? ": содержимое не совпадает с манифестом (подмена?)" :
+                   sig_failed ? ": подписанный манифест не принят" : ": нет в манифесте (чужая программа)");
         uart_print(v == IMMUNE_HOSTILE ? ", сработало антитело" : "");
         uart_print(". Запуск отклонён, SHA-256 ");
         hex(digest, 8); uart_print("...\n");
@@ -277,7 +339,8 @@ void prog_list(void) {
         if (kfs_stat(path, &st) == 0 && st.size > 0 && st.size <= image_cap() && (image = (uint8_t*)kmalloc((size_t)st.size)) &&
             kfs_read(path, 0, image, (size_t)st.size) == (int64_t)st.size) {
             uint8_t d[32]; sha256(image, (size_t)st.size, d);
-            trust_verdict_t t = trust_check(PROG_MANIFEST, PROG_MANIFEST_COUNT, l.names[i], d);
+            int sf = 0;
+            trust_verdict_t t = apps_mode() == APPMAN_SIGNED ? signed_manifest_verdict(path, l.names[i], d, &sf) : trust_check(PROG_MANIFEST, PROG_MANIFEST_COUNT, l.names[i], d);
             verdict = t == TRUST_OK ? "доверенная" : t == TRUST_TAMPERED ? "ПОДМЕНЕНА" : "чужая (нет в манифесте)";
         }
         if (image) kfree(image);

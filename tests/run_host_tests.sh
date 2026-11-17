@@ -386,6 +386,22 @@ echo "== доверенная загрузка (А2): состояние Secure 
 $CC $FLAGS -fsanitize=address,undefined -o $T/boottrust tests/boottrust_test.c boottrust.c
 $T/boottrust
 
+echo "== защита от отката и подмены (А3): команды NV TPM 2.0 (tpm2.c) на модели TPM =="
+$CC $FLAGS -fsanitize=address,undefined -Itests -o $T/tpm2 tests/tpm2_test.c tpm2.c
+$T/tpm2
+echo "== А3: политика отката образа (счётчик в TPM, вшитый порог) и диска (якорь эпохи), «загрузки» подряд на модели TPM =="
+$CC $FLAGS -fsanitize=address,undefined -Itests -o $T/rollback tests/rollback_test.c rollback.c tpm2.c
+$T/rollback
+echo "== А3: команды tpm2.c на настоящем эмуляторе swtpm (если установлен) =="
+CC=$CC bash tests/tpm2_swtpm_test.sh
+echo "== А3: эпоха тома KiraFS, подмена диска старой копией, безопасный режим только чтения =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/kfsepoch tests/kfs_epoch_test.c kfs.c rollback.c tpm2.c sha256.c zstd.c store.c
+$T/kfsepoch
+echo "== А3: подписанный манифест приложений: подпись, подмена, отзыв и ротация ключей, домены, режим допуска =="
+CC=$CC bash tests/appman_test.sh
+echo "== А3: мутации (убрана проверка - соответствующий тест обязан упасть) =="
+CC=$CC bash tests/a3_mutation_test.sh
+
 echo "== KDRV anti-rollback (version floor, corrupt state, revoked key, clock rollback, key rotation) =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/kdrv_state tests/kdrv_state_test.c kdrv_state.c kdrv_sig.c kdrv_fmt.c pk.c crypto.c sha256.c
 $T/kdrv_state

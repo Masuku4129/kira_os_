@@ -95,16 +95,9 @@ void trustanchor_init(void) {
 
 static void raise_release_counter(void) {
     const boottrust_t* t = boottrust_get();
-    uint64_t v = 0; uint32_t rc = 0;
-    int e = tpm2_nv_counter_read(xfer, 0, KIRA_NV_RELEASE_COUNTER, &v, &rc);
-    if (e == TPM2_E_EMPTY) { v = 0; e = TPM2_OK; }
-    if (e != TPM2_OK) { uart_print("[KIRA BOOT] rollback: cannot read the release counter: "); uart_print(tpm2_strerror(e)); uart_print("\n"); return; }
-    uint32_t steps = rb_release_raise_steps(t->image_version, v);
-    for (uint32_t i = 0; i < steps; i++) {
-        e = tpm2_nv_increment(xfer, 0, KIRA_NV_RELEASE_COUNTER, &rc);
-        if (e != TPM2_OK) { uart_print("[KIRA BOOT] rollback: counter increment failed: "); uart_print(tpm2_strerror(e)); hexrc(rc); uart_print("\n"); return; }
-    }
-    if (tpm2_nv_counter_read(xfer, 0, KIRA_NV_RELEASE_COUNTER, &v, &rc) != TPM2_OK) return;
+    uint64_t v = 0;
+    int e = rb_release_commit(xfer, 0, t->image_version, &v);
+    if (e != TPM2_OK) { uart_print("[KIRA BOOT] rollback: cannot raise the release counter: "); uart_print(tpm2_strerror(e)); uart_print("\n"); return; }
     uart_print("[KIRA BOOT] rollback: good boot confirmed, TPM counter is now "); uart_print_dec(v);
     if (v > t->image_version) { uart_print(" (above release "); uart_print_dec(t->image_version); uart_print(": this TPM already had counters, releases below it will be refused)"); }
     else if (v < t->image_version) { uart_print(" (release "); uart_print_dec(t->image_version); uart_print(" needs more boots to reach the floor)"); }

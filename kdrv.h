@@ -20,6 +20,7 @@ int     kdrv_ctl_request(int op, const char* name);      /* fsrv.c: окно «�
 void    kdrv_cmd(const char* arg);                        /* консоль: drv [start ИМЯ [арг] | stop ИМЯ | rescan] */
 
 int kdrv_app_sig_check(const char* path, const void* image, size_t len, int* missing);
+int kdrv_apps_sig_check(const void* manifest, size_t len, int* missing);   /* подпись манифеста приложений /etc/apps.sig (appman.h) */
 int kdrv_seal_sig_check(const void* manifest, size_t len, int* missing);   /* подпись печати системы /etc/system.sig */
 
 #endif

@@ -251,6 +251,27 @@ int kdrv_app_sig_check(const char* path, const void* image, size_t len, int* mis
     return rc;
 }
 
+/* Подпись манифеста приложений: /etc/apps.sig рядом с /etc/apps.manifest (appman.h), домен APPS, тот же ключ издателя и то же состояние (часы, отзыв, срок ключа).
+   0 - верна, иначе KDRV_SIG_*; missing=1 - подписи нет. */
+int kdrv_apps_sig_check(const void* manifest, size_t len, int* missing) {
+    static const char spath[] = "/etc/apps.sig";
+    if (missing) *missing = 0;
+    kfs_stat_t ss; kdrv_sig_t sig;
+    int se = kfs_stat(spath, &ss);
+    if (se == KFS_ERR_NOENT) { if (missing) *missing = 1; return KDRV_SIG_E_MISSING; }
+    if (se != 0) return KDRV_SIG_E_IO;
+    if (ss.type != KFS_FILE || ss.size != sizeof sig) return KDRV_SIG_E_SIZE;
+    if (kfs_read(spath, 0, &sig, sizeof sig) != (int64_t)sizeof sig) return KDRV_SIG_E_IO;
+    rtc_time_t current;
+    int64_t now = rtc_now(0, &current) == 0 ? rtc_to_epoch(&current) : 0;
+    kmutex_lock(&state_mx);
+    state_load_locked();
+    int rc = kdrv_state_verify(&gst, KDRV_SIG_DOMAIN_APPS, manifest, len, &sig, sizeof sig, kdrv_trust_keys, KDRV_TRUST_KEY_COUNT, now);
+    (void)state_save_locked();
+    kmutex_unlock(&state_mx);
+    return rc;
+}
+
 /* Подпись печати системы: /etc/system.sig рядом с /etc/system.cbor, тот же ключ издателя и состояние, домен SEAL.
    Печать без подписи защищает от порчи, подписанная - ещё и от подмены всего образа. 0 - верна, иначе KDRV_SIG_*; missing=1 - подписи нет. */
 int kdrv_seal_sig_check(const void* manifest, size_t len, int* missing) {
