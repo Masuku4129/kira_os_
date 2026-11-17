@@ -1,3 +1,4 @@
+#include "auditev.h"
 #include "rtc.h"
 
 /* Дни от 1970-01-01 по григорианскому календарю (алгоритм Х. Хиннанта, целочисленный). */
@@ -105,9 +106,12 @@ int rtc_set_epoch(int64_t epoch, const char* source) {
         uart_print("[KIRA RTC] Real-time clock unreadable: date and time are not shown.\n");
         return -1;
     }
+    int64_t before = have ? boot_epoch + (int64_t)((clock_ns() - boot_ns) / 1000000000ULL) : 0;
     boot_epoch = epoch;
     boot_ns = clock_ns();
     have = 1;
+    audit_event(AUD_K_TIME, audit_cmd_source(), AUD_R_OK, 0, 0, (uint32_t)epoch, "clock", source);   /* смена времени: каждая установка (первая - при загрузке, остальные - NTP/команда) */
+    if (before && (epoch - before > 5 || before - epoch > 5)) { char d[40]; unsigned n = 0; const char* a = "step "; while (*a) d[n++] = *a++; int64_t df = epoch - before; if (df < 0) { d[n++] = '-'; df = -df; } char t[21]; unsigned k = 0; do { t[k++] = (char)('0' + df % 10); df /= 10; } while (df); while (k) d[n++] = t[--k]; a = " s"; while (*a) d[n++] = *a++; d[n] = 0; audit_event(AUD_K_TIME, audit_cmd_source(), AUD_R_OK, 0, 0, (uint32_t)epoch, "clock-step", d); }
     char d[48], hm[8];
     rtc_format_date(&t, d, sizeof d); rtc_format_hm(&t, hm, sizeof hm);
     uart_print("[KIRA RTC] Real-time clock ("); uart_print(source); uart_print("): "); uart_print(d); uart_print(" "); uart_print(hm); uart_print("\n");
@@ -145,6 +149,11 @@ int rtc_init(void) {
     return rtc_set_epoch(rtc_to_epoch(&t), "CMOS, read as UTC");
 }
 #endif
+
+int64_t rtc_now_epoch(void) {
+    if (!have) return 0;
+    return boot_epoch + (int64_t)((clock_ns() - boot_ns) / 1000000000ULL);
+}
 
 int rtc_now(int32_t tz_min, rtc_time_t* out) {
     if (!have) return -1;

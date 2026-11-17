@@ -4,6 +4,7 @@
    остальное - устройства без исполнения), каждое ядро получает свой тик и проверяется.
    Второй этап: поверх платформы работает общее ядро - менеджер страниц, куча, планировщик с очередями на каждом
    ядре, мьютексы ядра; межъядерные сигналы - SGI контроллера GIC. Файловые системы, Разум, программы - дальше. */
+#include "audit.h"
 #include "wx_arm.h"
 #include <stdint.h>
 #include "../../fdt.h"
@@ -34,6 +35,7 @@
 #include "immune.h"
 #include "watchdog.h"
 #include "clock.h"
+#include "latency.h"
 #include "proc.h"
 #include "wire.h"
 #include "syscall.h"
@@ -727,6 +729,16 @@ static unsigned my_cpu(void) {
 }
 static uint64_t now_cnt(void) { isb(); return SYSREG_R(cntvct_el0); }
 
+/* А8: задержка прерывания тика. Сроки не лежат на сетке (TVAL перезаряжается в обработчике), зато регистр сравнения CVAL ещё хранит срок,
+   который сработал: задержка - это счётчик минус CVAL. Возврат 2 = точный срок (сетку периодов ядро не додумывает). */
+int lat_arch_timer_elapsed_ns(uint64_t* elapsed_ns, uint64_t* period_ns) {
+    if (!cnt_freq || !tick_cycles) return 0;
+    uint64_t cval = SYSREG_R(cntv_cval_el0), now = now_cnt();
+    *elapsed_ns = now > cval ? (now - cval) * 1000000000ULL / cnt_freq : 0;
+    *period_ns = tick_cycles * 1000000000ULL / cnt_freq;
+    return 2;
+}
+
 static void timer_start(void) {
     SYSREG_W(cntv_tval_el0, tick_cycles);
     SYSREG_W(cntv_ctl_el0, 1);                                   /* ENABLE, прерывание не замаскировано */
@@ -923,11 +935,13 @@ void arm_exception(uint64_t* frame, uint64_t kind) {
         if (id >= 1020 && id <= 1023) return;                    /* ложное */
         percpu_t* c = percpu_up ? this_cpu() : 0;
         if (c) { c->irq_rip = frame[31]; c->irq_rbp = frame[29]; c->irq_depth++; }
+        uint64_t lat_t0 = rdtsc();
         if (id == timer_intid) {
+            if (c) lat_irq_entry(frame[31]);                     /* А8: до перезаряда таймера - CVAL ещё хранит сработавший срок */
             SYSREG_W(cntv_tval_el0, tick_cycles);
             cpus[c ? c->cpu_id : my_cpu()].ticks++;
             ticks_advance();
-            if (sched_up) { watchdog_check(); sched_tick(); }
+            if (sched_up) { lat_flush(); watchdog_check(); sched_tick(); }
         } else if (its && id >= LPI_BASE && id < LPI_BASE + __atomic_load_n(&lpi_used, __ATOMIC_ACQUIRE)) {
             unsigned i = id - LPI_BASE;                          /* сообщение устройства через ITS (LPI) */
             if (lpis[i].fn) lpis[i].fn(lpis[i].ctx);
@@ -941,6 +955,7 @@ void arm_exception(uint64_t* frame, uint64_t kind) {
             gic_eoi(iar);
             for (;;) __asm__ volatile ("msr daifset, #0xf\n wfi");   /* авария на другом ядре */
         }
+        if (c && id != SGI_RESCHED) lat_isr_note(lat_t0, id);   /* А8: сколько обработчик держал ядро */
         gic_eoi(iar);
         if (c) c->irq_depth--;
         if (kind == 9) proc_return_check();                     /* прервана программа, процесс которой завершается */
@@ -1468,6 +1483,7 @@ void arm_main(uint64_t dtb, uint64_t entry_el, uint64_t loader_tag) {
     for (unsigned i = 0; i < ncpu; i++) if (cpus[i].online && cpus[i].ticks > 0 && cpus[i].gic_ok) ticking++;
     kprintf("[KIRA ARM64] cores with a working timer interrupt: %u of %u (idle cores then switch their tick off)\n", (uint64_t)ticking, (uint64_t)started);
     clock_init(cnt_freq / 1000);
+    lat_init(ncpu, cnt_freq / 1000);     /* А8: измерения времени реакции */
     arm_pci_init(fdt);
     smmu_from_fdt(fdt);      /* SMMUv3 (если есть): регистры и карта потоков */
     (void)iommu_init();      /* включить SMMU до первого драйвера с DMA (virtio-rng ниже читает энтропию раньше опроса дисков); без SMMU поведение прежнее */
@@ -1482,6 +1498,7 @@ void arm_main(uint64_t dtb, uint64_t entry_el, uint64_t loader_tag) {
     kprintf("[KIRA SYSCALL] SVC from EL0: the same calls as on x86-64 (number in x8, arguments x0..x2); PAN %s; user pointers validated.\n",
             uaccess_enable_smap() ? "on (kernel touches programs only via LDTR/STTR)" : "not offered by this CPU (copies still use LDTR/STTR)");
     bbsave_init();           /* чёрный ящик: кольцо событий производительности, сброс на диск вне горячего пути */
+    audit_init();            /* журнал аудита: цепочка SHA-256 и подписанные контрольные точки, /var/audit.log */
     mind_sys_init();         /* Разум: нормы, модель предвидения, тактика ~40 Гц */
     rtc_pl031(fdt);
 

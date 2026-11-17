@@ -22,6 +22,8 @@ SC = [
                ("mem", [r"RAM 0x0+40000000 \.\. 0x0+80000000 \(1024 MB\)", r"kernel heap: \d+ bytes"]),
                ("test smp", [r"RESULT: PASS", r"preempted by tick", r"kernel mutex .*: 8000 of 8000 ok"]),
                ("ps", [r"core\s+RUNNING", r"idle", r"mind-tact"]),
+               ("latency short", [r"\[LAT\] irq: n=[1-9]\d* avg=\d+ p50=\d+ p99=\d+", r"\[LAT\] isr: n=[1-9]\d* avg=", r"\[LAT\] sched-critical: n=[1-9]"]),   # А8: задержка по CNTV_CVAL (точный срок), замеры работают и на ARM64
+               ("latency irqoff on", [r"не поддерж"]),                      # замер выключенных прерываний есть только на x86-64 (docs/architecture/PARITY_ARM64.md)
                ("disk", [r"\[системный\]", r"прерываний устройств \(MSI\): [1-9]"]), ("df", [r"KiraFS"]),
                ("write /hello.txt kira-arm64", []), ("cat /hello.txt", [r"kira-arm64"]), ("ls /", [r"hello.txt"]),
                ("ai", [r"предвидение: риск опоздания экрана", r"здоровье \d+"]), ("ai model", [r"обучено на \d+ с"]),

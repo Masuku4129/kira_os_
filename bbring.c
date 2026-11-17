@@ -179,11 +179,20 @@ static void sb_u(sb_t* s, uint64_t v) {
     while (k && s->n + 1 < s->cap) s->b[s->n++] = t[--k];
     s->b[s->n] = 0;
 }
+static void sb_hex(sb_t* s, uint64_t v) {
+    static const char d[] = "0123456789abcdef";
+    int started = 0;
+    for (int sh = 60; sh >= 0; sh -= 4) {
+        unsigned x = (unsigned)((v >> sh) & 0xF);
+        if (x || started || sh == 0) { if (s->n + 1 < s->cap) s->b[s->n++] = d[x]; started = 1; }
+    }
+    s->b[s->n] = 0;
+}
 static void sb_x10(sb_t* s, uint64_t x10) { sb_u(s, x10 / 10); sb_s(s, ","); sb_u(s, x10 % 10); }        /* десятые: 482 -> 48,2 */
 static void sb_ms_us(sb_t* s, uint64_t us) { sb_x10(s, us / 100); }                                       /* микросекунды -> мс с десятой */
 
 const char* bb_kind_name(unsigned k) {
-    static const char* const n[BB_KIND_N] = { "?", "запуск", "кадр", "замок", "ожидание процессора", "пауза", "сторож", "Разум", "пометка" };
+    static const char* const n[BB_KIND_N] = { "?", "запуск", "кадр", "замок", "ожидание процессора", "пауза", "сторож", "Разум", "пометка", "задержка" };
     return k < BB_KIND_N ? n[k] : "?";
 }
 
@@ -239,6 +248,12 @@ unsigned bb_format(const bb_rec_t* r, char* out, unsigned cap) {
         sb_s(&s, "Разум: "); sb_s(&s, r->name); sb_s(&s, " ["); sb_u(&s, r->a); sb_s(&s, "] -> "); sb_u(&s, r->b);
         if (r->c) { sb_s(&s, " (было "); sb_u(&s, r->c - 1); sb_s(&s, ")"); }
         break;
+    case BB_LAT: {
+        sb_s(&s, "[KIRA LAT] "); sb_s(&s, r->name); sb_s(&s, ": "); sb_u(&s, r->a); sb_s(&s, " нс при пороге "); sb_u(&s, r->c);
+        if (r->d != 0xFFFFFFFFu) { sb_s(&s, ", место K+0x"); sb_hex(&s, r->d); }
+        if (r->flags > 1) { sb_s(&s, ", превышений слито "); sb_u(&s, r->flags); sb_s(&s, r->flags == 255 ? "+" : ""); }
+        break;
+    }
     case BB_NOTE:
         sb_s(&s, "пометка: "); sb_s(&s, r->name); sb_s(&s, " "); sb_u(&s, r->a);
         break;

@@ -483,6 +483,31 @@ class VM:
         return out
 
 
+def disk_ops(vm, ops):
+    """Правка диска ВНЕ системы, пока машина выключена (подмена файла журнала между запусками): get - вынуть файл в каталог сценария,
+    xor - изменить один байт (смещение от начала файла), truncate - отрезать последние drop байт."""
+    for op in ops:
+        if "get" in op:
+            with open(os.path.join(vm.out, op["as"]), "wb") as f:
+                subprocess.run(["tools/kfstool", vm.disk, "cat", op["get"]], check=True, stdout=f)
+            vm.log += f"[HOST] disk: {op['get']} -> {op['as']}\n".encode()
+        elif "xor" in op or "truncate" in op:
+            path = op.get("xor") or op["truncate"]
+            tmp = os.path.join(vm.out, "tamper.tmp")
+            with open(tmp, "wb") as f:
+                subprocess.run(["tools/kfstool", vm.disk, "cat", path], check=True, stdout=f)
+            data = bytearray(open(tmp, "rb").read())
+            if "xor" in op:
+                data[op["offset"]] ^= op.get("mask", 1)
+                what = f"byte {op['offset']} xor {op.get('mask', 1)}"
+            else:
+                del data[len(data) - op["drop"]:]
+                what = f"last {op['drop']} bytes removed"
+            open(tmp, "wb").write(data)
+            subprocess.run(["tools/kfstool", vm.disk, "put", path, tmp], check=True, stdout=subprocess.DEVNULL)
+            vm.log += f"[HOST] disk: {path} edited outside the system: {what}\n".encode()
+
+
 def subst(v, names):
     """<<имя>> и <<имя:N>> (первые N знаков) в строках шага -> значения, снятые шагом capture; неизвестное имя - ошибка сценария."""
     if isinstance(v, str):
@@ -516,6 +541,7 @@ def run(sc, args):
         vm.screenshot("00-boot")
         mark = 0
         names = dict(vm.fixture_names)
+        names["out"] = vm.out
         for i, st in enumerate(sc["steps"]):
             if "capture" not in st:
                 st = subst(st, names)
@@ -636,6 +662,7 @@ def run(sc, args):
                     shutil.copyfile(os.path.join(vm.out, "disk-" + st["restore_disk"] + ".img"), vm.disk)
                 if st.get("esp"):                       # другой образ ESP (secureboot): выпуск 3 после выпуска 5 и т. п.
                     shutil.copyfile(vm.fx["images"][st["esp"]], vm.sb_esp)
+                disk_ops(vm, st.get("disk_ops", []))                 # правка диска вне системы (журнал аудита и т. п.)
                 vm.restart(st["relaunch"])
                 if st.get("prompt", True):
                     vm.expect(re.escape(PROMPT.decode()), sc.get("boot_timeout", 90), vm.phase_mark)
@@ -648,6 +675,7 @@ def run(sc, args):
             elif "crash" in st:                       # обрыв питания: машину убивают без выключения и поднимают снова на ТОМ ЖЕ диске (дополнительные устройства - в st["crash"])
                 vm.qemu.kill()
                 vm.qemu.wait(timeout=10)
+                disk_ops(vm, st.get("disk_ops", []))
                 vm.restart(st["crash"])
                 vm.expect(re.escape(PROMPT.decode()), sc.get("boot_timeout", 90), vm.phase_mark)
                 time.sleep(1.0)
@@ -722,6 +750,29 @@ def run(sc, args):
             elif "host6_serve" in st:                 # серверы хозяина на [::1] для проверки IPv6 гостя
                 up, tp = st["host6_serve"]
                 vm.log += host6_serve(up, tp).encode()
+            elif "host_run" in st:                    # программа хозяина (например tools/auditverify.py на файлах, вынутых из диска): код возврата и вывод проверяются
+                hr = st["host_run"]
+                argv = [a.replace("{out}", vm.out) for a in hr["argv"]]
+                p = subprocess.run(argv, capture_output=True, text=True, timeout=120)
+                vm.log += ("[HOST-RUN] " + " ".join(os.path.basename(a) if a.startswith("/") else a for a in argv) + "\n").encode()
+                vm.log += "".join("[HOST-RUN] " + l + "\n" for l in (p.stdout + p.stderr).splitlines()).encode()
+                okrc = p.returncode == hr.get("rc", 0)
+                result["checks"].append({"host_run": argv[-1], "rc": p.returncode, "ok": okrc})
+                if not okrc:
+                    raise Fail(f"host_run {argv}: код {p.returncode}, ожидался {hr.get('rc', 0)}\n{(p.stdout + p.stderr)[-1500:]}")
+                for m in hr.get("must", []):
+                    ok = re.search(m, p.stdout + p.stderr) is not None
+                    result["checks"].append({"host_run_must": m, "ok": ok})
+                    if not ok:
+                        raise Fail(f"host_run: в выводе нет «{m}»\n{(p.stdout + p.stderr)[-1500:]}")
+            elif "save_log" in st:                    # строки журнала по образцу (первая группа) - в файл каталога сценария (например страницы экспорта audit export)
+                sl = st["save_log"]
+                lines = [m.group(1) for m in re.finditer(sl["pattern"].encode(), bytes(vm.log), re.M)]
+                with open(os.path.join(vm.out, sl["as"]), "w") as f:
+                    f.write("\n".join(l.decode(errors="replace") for l in lines) + "\n")
+                result["checks"].append({"save_log": sl["as"], "lines": len(lines), "ok": len(lines) >= sl.get("min", 1)})
+                if len(lines) < sl.get("min", 1):
+                    raise Fail(f"save_log: найдено {len(lines)} строк по «{sl['pattern']}», нужно {sl.get('min', 1)}")
             elif "sleep" in st:
                 end_t = time.time() + st["sleep"] * args.timeout_scale
                 while time.time() < end_t:
@@ -753,6 +804,17 @@ def run(sc, args):
                     raise Fail(f"distinct: найдено {len(vals)} значений «{st['distinct']}», нужно {st.get('count', 2)}: {vals}")
                 if len(set(vals)) != len(vals):
                     raise Fail(f"distinct: значения повторяются: {vals}")
+            elif "latency_policy" in st:              # время реакции (А8): вывод `latency` сверяется с границами файла политики; expect_fail - проверка мутацией
+                import latency_check
+                pol = latency_check.load_policy(os.path.join(os.path.dirname(os.path.abspath(__file__)), st["latency_policy"]))
+                outp = vm.command("latency", st.get("timeout", 90))
+                errs = latency_check.check(latency_check.parse(outp), pol)
+                result["checks"].append({"latency_policy": st["latency_policy"], "violations": errs, "expect_fail": bool(st.get("expect_fail")), "ok": bool(errs) == bool(st.get("expect_fail"))})
+                if st.get("expect_fail"):
+                    if not errs:
+                        raise Fail("мутация (искусственная задержка) не заметна: границы времени реакции соблюдены, а должны нарушиться")
+                elif errs:
+                    raise Fail("время реакции вне границ (%s):\n  " % st["latency_policy"] + "\n  ".join(errs))
             elif "responsive" in st:                  # система отвечает на команду не дольше заданного
                 t = time.time()
                 vm.command(st["responsive"], st.get("within", 5))

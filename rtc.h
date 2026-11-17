@@ -24,5 +24,6 @@ void    rtc_format_hm(const rtc_time_t* t, char* out, unsigned cap);
 int     rtc_set_epoch(int64_t epoch, const char* source);   /* время платформы (UTC); 0 - принято */
 int     rtc_init(void);                    /* 0 - время прочитано */
 int     rtc_now(int32_t tz_min, rtc_time_t* out);   /* 0 - есть время */
+int64_t rtc_now_epoch(void);                       /* секунды UTC от 1970 по часам платформы; 0 - часов нет (журнал аудита: дёшево, без разбора даты) */
 
 #endif

@@ -3,6 +3,7 @@
 #include "idt.h"
 #include "uart.h"
 #include "vmm.h"
+#include "latency.h"
 
 #define MSR_APIC_BASE      0x1B
 #define APIC_BASE_ENABLE   (1ULL << 11)
@@ -115,10 +116,13 @@ void apic_send_eoi(void) {
 static uint32_t timer_initial;       /* начальный счёт, которым запущен таймер: остальные ядра берут тот же */
 
 uint32_t apic_timer_initial_count(void) { return timer_initial; }
+/* Текущий счёт таймера (убывает от начального): при периодическом режиме initial - current = сколько счётов прошло с последнего срабатывания. */
+uint32_t apic_timer_current_count(void) { return enabled ? apic_read(APIC_REG_TCCR) : 0; }
 
 void apic_timer_start_periodic(uint8_t vector, uint32_t initial_count) {
     if (!enabled || initial_count == 0) return;
     timer_initial = initial_count;
+    lat_timer_restart();
     apic_write(APIC_REG_TDCR, APIC_TDCR_DIV16);
     apic_write(APIC_REG_LVT_TIMER, (uint32_t)vector | APIC_LVT_PERIODIC);
     apic_write(APIC_REG_TICR, initial_count);
@@ -127,6 +131,7 @@ void apic_timer_start_periodic(uint8_t vector, uint32_t initial_count) {
 // Останавливает таймер только этого ядра (общее значение счёта сохраняется для запуска других ядер).
 void apic_timer_mask_local(void) {
     if (!enabled) return;
+    lat_timer_restart();
     apic_write(APIC_REG_LVT_TIMER, APIC_LVT_MASKED | APIC_SPURIOUS_VECTOR);
     apic_write(APIC_REG_TICR, 0);
 }

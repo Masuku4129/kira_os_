@@ -1,3 +1,4 @@
+#include "auditev.h"
 #include "progs.h"
 #include "kdrv.h"
 #include "kdrv_sig.h"
@@ -176,6 +177,7 @@ static int prog_run_ex(const char* name, const char* grant, const char* args) {
         immune_phagocytose(image, (size_t)st.size);
         kfree(image);
         life_note("denied", name, (int)t);
+        audit_event(AUD_K_IMMUNE, audit_cmd_source(), AUD_R_DENIED, 0, 0, (uint32_t)t, name, t == TRUST_TAMPERED ? "build manifest mismatch" : "not in build manifest");
         return -2;
     }
     immune_register_self(digest);
@@ -194,6 +196,7 @@ static int local_launch_signed(const char* path, const char* name, uint8_t* imag
         uart_print("[IMMUNE] "); uart_print(path); uart_print(": сработало антитело, запуск отклонён\n");
         immune_phagocytose(image, size);
         life_note("signed-denied", name, (int)v);
+        audit_event(AUD_K_IMMUNE, audit_cmd_source(), AUD_R_DENIED, 0, 0, (uint32_t)v, name, "antibody fired (signed program)");
         return -2;
     }
     life_note("signed-trust", name, (int)v);
@@ -213,6 +216,7 @@ static int local_launch(const char* path, const char* name, uint8_t* image, size
         uart_print("[IMMUNE] "); uart_print(path); uart_print(": сработало антитело, запуск отклонён\n");
         immune_phagocytose(image, size);
         life_note("local-denied", name, (int)v);
+        audit_event(AUD_K_IMMUNE, audit_cmd_source(), AUD_R_DENIED, 0, 0, (uint32_t)v, name, "antibody fired (local program)");
         return -2;
     }
     uart_print("[LOCAL] "); uart_print(path); uart_print(" запускается по явной команде пользователя как '"); uart_print(name);

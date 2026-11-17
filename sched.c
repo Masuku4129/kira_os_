@@ -9,6 +9,7 @@
 #include "scale.h"
 #include "arch_sched.h"
 #include "bbring.h"
+#include "latency.h"
 #ifndef KIRA_HOST_TEST
 #include "kstack.h"
 #endif
@@ -107,6 +108,7 @@ static void slk_wait(slk_t* l, unsigned lid, slk_stat_t* s) {
         if (__atomic_compare_exchange_n(&l->held, &z, 1, 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) break;
     }
 out:;
+    lat_spin_note(t0, (1ULL << 32) | lid);                 /* А8: сколько ядро простояло в ожидании замка (после этого - hold) */
     uint64_t w = rdtsc() - t0;
     __atomic_store_n(&s->wait_since, 0, __ATOMIC_RELEASE);
     s->wait += w;
@@ -554,6 +556,7 @@ static void enqueue_ready(thread_t* t) {
 static int make_ready(thread_t* t, thread_state_t from) {
     if (!cas_state(t, from, THREAD_READY)) return 0;
     t->ready_since = timer_get_ticks();
+    t->ready_tsc = rdtsc();                   /* А8: отсюда считается задержка пробуждения */
     enqueue_ready(t);
     return 1;
 }
@@ -580,6 +583,7 @@ static void finish_switch(void) {
 // Вызывается с выключенными прерываниями и без замков планировщика. Возвращается, когда этот поток снова выбран
 // (возможно, на другом ядре).
 static void schedule(void) {
+    if (lat_irqoff_on) lat_irqoff_cut();            /* А8: секция с выключенными прерываниями, из которой пришли сюда, заканчивается на переключении */
     percpu_t* cpu = this_cpu();
     unsigned id = cpu->cpu_id;
     thread_t* prev = cpu->current;
@@ -621,6 +625,7 @@ static void schedule(void) {
             bb_event(BB_CPUWAIT, wait_ms >= 500 ? BB_SEV_SEVERE : wait_ms >= 100 ? BB_SEV_WARN : BB_SEV_INFO, (uint32_t)wait_ms, (uint32_t)next->prio, id, 0, skipped > 255 ? 255 : (uint8_t)skipped, next->name);
         else bb_note_suppressed(BB_CPUWAIT, (uint32_t)wait_ms);
     }
+    if (next->ready_tsc) { lat_sched_note(next->prio, next->ready_tsc, next->id); next->ready_tsc = 0; }
     next->switches_in++;
     cpu->switches++;
     __atomic_store_n(&next->on_cpu, 1, __ATOMIC_RELAXED);

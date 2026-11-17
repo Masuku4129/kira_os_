@@ -38,6 +38,7 @@
 | Замер обмена (ipcbench) | да | да (добавлен в build_arm64.sh) | parity |
 | Rust-программы (rsdemo) | да | НЕТ: у rustc на машине нет core для aarch64, userland/rust/lib использует x86-вызовы | - |
 | atk-gs | да | не применимо (сегмент GS) | - |
+| Время реакции (А8, `latency`) | да: задержка прерывания по счётчику таймера LAPIC, `isr`, `irqoff`, `spin`, планировщик, `tick-part`, `latency bench` | частично: задержка по CNTVCT-CNTV_CVAL (точный срок), `isr`, `spin`, планировщик, `tick-part`; НЕТ замера секций с выключенными прерываниями (`irqoff`, `bench` привязаны к `irq_save/irq_restore` x86-64; команда печатает, что не поддержано) | `arm64-gicv3` (шаг `latency short`) |
 
 ## Найденные и исправленные причины
 

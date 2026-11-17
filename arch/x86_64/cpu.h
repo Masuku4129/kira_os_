@@ -43,13 +43,20 @@ static inline void fpu_restore(const void* area) {
 static inline uint64_t irq_save(void) { return 0; }
 static inline void irq_restore(uint64_t flags) { (void)flags; }
 #else
-static inline uint64_t irq_save(void) {
+/* Замер критических секций (А8, latency.c): пока флаг опущен, в каждой паре остаётся одна проверка слова в памяти; адрес вызова
+   (место секции в отчёте) берёт сама функция из адреса возврата, поэтому irq_save обязан встраиваться. */
+extern volatile int lat_irqoff_on;
+void lat_irqoff_begin(uint64_t flags);
+void lat_irqoff_end(uint64_t flags);
+static inline __attribute__((always_inline)) uint64_t irq_save(void) {
     uint64_t flags;
     __asm__ volatile ("pushfq\n\tcli\n\tpopq %0" : "=r"(flags) : : "memory");
+    if (__builtin_expect(lat_irqoff_on, 0)) lat_irqoff_begin(flags);
     return flags;
 }
-static inline void irq_restore(uint64_t flags) {
+static inline __attribute__((always_inline)) void irq_restore(uint64_t flags) {
     if (flags & (1ULL << 9)) {
+        if (__builtin_expect(lat_irqoff_on, 0)) lat_irqoff_end(flags);
         __asm__ volatile ("sti" : : : "memory");
     }
 }

@@ -22,6 +22,7 @@ int umain(void) {
         { "drv_io",       57 /* KDRV_SYS_IO */, 0, 0, 0, -12 },
         { "pci_list",     55 /* KDRV_SYS_PCILIST */, 0, 1, 0, -12 },
         { "drv_blk",      61 /* KDRV_SYS_BLKDEV */, 2, 0, 0, -12 },
+        { "audit_read",   62 /* SYS_AUDIT: журнал аудита только по праву CAP_AUDIT */, 0, 0, 160, -12 },
     };
     unsigned bad = 0, n = sizeof t / sizeof t[0];
     for (unsigned i = 0; i < n; i++) {

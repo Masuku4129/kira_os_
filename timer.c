@@ -6,6 +6,7 @@
 #include "clock.h"
 #include "percpu.h"
 #include "spinlock.h"
+#include "latency.h"
 
 #define PIT_CHANNEL0_PORT 0x40
 #define PIT_COMMAND_PORT  0x43
@@ -56,6 +57,8 @@ void timer_handler(void) {
     /* Ядра равнозначны: каждое получает тик своего таймера LAPIC и обновляет общее время (оно выводится из TSC и
        только растёт, поэтому порядок ядер не важен). Падение любого ядра не оставляет систему без часов. */
     __atomic_fetch_add(&irqs, 1, __ATOMIC_RELAXED);
+    lat_inject();                                  // А8: только по команде latency inject (проверка границ мутацией)
+    uint64_t lt = rdtsc();
     /* Часы TSC точнее счёта прерываний: если эмулятор или нагрузка потеряли часть прерываний таймера,
        тики догоняют реальное время, и сон, кванты по времени и «жизнь» не отстают.
        Общий счётчик двигают все ядра без замка (сравнение-обмен, только вперёд): тик не должен стоять в очереди
@@ -77,9 +80,15 @@ void timer_handler(void) {
     } else {
         __atomic_fetch_add(&ticks, 1, __ATOMIC_RELEASE);
     }
+    lat_part(LAT_PART_CLOCK, lt); lt = rdtsc();
     uart_tick_flush();
+    lat_part(LAT_PART_UART, lt); lt = rdtsc();
+    lat_flush();                                   // А8: превышения порогов задержки - в чёрный ящик (вне горячего пути)
+    lat_part(LAT_PART_FLUSH, lt); lt = rdtsc();
     watchdog_check();
+    lat_part(LAT_PART_WATCHDOG, lt); lt = rdtsc();
     sched_tick(); // пробуждение спящих, учёт кванта; само вытеснение - после EOI
+    lat_part(LAT_PART_SCHED, lt);
 }
 
 uint64_t timer_get_irqs(void) { return irqs; }

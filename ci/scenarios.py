@@ -31,6 +31,21 @@ BASIC = [
 ]
 
 
+# Нагрузка сценария latency (А8): burn на всех ядрах, сеть, диск. Первые три шага - загрузка, замер секций, сброс гистограмм.
+# -icount: виртуальное время идёт по числу выполненных команд (1 нс на команду), а не по часам хозяина: простои виртуальных ядер из-за
+# хозяина (на стенде 2 настоящих ядра, чужие сборки) не попадают в измерение, и границы можно держать узкими. На настоящем железе - иначе.
+LATENCY_EXTRA = ["-icount", "shift=0,sleep=on"]
+LATENCY_LOAD = [
+    {"log": BOOT_LOG + [r"\[KIRA LAT\] latency histograms online"]},
+    {"cmd": "latency irqoff on", "must": [r"замер секций с выключенными прерываниями: включён"]},
+    {"cmd": "latency reset", "must": [r"гистограммы и счётчики превышений сброшены"]},
+    {"send": "burnall"},
+    *[{"cmd": "ping 10.0.2.2 3", "must": [r"получено [1-9]"], "timeout": 90} for _ in range(4)],
+    *[{"cmd": "write /lat%d.txt kira-latency-load-%d" % (i, i), "timeout": 60} for i in range(12)],
+    *[{"cmd": "cat /lat%d.txt" % i, "must": [r"kira-latency-load-%d" % i], "timeout": 60} for i in range(0, 12, 3)],
+    {"send": "burnall"}, {"sleep": 4},
+]
+
 def sc(name, about, steps, **kw):
     d = {"name": name, "about": about, "steps": steps}
     d.update(kw)
@@ -168,7 +183,7 @@ ALL = [
         {"log": [r"rsdemo: sha256\(abc\) ok", r"rsdemo: sha256\(1e6 x 'a'\) ok", r"rsdemo: ring buffer ok", r"rsdemo: bounds ok", r"rsdemo: all checks passed \(PASS\)"]},
         {"log": [r"address spaces are isolated \(PASS\)", r"kernel GS intact after the attack \(PASS\)",
                  r"kernel pointer passed to write\(\) was rejected \(PASS\)", r"mt: .* - PASS|- PASS",
-                 r"atk-cap: 17 calls without rights refused, harmless calls work \(PASS\)", r"\[KIRA CAPS\] process 'atk-cap' .* denied, no right CAP_GFX",
+                 r"atk-cap: 18 calls without rights refused, harmless calls work \(PASS\)", r"\[KIRA CAPS\] process 'atk-cap' .* denied, no right CAP_GFX",
                  r"ipcx: foreign-domain open of a public shared-memory object refused \(PASS\)",
                  r"ipc client: descriptors passed through messages \(private port and shared memory, both directions\) \(PASS\)",
                  r"ipc server: descriptors received through messages: client's private port and shared memory \(PASS\)",
@@ -397,6 +412,16 @@ ALL = [
         {"sleep": 10}, {"cmd": "fb", "must": [r"\[PERIOD\] ms \d+ frames \d+"]},
         {"cmd": "ai", "must": [r"."]},
     ], smp=4, mem="512M"),
+    sc("latency", "время реакции под нагрузкой (А8): burn на всех ядрах + сеть + диск; гистограммы задержек прерывания, обработчика, критических секций и планировщика; границы из ci/latency_policy.json (стенд: QEMU TCG, -icount: время считается по числу выполненных команд, шум хозяина исключён)", LATENCY_LOAD + [
+        {"latency_policy": "latency_policy.json", "timeout": 120},
+        {"log_forbid": NO_ERR},
+    ], smp=2, mem="512M", extra=LATENCY_EXTRA),
+    sc("latency-mutation", "проверка границ мутацией (А8): в обработчик таймера вносится искусственная задержка (latency inject isr), проверка границ ОБЯЗАНА нарушиться; сценарий проходит, когда она нарушилась", LATENCY_LOAD[:3] + [
+        {"cmd": "latency inject isr 3000000", "must": [r"проверочная задержка обработчика таймера: 3000000 нс"]},
+    ] + LATENCY_LOAD[3:] + [
+        {"latency_policy": "latency_policy.json", "timeout": 120, "expect_fail": True},
+        {"log_forbid": NO_ERR},
+    ], smp=2, mem="512M", extra=LATENCY_EXTRA),
     sc("blackbox", "чёрный ящик: событие записывается (проверочная пауза 1,3 с), кольцо сбрасывается на диск само, переживает обрыв питания и выключение; прежний запуск читается как bb old, два файла по очереди", [
         {"log": BOOT_LOG + [r"\[KIRA BLACKBOX\] flight recorder online"]},
         {"sleep": 3},
@@ -555,6 +580,75 @@ ALL = [
         {"cmd": "rcon off", "must": [r"выключена"]},
         {"log_forbid": NO_ERR + [r"\[RCON\] .*kira-test-pass"]},
     ], smp=2, mem="512M", extra=["-netdev", "user,id=n0,hostfwd=tcp:127.0.0.1:17077-:7077", "-device", "e1000,netdev=n0"]),
+    # Журнал аудита (docs/AUDIT.md, А7): события попадают в цепочку, audit verify OK, журнал переживает выключение и обрыв питания, независимая проверка
+    # tools/auditverify.py сходится с ядром. Сеть нужна для rcon (неверный пароль, вход, команда).
+    sc("audit", "журнал аудита: запуск, отказ прав, rcon (неверный пароль, вход, смена пароля) попадают в журнал; audit verify OK; цепочка не рвётся от выключения и обрыва питания; tools/auditverify.py", [
+        {"log": BOOT_LOG}, {"sleep": 10},
+        {"log": [r"\[KIRA AUDIT\] journal online: next record #\d+, boot #1, closed segments 0, key id [0-9a-f]{8}, first boot of this journal, chain verified OK"]},
+        {"cmd": "test caps"}, {"sleep": 5},
+        {"cmd": "rcon passwd kira-audit-pass", "must": [r"пароль задан"]},
+        {"cmd": "rcon on", "must": [r"включена, порт 7077"]}, {"sleep": 3},
+        {"host_rcon": [17078, "wrong-password-1", ["status"]]},
+        {"host_rcon": [17078, "kira-audit-pass", ["rcon passwd kira-audit-pass-2", "PING"]]},
+        {"sleep": 2},
+        {"cmd": "audit 100", "must": [r"boot system OK pid=0 dom=0 arg=4 kernel", r"key system OK pid=0 dom=0 arg=0 device-key \| created on first boot", r"config console OK pid=0 dom=0 arg=7077 rcon \| rcon on", r"trust system \w+ pid=0 dom=0 arg=\d+ boot-trust",
+                                      r"exec console OK pid=\d+ dom=\d+ arg=\d+ atk-cap", r"cap-deny program DENIED pid=\d+ dom=\d+ arg=1 atk-cap \| syscall \d+",
+                                      r"rcon-login rcon DENIED pid=0 dom=0 arg=1 rcon \| wrong password", r"rcon-login rcon OK pid=0 dom=0 arg=0 rcon \| client logged in",
+                                      r"rcon-passwd (console|rcon) OK .* rcon \| password changed"],
+         "forbid": [r"kira-audit-pass"]},
+        {"cmd": "audit status", "must": [r"status: boot #1, key id [0-9a-f]{16}, records \d+ \(on disk up to #\d+\)", r"lost 0, disk errors 0, tamper none, at boot: ok",
+                                         r"hot path: \d+ events, mean \d+ ns per event"]},
+        {"cmd": "audit verify", "timeout": 120, "must": [r"verify: OK: \d+ records \(#1\.\.#\d+\), [1-9]\d* signed checkpoints"], "forbid": [r"tamper detected", r"VIOLATION"]},
+        {"send": "audit key"}, {"expect": r"public key \(Ed25519\): [0-9a-f]{64}", "timeout": 20},
+        {"capture": {"pub": r"public key \(Ed25519\): ([0-9a-f]{64})"}},
+        {"send": "audit export 1 6"}, {"expect": r"AUDEND|AUDNEXT \d+", "timeout": 20},
+        {"save_log": {"pattern": r"^(AUDKEY [0-9a-f]{64}|AUDREC [0-9a-f]{320})", "as": "export1.txt", "min": 7}},
+        {"host_run": {"argv": ["python3", "-I", "tools/auditverify.py", "--pub", "<<pub>>", "--export", "{out}/export1.txt"], "rc": 0, "must": [r"^OK: записей 6 \(с 1 по 6\)"]}},
+        {"relaunch": ["-netdev", "user,id=n0,hostfwd=tcp:127.0.0.1:17078-:7077", "-device", "e1000,netdev=n0"],
+         "disk_ops": [{"get": "/var/audit.log", "as": "p1_audit.log"}, {"get": "/var/audit.ckpt", "as": "p1_audit.ckpt"}]},
+        {"sleep": 8},
+        {"log": [r"\[KIRA AUDIT\] journal online: next record #\d+, boot #2, closed segments 0, key id [0-9a-f]{8}, previous run ended cleanly, chain verified OK"]},
+        {"host_run": {"argv": ["python3", "-I", "tools/auditverify.py", "--pub", "<<pub>>", "--ckpt", "{out}/p1_audit.ckpt", "{out}/p1_audit.log"], "rc": 0, "must": [r"^OK: записей \d+ \(с 1 по \d+\), подписанных точек проверено [1-9]"]}},
+        {"cmd": "audit 100", "must": [r"shutdown system OK pid=0 dom=0 arg=0 kernel \| clean shutdown", r"boot system OK pid=0 dom=0 arg=0 kernel"]},
+        {"cmd": "audit verify", "timeout": 120, "must": [r"verify: OK: \d+ records \(#1\.\.#\d+\)"]},
+        {"cmd": "test caps"}, {"sleep": 5},
+        {"crash": ["-netdev", "user,id=n0,hostfwd=tcp:127.0.0.1:17078-:7077", "-device", "e1000,netdev=n0"]},
+        {"sleep": 8},
+        {"log": [r"\[KIRA AUDIT\] journal online: next record #\d+, boot #3, .*previous run ended without shutdown record, chain verified OK"]},
+        {"cmd": "audit verify", "timeout": 120, "must": [r"verify: OK: \d+ records \(#1\.\.#\d+\)"], "forbid": [r"VIOLATION"]},
+        {"cmd": "audit 100", "must": [r"boot system OK pid=0 dom=0 arg=1 kernel"]},
+        {"log_forbid": NO_ERR + [r"tamper detected"]},
+        # пароль не должен попасть в файл журнала на диске (в консольном логе он есть только как эхо команд харнесса)
+        {"host_run": {"argv": ["grep", "-c", "-a", "kira-audit-pass", "{out}/p1_audit.log"], "rc": 1, "must": [r"^0$"]}},
+    ], smp=2, mem="512M", extra=["-netdev", "user,id=n0,hostfwd=tcp:127.0.0.1:17078-:7077", "-device", "e1000,netdev=n0"]),
+    # Подмена: файл журнала правится на диске вне системы (машина выключена); следующая загрузка находит и показывает место, audit verify говорит то же,
+    # tools/auditverify.py на вынутом файле - тоже; неизменённая копия проходит.
+    sc("audit-tamper", "журнал аудита: файл /var/audit.log изменён на диске вне системы - следующая загрузка пишет [KIRA AUDIT] tamper detected с местом, audit verify и tools/auditverify.py сообщают нарушение", [
+        {"log": BOOT_LOG}, {"sleep": 10},
+        {"log": [r"\[KIRA AUDIT\] journal online: next record #\d+, boot #1, .*first boot of this journal, chain verified OK"]},
+        {"cmd": "test caps"}, {"sleep": 5},
+        {"cmd": "rcon passwd kira-tamper-pass", "must": [r"пароль задан"]},
+        {"cmd": "rcon passwd kira-tamper-pass2", "must": [r"пароль задан"]},
+        {"cmd": "audit checkpoint", "must": [r"checkpoint #\d+ signed and written"]},
+        {"cmd": "audit verify", "timeout": 120, "must": [r"verify: OK: \d+ records"], "forbid": [r"VIOLATION"]},
+        {"send": "audit key"}, {"expect": r"public key \(Ed25519\): [0-9a-f]{64}", "timeout": 20},
+        {"capture": {"pub": r"public key \(Ed25519\): ([0-9a-f]{64})"}},
+        {"relaunch": [], "disk_ops": [{"get": "/var/audit.log", "as": "clean_audit.log"}, {"get": "/var/audit.ckpt", "as": "clean_audit.ckpt"},
+                                      {"xor": "/var/audit.log", "offset": 256 + 160 * 4 + 64, "mask": 1}]},    # запись №5: изменён первый байт detail
+        {"sleep": 8},
+        {"log": [r"\[KIRA AUDIT\] tamper detected \(boot\): .*цепочка хэшей разорвана.*: record #6 \(file #0, offset 1056\)",
+                 r"\[KIRA AUDIT\] journal online: .*boot #2, .*chain VIOLATED"]},
+        {"cmd": "audit status", "must": [r"tamper DETECTED, at boot: CHAIN"]},
+        {"cmd": "audit verify", "timeout": 120, "must": [r"verify: VIOLATION", r"tamper detected \(verify\): .*цепочка хэшей разорвана.*record #6 \(file #0, offset 1056\)"], "forbid": [r"verify: OK"]},
+        {"cmd": "audit 100", "must": [r"tamper kernel FAIL pid=0 dom=0 arg=6 boot \| CHAIN file#0 off 1056"]},
+        {"cmd": "test caps"}, {"sleep": 5},                                   # система продолжает работать и писать в журнал, нарушение остаётся видно
+        {"relaunch": [], "disk_ops": [{"get": "/var/audit.log", "as": "after_audit.log"}, {"get": "/var/audit.ckpt", "as": "after_audit.ckpt"}]},
+        {"sleep": 8},
+        {"log": [r"\[KIRA AUDIT\] tamper detected \(boot\): .*record #6"]},
+        {"host_run": {"argv": ["python3", "-I", "tools/auditverify.py", "--pub", "<<pub>>", "--ckpt", "{out}/clean_audit.ckpt", "{out}/clean_audit.log"], "rc": 0, "must": [r"^OK: записей"]}},
+        {"host_run": {"argv": ["python3", "-I", "tools/auditverify.py", "--pub", "<<pub>>", "{out}/after_audit.log"], "rc": 1, "must": [r"НАРУШЕНИЕ: цепочка хэшей разорвана.*запись 6 \(файл №0, смещение 1056\)"]}},
+        {"log_forbid": NO_ERR},
+    ], smp=2, mem="512M"),
     sc("net-virtio", "сеть: virtio-net (MSI-X будит поток сети), DHCP, ping, программа fetch", [
         {"log": BOOT_LOG}, {"sleep": 8},
         {"log": [r"\[KIRA NET\] virtio-net: MAC 52:54:00.*MSI-X", r"\[KIRA NET\] DHCP: address 10\.0\.2\.15/24"]},

@@ -19,6 +19,7 @@
 #include "immune.h"
 #include "mind_sys.h"
 #include "bbsave.h"
+#include "audit.h"
 #include "watchdog.h"
 #include "sched.h"
 #include "clock.h"
@@ -34,6 +35,7 @@
 #include "audio.h"
 #include "spinlock.h"
 #include "usb.h"
+#include "latency.h"
 #if defined(__x86_64__)
 #include "kaslr_arch.h"
 #endif
@@ -296,6 +298,8 @@ static void cmd_3d(const char* a) { (void)a; prog_start("cube3d"); }
 static const console_shell_t* shell;
 void console_set_shell(const console_shell_t* sh) { shell = sh; }
 static void cmd_bb(const char* a) { bbsave_command(a); }
+static void cmd_latency(const char* a) { lat_command(a); }
+static void cmd_audit(const char* a) { audit_command(a); }
 static void cmd_fb(const char* a) { (void)a; if (shell && shell->print_info) shell->print_info(); else uart_print("экрана нет\n"); }
 static void cmd_hw(const char* a) { (void)a; platform_hw(uart_print); }
 static void cmd_fpu(const char* a) { (void)a; uart_print("[FPU TEST] 3 fpu processes compute x87 + SSE + double in parallel; each reports its own verdict\n"); prog_start("fpu"); prog_start("fpu"); prog_start("fpu"); }
@@ -389,6 +393,7 @@ static void cmd_files(const char* a) {
 void console_power_prepare(void) {
     uart_print("сохраняю опыт и данные дисков...\n");
     experience_save_now();
+    audit_sync();                                            /* журнал аудита: всё принятое - в цепочку, подписанная точка, диск - до сброса кэшей */
     (void)bbsave_now(BB_SAVE_SHUTDOWN);                     /* чёрный ящик - до сброса кэшей дисков: они его запишут вместе с остальным */
     trustanchor_shutdown();                                 /* эпоха диска - в суперблок и в TPM (якорь) при штатном выключении */
     for (int i = 0; i < 4; i++) vfs_flush(i);
@@ -434,10 +439,11 @@ static void cmd_dma(const char* a) {
     }
     uart_print("в своём домене: "); uart_print_dec(iso); uart_print(" из "); uart_print_dec((uint64_t)pci_count()); uart_print("\n");
 }
-static void cmd_poweroff(const char* a) { (void)a; console_power_prepare(); platform_poweroff(); }
+static void cmd_poweroff(const char* a) { (void)a; audit_shutdown(); console_power_prepare(); platform_poweroff(); }
 /* Кнопка питания (ACPI): то же, что команда poweroff. Если выключить не вышло, запрос снимает вызывающий. */
 void console_graceful_poweroff(void) {
     uart_print("[KIRA POWER] power button: saving data and shutting down.\n");
+    audit_shutdown();
     console_power_prepare();
     platform_poweroff();
 }
@@ -450,7 +456,7 @@ static void cmd_sleep(const char* a) {
     (void)sleep_enter("команда sleep");
 }
 static void cmd_acpi(const char* a) { platform_acpi_cmd(a); }
-static void cmd_reboot(const char* a) { (void)a; console_power_prepare(); platform_reboot(); }
+static void cmd_reboot(const char* a) { (void)a; audit_shutdown(); console_power_prepare(); platform_reboot(); }
 static void cmd_wasm(const char* a) {                       /* модуль WebAssembly - в интерпретаторе (Ring 3) */
     while (a && *a == ' ') a++;
     if (!a || *a != '/') { uart_print("wasm /путь/модуль.wasm: программа WebAssembly (одна для x86-64 и ARM64), модули - в /wasm\n"); return; }
@@ -649,7 +655,9 @@ static const cmd_t cmds[] = {
     { "smp",       0,   "ядра: состояние, APIC ID, переключения, занятость", cmd_smp },
     { "hw",        0,   "профиль железа: процессор, ядра, ОЗУ, пределы для программ", cmd_hw },
     { "fb",        'f', "статистика экрана (и сводка чёрного ящика)", cmd_fb },
+    { "audit",     0,   "журнал аудита (цепочка SHA-256, подписи Ed25519): audit [N] | status | verify | export [с [сколько]] | key | checkpoint", cmd_audit },
     { "bb",        0,   "чёрный ящик: bb [N|all] последние события, bb old - прошлый запуск, bb save, bb clear, bb file, bb pause мс (проверка)", cmd_bb },
+    { "latency",   0,   "время реакции: гистограммы задержек (прерывание, обработчик, критические секции, планировщик по классам); latency reset | limit ИМЯ нс | irqoff on|off | bench", cmd_latency },
     { "burn",      'l', "процесс-нагрузка на 3 с (вытесняющее планирование)", cmd_burn },
     { "burnall",   0,   "по процессу-нагрузке на каждое ядро, 3 с (сравни итерации с burn)", cmd_burnall },
     { "3d",        'g', "окно 3D (программа cube3d из /bin)", cmd_3d },
@@ -791,6 +799,7 @@ static int console_next_char(void) {
 static spinlock_t req_lock = SPINLOCK_INIT;
 static char req_q[REQ_N][REQ_LEN];
 static unsigned req_head, req_tail;
+static unsigned req_src[REQ_N];          /* кто поставил команду в очередь (AUD_SRC_*): rcon или локальный интерфейс; журнал аудита берёт отсюда источник */
 
 /* ---- стандартный ввод программы ---- */
 #define IN_LINES 4
@@ -851,7 +860,9 @@ static void stdin_signal(int ctrl_c) {                            /* Ctrl+C: в�
     spin_unlock_irqrestore(&in_lock, f);
 }
 
-int console_request(const char* l) {
+int console_request(const char* l) { return console_request_src(l, AUD_SRC_CONSOLE); }
+
+int console_request_src(const char* l, unsigned src) {
     if (!l) return -1;
     unsigned len = 0;
     while (l[len] && len < REQ_LEN) len++;
@@ -859,6 +870,7 @@ int console_request(const char* l) {
     uint64_t f = spin_lock_irqsave(&req_lock);
     if (req_head - req_tail >= REQ_N) { spin_unlock_irqrestore(&req_lock, f); return -1; }
     char* d = req_q[req_head % REQ_N];
+    req_src[req_head % REQ_N] = src;
     for (unsigned i = 0; i <= len; i++) d[i] = l[i];
     req_head++;
     spin_unlock_irqrestore(&req_lock, f);
@@ -876,6 +888,7 @@ static void run_requests(void) {
             break;
         }
         unsigned i = 0; const char* q = req_q[req_tail % REQ_N];
+        unsigned src = req_src[req_tail % REQ_N];
         while (q[i]) { cmd[i] = q[i]; i++; }
         cmd[i] = 0;
         req_tail++;
@@ -885,7 +898,9 @@ static void run_requests(void) {
         uart_print(cmd); uart_putchar('\n');
         history_add(cmd);
         char tmp[REQ_LEN]; for (unsigned k = 0; k <= i; k++) tmp[k] = cmd[k];
+        audit_set_cmd_source(src);               /* события, вызванные командой (запуск программы, монтирование...), записываются от имени её источника */
         run_line(tmp);
+        audit_set_cmd_source(AUD_SRC_CONSOLE);
         hist_pos = hist_n;
         show_prompt();
         for (unsigned k = 0; k < keep; k++) uart_putchar(line[k]);

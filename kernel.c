@@ -1,7 +1,9 @@
+#include "audit.h"
 #include "kernel.h"
 #include "kptr.h"
 #include "kaslr_arch.h"
 #include "cpu.h"
+#include "latency.h"
 #include "uart.h"
 #include "gdt.h"
 #include "idt.h"
@@ -72,6 +74,7 @@ void kernel_panic(const char* reason) {
     smp_halt_others();  // остальные ядра встают (второе паникующее ядро встанет молча)
     spin_bust_locks();  // замок мог держать упавший код: аварийный вывод не должен на нём зависнуть
     earlycon_alert();   // на раннем экране паника красным
+    audit_event(AUD_K_PANIC, AUD_SRC_KERNEL, AUD_R_FAIL, 0, 0, 0, "kernel", reason);   // в кольце журнала аудита: на диск в панике не пишем, следующая загрузка отметит запуск без shutdown
     uart_print("\n[KIRA KERNEL PANIC] ");
     uart_print(reason);
     uart_print("\n[KIRA KERNEL PANIC] called from ");
@@ -248,6 +251,7 @@ void kernel_main(unsigned long magic, unsigned long addr) {
     fs_init();           // файловая система на том же диске (после хранилища опыта)
     life_init();         // журнал организма и профили программ в /var
     bbsave_init();       // чёрный ящик: кольцо событий производительности, сброс на диск вне горячего пути
+    audit_init();        // журнал аудита: цепочка SHA-256 и подписанные контрольные точки, /var/audit.log (начинает писать, когда готова ФС)
     mind_sys_init();     // Разум: нормы, профили и выученный квант из /var/mind*
 
     // Экран необязателен. Раннее окно снимается до того, как драйвер дисплея сам
@@ -339,6 +343,7 @@ void kernel_main(unsigned long magic, unsigned long addr) {
 
     // Современная схема прерываний: IOAPIC + таймер LAPIC. Все шаги проверяются, при сбое - остаёмся на PIC/PIT.
     irqmode_enable_apic(tsc_khz_val, apic_rate, have_apic, TIMER_HZ);
+    lat_init(hw_get()->cpus, tsc_khz_val);     // А8: измерения времени реакции (после калибровки TSC и таймера LAPIC)
 
     {
         const acpi_info_t* ai = acpi_get();

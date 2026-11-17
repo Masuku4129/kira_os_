@@ -9,6 +9,7 @@
 #include "keyboard.h"
 #include "cpu.h"
 #include "uart.h"
+#include "latency.h"
 
 #define CMOS_IDX  0x70
 #define CMOS_DATA 0x71
@@ -171,6 +172,25 @@ unsigned platform_cpus(void) { return hw_get()->cpus; }
 #include "apic.h"
 static uint64_t apic_timer_rate;       /* калибровка таймера LAPIC (0 - нет) */
 void irqmode_set_apic_rate(uint64_t rate) { apic_timer_rate = rate; }
+
+/* А8: сколько прошло с последнего срока срабатывания таймера LAPIC. Таймер периодический: сроки лежат на сетке с шагом «начальный счёт»,
+   поэтому (начальный - текущий) счёт - это время от срока до чтения, независимо от дрейфа и от того, что делали другие ядра. Если вход
+   в обработчик опоздал больше чем на период, остаётся остаток по модулю периода (такую задержку видит счётчик потерянных тиков, а не мы). */
+int lat_arch_timer_elapsed_ns(uint64_t* ns, uint64_t* period_ns) {
+    static uint64_t mul, for_rate;
+    if (!apic_mode || !apic_timer_rate) return 0;
+    uint32_t ticr = apic_timer_initial_count();
+    if (!ticr) return 0;
+    if (for_rate != apic_timer_rate) {      /* 1e9 * 2^32 / частота счёта: без деления в горячем пути */
+        mul = (1000000000ULL << 32) / apic_timer_rate;      /* 4,3e18 < 2^64 */
+        for_rate = apic_timer_rate;
+    }
+    uint32_t cur = apic_timer_current_count();
+    if (cur > ticr) return 0;               /* счёт не от этого начального значения (таймер перезапускали) */
+    *ns = (uint64_t)(((unsigned __int128)(ticr - cur) * mul) >> 32);
+    *period_ns = (uint64_t)(((unsigned __int128)ticr * mul) >> 32);
+    return 1;
+}
 
 void platform_status(void (*out)(const char*)) {
     char b[24]; int i;
