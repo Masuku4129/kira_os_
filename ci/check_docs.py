@@ -7,7 +7,7 @@
   3. Каждый docs/**/*.md (и корневые .md) упомянут в docs/INDEX.md; ссылки указателя ведут на существующие файлы.
   4. docs/PLAN.md: у каждого пункта есть поля Зачем/Альтернативы/Критерий готовности/Статус/Зависит от,
      статус из допустимого списка, зависимости ссылаются на существующие пункты.
-  5. docs/SYSTEMS.md: у каждой подсистемы шесть полей, пути из «Файлы» существуют, уровень 0..6.
+  5. docs/SYSTEMS.md: у каждой подсистемы шесть полей, пути из «Файлы» существуют, уровень 0..8.
 Выход 0 — всё в порядке, 1 — есть замечания. Никаких сетевых вызовов.
 """
 import datetime
@@ -156,8 +156,8 @@ if os.path.isfile(os.path.join(ROOT, "docs/SYSTEMS.md")):
                 err(f"docs/SYSTEMS.md [{title}]: не заполнено поле «{name}»")
         lv = f.get("Уровень", "")
         m = re.match(r"(\d)", lv)
-        if lv and (not m or int(m.group(1)) > 6):
-            err(f"docs/SYSTEMS.md [{title}]: уровень «{lv}» вне 0..6")
+        if lv and (not m or int(m.group(1)) > 8):
+            err(f"docs/SYSTEMS.md [{title}]: уровень «{lv}» вне 0..8")
         st = f.get("Статус", "")
         if st and not st.startswith(SYS_STATUS):
             err(f"docs/SYSTEMS.md [{title}]: статус должен начинаться с одного из {SYS_STATUS}")
