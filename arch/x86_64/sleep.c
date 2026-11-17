@@ -434,8 +434,17 @@ int platform_sleep(void) {
         ctx_t* ci = S.ctx[i];
         if (!__atomic_load_n(&ci->parked, __ATOMIC_ACQUIRE) && !slept) continue;
         ci->resumed = 0;
-        int ok = smp_tramp_install((uint64_t)(uintptr_t)ci->wake_stack + WAKE_STACK, sleep_wake_entry, i) == 0 && smp_ap_wake(i) == 0;
-        if (ok) { uint64_t end = clock_ns() + 1000000000ull; while (!__atomic_load_n(&ci->resumed, __ATOMIC_ACQUIRE) && clock_ns() < end) cpu_relax(); ok = ci->resumed; }
+        /* Ядро, не отозвавшееся на INIT-SIPI, запускается заново (как делают остальные ОС: сообщение запуска может потеряться,
+           пока ядро выходит из глубокого простоя; на медленной эмуляции окно запуска длиннее). Число попыток записывается в
+           журнал, чтобы редкие повторы были видны, а не скрыты. */
+        int ok = 0, attempt;
+        for (attempt = 1; attempt <= 3 && !ok; attempt++) {
+            ci->resumed = 0;
+            ok = smp_tramp_install((uint64_t)(uintptr_t)ci->wake_stack + WAKE_STACK, sleep_wake_entry, i) == 0 && smp_ap_wake(i) == 0;
+            if (ok) { uint64_t end = clock_ns() + 3000000000ull; while (!__atomic_load_n(&ci->resumed, __ATOMIC_ACQUIRE) && clock_ns() < end) cpu_relax(); ok = ci->resumed; }
+        }
+        attempt--;
+        if (ok && attempt > 1) { uart_print("[KIRA SLEEP] core "); uart_print_dec(i); uart_print(" answered only on attempt "); uart_print_dec((uint64_t)attempt); uart_print(" of 3.\n"); }
         if (ok) back++;
         else {
             lost++;
