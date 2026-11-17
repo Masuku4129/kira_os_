@@ -137,6 +137,7 @@ int main(void)
           ((smmu.evtq_physical & 0x000fffffffffffe0ull) | 8ull));
     CHECK(*(uint32_t *)(registers_page + 0x100a8u) == 0u);
     CHECK(*(uint32_t *)(registers_page + 0x100acu) == 0u);
+    CHECK(*(uint32_t *)(registers_page + 0x0028u) == 0x0d75u);          /* CR1: таблицы и очереди - write-back, внутренне общие (процессор и SMMU видят одни данные) */
 
     /* Hardware with a narrower SID field must not expose unreachable STEs. */
     reset_test_platform();

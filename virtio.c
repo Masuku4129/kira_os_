@@ -291,8 +291,9 @@ int virtio_iommu_check_q(virtio_dev_t* v, uint16_t qidx, int device_writes) {
         seen = iommu_fault_count(v->pci) > before;
         if (!seen) CPU_RELAX();
     }
-    iommu_expect_fault(v->pci, 0);
     virtio_fail(v);                                              /* сброс: устройство больше не обращается к памяти */
+    (void)iommu_fault_poll();                                    /* записи об уже сделанных обращениях (их у устройства может быть несколько) - ещё под «ожидаемым» отказом, а не в журнал */
+    iommu_expect_fault(v->pci, 0);
     pmm_free_contiguous(q.mem_phys, (q.used_off + 6 + 8 * (uint32_t)q.size + 4095) / 4096);
     return seen;
 #endif

@@ -29,6 +29,7 @@
 #include "blk.h"
 #include "vfs.h"
 #include "rng.h"
+#include "iommu.h"
 #include "audio.h"
 #include "spinlock.h"
 #include "usb.h"
@@ -406,6 +407,27 @@ static void cmd_random(const char* a) {
     for (int i = 0; i < 16; i++) { uart_putchar("0123456789abcdef"[b[i] >> 4]); uart_putchar("0123456789abcdef"[b[i] & 15]); }
     uart_print("\n");
 }
+/* Изоляция DMA: какие устройства PCI стоят в своём домене IOMMU (VT-d, AMD-Vi, SMMUv3) и сколько обращений в невыданную память остановлено. */
+static void cmd_dma(const char* a) {
+    (void)a;
+    (void)iommu_fault_poll();
+    uart_print("изоляция DMA: IOMMU "); uart_print(iommu_enabled() ? "включена" : "нет (устройства обращаются к любой памяти)"); uart_print("\n");
+    unsigned iso = 0;
+    for (int i = 0; i < pci_count(); i++) {
+        const pci_dev_t* d = pci_get(i);
+        int on = iommu_device_isolated(d);
+        iso += (unsigned)on;
+        uart_print("  pci "); uart_print_dec(d->bus); uart_print(":"); uart_print_dec(d->dev); uart_print("."); uart_print_dec(d->fn);
+        uart_print(" ");
+        for (int sh = 12; sh >= 0; sh -= 4) uart_putchar("0123456789abcdef"[(d->vendor >> sh) & 15]);
+        uart_print(":");
+        for (int sh = 12; sh >= 0; sh -= 4) uart_putchar("0123456789abcdef"[(d->device >> sh) & 15]);
+        if (on) { uart_print(" изолировано, остановлено обращений "); uart_print_dec(iommu_fault_count(d)); }
+        else uart_print(" без изоляции");
+        uart_print("\n");
+    }
+    uart_print("в своём домене: "); uart_print_dec(iso); uart_print(" из "); uart_print_dec((uint64_t)pci_count()); uart_print("\n");
+}
 static void cmd_poweroff(const char* a) { (void)a; power_prepare(); platform_poweroff(); }
 /* Кнопка питания (ACPI): то же, что команда poweroff. Если выключить не вышло, запрос снимает вызывающий. */
 void console_graceful_poweroff(void) {
@@ -622,6 +644,7 @@ static const cmd_t cmds[] = {
     { "edit",      0,   "приложение Ring 3: текстовый редактор (F2 - сохранить, F3 - другой файл, F4 - новый)", cmd_edit },
     { "record",    0,   "запись со входа звука: record [мс] - уровень", audiocmd_record },
     { "volume",    0,   "громкость звука: volume [0..100]", cmd_volume },
+    { "dma",       0,   "изоляция DMA: какие устройства PCI в своём домене IOMMU и сколько обращений остановлено", cmd_dma },
     { "random",    0,   "генератор случайных чисел: источники и проба", cmd_random },
     { "poweroff",  0,   "выключить машину (опыт и диски сохраняются; ACPI S5 / PSCI)", cmd_poweroff },
     { "acpi",      0,   "ACPI: acpi (сводка: устройства, питание, _PRT), acpi tables, acpi dump dsdt|ssdtN, acpi eval ПУТЬ", cmd_acpi },
