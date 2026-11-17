@@ -25,6 +25,7 @@
 #include "e1000.h"
 #include "virtio_net.h"
 #include "net.h"
+#include "rcon.h"
 #include "hda.h"
 #include "acpi.h"
 #include "hwprofile.h"
@@ -254,6 +255,7 @@ void kernel_main(unsigned long magic, unsigned long addr) {
     virtio_input_init();
     wire_net_probe();   /* сетевая карта: Intel e1000 или virtio-net */         // сетевая карта Intel e1000 (Limbo, QEMU, многие ПК)
     net_start();
+    rcon_init();           // удалённая консоль по TCP: выключена, пока не включена командой rcon on
     if (hda_probe() != 0 && ac97_probe() != 0) sb16_probe();   // звук: Intel HDA, иначе AC'97 (Limbo: Sound ac97), иначе Sound Blaster 16 (ISA)           // стек: ARP, IPv4, ICMP, UDP, DHCP - свой поток   // клавиатура/мышь/планшет virtio (если машина их даёт)     // USB: клавиатуры, мыши, планшеты, хабы, флешки (UHCI, xHCI): свой поток, работает рядом с PS/2
     if (timer_init(TIMER_HZ) != 0)  kernel_panic("Timer initialization failed");
 

@@ -51,6 +51,7 @@
 #include "e1000.h"
 #include "virtio_net.h"
 #include "net.h"
+#include "rcon.h"
 #include "hda.h"
 #include "rtc.h"
 #include "corefault.h"
@@ -1485,6 +1486,7 @@ void arm_main(uint64_t dtb, uint64_t entry_el, uint64_t loader_tag) {
     usb_init();              /* USB: xHCI (клавиатура, мышь, планшет, хабы, флешки) - тот же стек, что у x86-64 */
     wire_net_probe();   /* сетевая карта: Intel e1000 или virtio-net */
     net_start();
+    rcon_init();
     hda_probe();
     kprintf("[KIRA ARM64] Ready. Type a command (help: any unknown word).\n");
 

@@ -526,6 +526,9 @@ $CC $FLAGS -fsanitize=address,undefined -o $T/sb16 tests/sb16_test.c sb16.c
 $T/sb16
 $CC $FLAGS -fsanitize=address,undefined -o $T/net tests/net_test.c net.c
 $T/net
+echo "== remote console (rcon): key derivation, password check, AUTH parsing =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/rcon tests/rcon_test.c rcon.c sha256.c
+$T/rcon
 echo "== IPv4/IPv6 fragment reassembly (all orders, overlaps, duplicates, oversize, TTL, memory limits) =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/ipfrag tests/ipfrag_test.c ipfrag.c
 $T/ipfrag

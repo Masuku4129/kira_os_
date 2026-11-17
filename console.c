@@ -1,5 +1,6 @@
 #include "console.h"
 #include "net.h"
+#include "rcon.h"
 #include "kdrv.h"
 #include "hda.h"
 #include "input.h"
@@ -649,6 +650,7 @@ static const cmd_t cmds[] = {
     { "disk",      0,   "диски (NVMe, SATA, virtio, ATA) и какой из них системный", cmd_disk },
     { "lspci",     0,   "устройства на шине PCI", cmd_lspci },
     { "net",       0,   "сеть: карта, канал, адрес (DHCP), шлюз, счётчики", netcmd_net },
+    { "rcon",      0,   "удалённая консоль по TCP: rcon passwd ПАРОЛЬ | on [порт] | off | status", rconcmd },
     { "ping",      0,   "ping адрес [число]: эхо ICMP, время ответа", netcmd_ping },
     { "ping6",     0,   "ping6 адрес [число]: эхо ICMPv6 (например ping6 fec0::2)", netcmd_ping6 },
     { "sound",     0,   "звук: карта Intel HDA, кодек, путь к выходу", audiocmd_sound },

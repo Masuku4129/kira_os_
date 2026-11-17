@@ -25,6 +25,37 @@ def host_http(port, path):
         return f"[HOST] http {path}: error {e} in {time.time() - t0:.1f} s\n"
 
 
+def host_rcon(port, password, lines, wait=6.0):
+    """Клиент удалённой консоли с хозяина (hostfwd): AUTH, команды, весь ответ - в журнал стенда."""
+    t0 = time.time()
+    out = b""
+    try:
+        c = socket.create_connection(("127.0.0.1", port), timeout=10)
+        c.settimeout(1.0)
+        def rd(sec):
+            nonlocal out
+            end = time.time() + sec
+            while time.time() < end:
+                try:
+                    d = c.recv(4096)
+                except socket.timeout:
+                    continue
+                if not d:
+                    return False
+                out += d
+            return True
+        rd(1.5)
+        c.sendall(b"AUTH " + password.encode() + b"\n")
+        rd(3.0)
+        for ln in lines:
+            c.sendall(ln.encode() + b"\n")
+            rd(wait)
+        c.close()
+    except Exception as e:
+        return f"[HOST] rcon: error {e} in {time.time() - t0:.1f} s\n"
+    return "[HOST] rcon begin\n" + "".join("[RCON] " + l + "\n" for l in out.decode(errors="replace").splitlines()) + "[HOST] rcon end\n"
+
+
 def host_udp(port, msg):
     """Датаграмма с хозяина в гостевую систему (hostfwd udp) и ответ: строка итога для журнала."""
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.settimeout(10)
@@ -520,6 +551,9 @@ def run(sc, args):
             elif "host_http" in st:                   # запрос с хозяина к серверу Киры (hostfwd)
                 port, path = st["host_http"]
                 vm.log += host_http(port, path).encode()
+            elif "host_rcon" in st:                   # удалённая консоль: клиент на хозяине через hostfwd
+                port, pw, cmds = st["host_rcon"]
+                vm.log += host_rcon(port, pw, cmds).encode()
             elif "host_udp" in st:                    # датаграмма с хозяина программе Киры (hostfwd udp)
                 port, msg = st["host_udp"]
                 vm.log += host_udp(port, msg).encode()
