@@ -384,6 +384,7 @@ echo "== KDRV signed-package verification =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/kdrv_sig tests/kdrv_sig_test.c kdrv_sig.c pk.c crypto.c sha256.c
 $T/kdrv_sig
 python3 -m unittest ci.test_kdrvsign
+python3 -m unittest ci.test_latency_check
 
 echo "== доверенная загрузка (А2): подписанный манифест KIRA.SIG - проверка, подмена любого байта, откат версии, формат совместим с tools/kirasig.py =="
 CC=$CC bash tests/bootsig_test.sh
