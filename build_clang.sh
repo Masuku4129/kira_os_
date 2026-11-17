@@ -17,10 +17,10 @@ COMMON="-ffreestanding -fno-omit-frame-pointer -fno-pic -fno-pie -fno-stack-prot
 # поэтому прерванному потоку не нужно сохранять их при входе в прерывание.
 CFLAGS="$COMMON -mno-mmx -mno-sse -mno-sse2 -I. -Iarch/x86_64"
 
-C_SOURCES="syscall.c percpu.c mem.c sched.c console.c kernel.c pmm.c vmm.c heap.c keyboard.c timer.c mind.c mindnet.c wallpaper.c zstd.c cbor.c json.c cas.c sysseal.c mind_sys.c rtc.c watchdog.c immune.c sha256.c uart.c clock.c klog.c bbring.c bbsave.c gfx2d.c font8x16.c fb.c fbcon.c display.c wm.c input.c acpi.c proc.c caps.c elf.c trust.c life.c progs.c fsrv.c ata.c store.c experience.c gfxsrv.c gfxui.c icons.c brainfx.c apps.c explorer.c fm.c dock.c usbhid.c usb.c usbhub.c usbmsc.c uhci.c xhci.c kfs.c fat.c part.c vfs.c ahci.c nvme.c uaccess.c devhealth.c kpar.c fscmd.c buildcmd.c mind_build_core.c mind_build_grant.c pci.c virtio.c virtio_blk.c virtio_gpu.c virtio_input.c e1000.c virtio_net.c net.c ip6.c ipfrag.c rcon.c irqwait.c kdrv.c kdrv_fmt.c kdrv_blk.c hda.c ac97.c sb16.c audio.c blk.c bootmap.c bootinfo.c bootinfo_mb2.c bootinfo_uefi.c mbinfo.c earlycon.c crashdump.c uheap.c userlog.c hwprofile.c ramext.c kmutex.c linebuf.c corefault.c iommu_vtd.c iommu.c iommu_amd.c drivers/iommu/amd_vi.c drivers/iommu/intel_vtd.c drivers/iommu/vtd_domain.c crypto.c pk.c kdrv_sig.c kdrv_state.c rng.c virtio_rng.c scale.c kobj.c fssvc.c ksvc.c gfxctl.c futex.c wx.c framegov.c wire.c usbmsc_fs.c aml.c aml_exec.c acpidev.c"
+C_SOURCES="syscall.c percpu.c mem.c sched.c console.c kernel.c pmm.c vmm.c heap.c keyboard.c timer.c mind.c mindnet.c wallpaper.c zstd.c cbor.c json.c cas.c sysseal.c mind_sys.c rtc.c watchdog.c immune.c sha256.c uart.c clock.c klog.c bbring.c bbsave.c gfx2d.c font8x16.c fb.c fbcon.c display.c wm.c input.c acpi.c proc.c caps.c elf.c trust.c life.c progs.c fsrv.c ata.c store.c experience.c gfxsrv.c gfxui.c icons.c brainfx.c apps.c explorer.c fm.c dock.c usbhid.c usb.c usbhub.c usbmsc.c uhci.c xhci.c kfs.c fat.c part.c vfs.c ahci.c nvme.c uaccess.c devhealth.c kpar.c fscmd.c buildcmd.c mind_build_core.c mind_build_grant.c pci.c virtio.c virtio_blk.c virtio_gpu.c virtio_input.c e1000.c virtio_net.c net.c ip6.c ipfrag.c rcon.c irqwait.c kdrv.c kdrv_fmt.c kdrv_blk.c hda.c ac97.c sb16.c audio.c blk.c bootmap.c bootinfo.c bootinfo_mb2.c bootinfo_uefi.c mbinfo.c earlycon.c crashdump.c uheap.c userlog.c hwprofile.c ramext.c kmutex.c linebuf.c corefault.c iommu_vtd.c iommu.c iommu_amd.c drivers/iommu/amd_vi.c drivers/iommu/intel_vtd.c drivers/iommu/vtd_domain.c crypto.c pk.c kdrv_sig.c kdrv_state.c rng.c virtio_rng.c scale.c kobj.c fssvc.c ksvc.c gfxctl.c futex.c wx.c framegov.c wire.c usbmsc_fs.c aml.c aml_exec.c acpidev.c kptr.c kaslr.c earlymap.c"
 # Код, зависящий от процессора x86-64 (вход в ядро, прерывания, APIC, ядра, FPU, системные вызовы): arch/x86_64
 ARCH=arch/x86_64
-ARCH_SOURCES="$ARCH/gdt.c $ARCH/idt.c $ARCH/pic.c $ARCH/apic.c $ARCH/ioapic.c $ARCH/irqmode.c $ARCH/fpu.c $ARCH/syscall_arch.c $ARCH/exceptions.c $ARCH/smp.c $ARCH/percpu_arch.c $ARCH/proc_arch.c $ARCH/uaccess_arch.c $ARCH/msi_arch.c $ARCH/power.c $ARCH/rng_arch.c $ARCH/acpirt.c $ARCH/acpirt_cmd.c"
+ARCH_SOURCES="$ARCH/gdt.c $ARCH/idt.c $ARCH/pic.c $ARCH/apic.c $ARCH/ioapic.c $ARCH/irqmode.c $ARCH/fpu.c $ARCH/syscall_arch.c $ARCH/exceptions.c $ARCH/smp.c $ARCH/percpu_arch.c $ARCH/proc_arch.c $ARCH/uaccess_arch.c $ARCH/msi_arch.c $ARCH/power.c $ARCH/rng_arch.c $ARCH/acpirt.c $ARCH/acpirt_cmd.c $ARCH/kaslr_arch.c $ARCH/kaslrcmd.c"
 
 echo "[*] Ассемблер..."
 rm -f *.o arch/x86_64/*.o kira.bin
@@ -232,7 +232,21 @@ fi
 OBJ="$OBJ interrupts.o context.o ap_tramp.o uaccess_s.o"
 
 echo "[*] Линковка..."
-ld.lld -T $ARCH/linker.ld -nostdlib -z max-page-size=0x1000 $OBJ -o kira.bin
+# Образ слинкован по фиксированному адресу (ET_EXEC, 1 МБ: так его грузят GRUB, BIOS- и UEFI-загрузчик); для KASLR он при загрузке
+# копирует себя по случайному адресу и исправляет слова с абсолютными адресами по таблице перемещений (секция .kreloc).
+# Таблицу строит tools/mkkreloc.py из перемещений, сохранённых компоновщиком (--emit-relocs). Проход 1: образ с пустой таблицей
+# -> таблица; проход 2: с таблицей (она в самом конце файловой части, адреса остальных секций не меняются) -> проверка, что
+# таблица по-прежнему верна; проход 3: итоговый kira.bin без служебных секций с перемещениями + проверка, что он совпал с проверенным.
+LDK="ld.lld -T $ARCH/linker.ld -nostdlib -z max-page-size=0x1000"
+python3 -c "import struct;open('kreloc.bin','wb').write(struct.pack('<5I',0x434C524B,1,0,0,0))"
+nasm -f elf64 $ARCH/kreloc.s -o kreloc.o
+$LDK --emit-relocs $OBJ kreloc.o -o kira.reloc.elf
+python3 tools/mkkreloc.py build kira.reloc.elf kreloc.bin
+nasm -f elf64 $ARCH/kreloc.s -o kreloc.o
+$LDK --emit-relocs $OBJ kreloc.o -o kira.reloc.elf
+python3 tools/mkkreloc.py check kira.reloc.elf kreloc.bin
+$LDK $OBJ kreloc.o -o kira.bin
+python3 tools/mkkreloc.py same kira.reloc.elf kira.bin
 
 if command -v nasm >/dev/null 2>&1; then
     echo "[*] Собственный BIOS-загрузчик (без GRUB): kira-bios.img"
@@ -245,6 +259,10 @@ if command -v nasm >/dev/null 2>&1; then
     else
         python3 tools/mkbios.py bios-stage1.bin bios-stage2.bin kira.bin kira-bios.img
     fi
+    # Тот же образ с параметром командной строки ядра kira.nokaslr (отключает случайный адрес ядра; сценарий kaslr-off)
+    _ini=()
+    if [[ -n "${KIRA_INITRD:-}" ]]; then _ini=("$KIRA_INITRD"); elif [[ -s "$PWD/initrd.img" ]]; then _ini=("$PWD/initrd.img"); fi
+    KIRA_CMDLINE=kira.nokaslr python3 tools/mkbios.py bios-stage1.bin bios-stage2.bin kira.bin kira-bios-nokaslr.img "${_ini[@]}"
 fi
 
 UEFI_DIR=

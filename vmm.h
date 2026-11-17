@@ -70,6 +70,10 @@ int      vmm_user_range_ok(uint64_t va, uint64_t len, int write);
 // "[KIRA VMM] W^X kernel: ok (...)". vmm_verify_wx - повторный обход таблиц (announce - печатать итог). 0 - нарушений нет.
 int      vmm_enforce_wx(void);
 int      vmm_verify_wx(int announce);
+// Проверка ранней карты (boot.s / earlymap.c) ДО vmm_enforce_wx: W+X-страниц и неверных прав образа быть не должно с самого
+// начала (сообщение "W^X early"). 0 - чисто. vmm_early_wx_state: 0 - не проверялось, 1 - чисто, -1 - были нарушения.
+int      vmm_check_early_wx(void);
+int      vmm_early_wx_state(void);
 // Записываемое окно на страницу, исполняемую по физическому адресу (трамплин AP); 0 - нет места.
 void*    vmm_code_window_open(uint64_t pa);
 void     vmm_code_window_close(void* window);

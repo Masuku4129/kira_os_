@@ -3,6 +3,7 @@
 #include "pmm.h"
 #include "uart.h"
 #include "spinlock.h"
+#include "kptr.h"
 #include "wx.h"
 #include "smp.h"
 
@@ -428,8 +429,17 @@ int vmm_guard_null_page(void) {
     if (!pd) return -1;
 
     uint64_t e = pd[0];
-    if (!(e & PTE_PRESENT) || !(e & PTE_HUGE)) return -1; // ожидаем 2-МБ страницу из boot.s
+    if (!(e & PTE_PRESENT)) return -1;
+    if (!(e & PTE_HUGE)) {
+        // Ранняя карта boot.s уже раздробила первые 2 МБ на 4-КБ страницы с правами по секциям (W^X с первой инструкции):
+        // остаётся только снять отображение страницы 0.
+        uint64_t* pt = (uint64_t*)(uintptr_t)(e & PTE_ADDR);
+        pt[0] = 0;
+        write_cr3(read_cr3());
+        return 0;
+    }
 
+    // Карта без раннего дробления (старые загрузчики): разбиваем первую 2-МБ страницу сами, с теми же адресами и правами.
     uint64_t base = e & 0x000FFFFFFFE00000ULL;
     uint64_t page = pmm_alloc_page();
     if (!page) return -1;
@@ -438,7 +448,7 @@ int vmm_guard_null_page(void) {
     // кроме страницы 0: разыменование NULL теперь даёт #PF, а не молча читает IVT.
     uint64_t* pt = (uint64_t*)(uintptr_t)page;
     for (unsigned i = 0; i < 512; i++) {
-        pt[i] = (base + (uint64_t)i * PAGE_SIZE) | PTE_PRESENT | PTE_WRITE;
+        pt[i] = (base + (uint64_t)i * PAGE_SIZE) | PTE_PRESENT | PTE_WRITE | (e & VMM_NOEXEC);
     }
     pt[0] = 0;
     pd[0] = page | PTE_PRESENT | PTE_WRITE;
@@ -537,10 +547,10 @@ int vmm_verify_wx(int announce) {
     if (wx_scan(&wx_env, (const uint64_t*)(uintptr_t)kernel_root, &l, &st) != 0) {
         if (st.bad_count) {
             uart_print("[KIRA VMM ERROR] W^X violated: "); uart_print_dec(st.bad_count);
-            uart_print(" mapping(s) both writable and executable, first at "); uart_print_hex(st.bad_va); uart_print("\n");
+            uart_print(" mapping(s) both writable and executable, first at "); kptr_print(st.bad_va); uart_print("\n");
         }
         if (!st.layout_ok) {
-            uart_print("[KIRA VMM ERROR] Kernel image page has wrong rights at "); uart_print_hex(st.layout_bad_va); uart_print("\n");
+            uart_print("[KIRA VMM ERROR] Kernel image page has wrong rights at "); kptr_print(st.layout_bad_va); uart_print("\n");
         }
         return -1;
     }
@@ -551,6 +561,27 @@ int vmm_verify_wx(int announce) {
     }
     return 0;
 }
+
+// Проверка ДО vmm_enforce_wx: что оставила ранняя карта (boot.s / earlymap.c) на старте C-кода. Дробить и исправлять она
+// ничего не должна: если здесь нарушения, виновата ранняя карта, а vmm_enforce_wx лишь замаскировал бы их.
+static wx_stats_t early_stats;
+static int early_state;                         // 0 - не проверялось, 1 - чисто, -1 - были нарушения
+int vmm_check_early_wx(void) {
+    wx_layout_t l = wx_layout();
+    int rc = wx_scan(&wx_env, (const uint64_t*)(uintptr_t)kernel_root, &l, &early_stats);
+    early_state = rc == 0 ? 1 : -1;
+    if (rc == 0) {
+        uart_print("[KIRA VMM] W^X early: ok, no W+X page since the first instruction with paging on (text=");
+        uart_print_dec(early_stats.exec_kb); uart_print(" KB ro="); uart_print_dec(early_stats.ro_kb);
+        uart_print(" KB rw="); uart_print_dec(early_stats.rw_kb); uart_print(" KB, checked before vmm_enforce_wx)\n");
+        return 0;
+    }
+    uart_print("[KIRA VMM ERROR] W^X early: the early page map has "); uart_print_dec(early_stats.bad_count);
+    uart_print(" W+X mapping(s), first at "); kptr_print(early_stats.bad_va);
+    uart_print(early_stats.layout_ok ? "\n" : ", and image pages with wrong rights\n");
+    return -1;
+}
+int vmm_early_wx_state(void) { return early_state; }
 
 int vmm_enforce_wx(void) {
     if (!(rdmsr(MSR_EFER) & EFER_NXE) || !(read_cr0() & CR0_WP)) {
