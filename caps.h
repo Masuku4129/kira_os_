@@ -29,8 +29,10 @@ enum {
        регистры, BAR и память устройств; управление драйверами идёт отдельно через FS_OP_DRV_* (только drvget/drvman). */
     CAP_PCILIST   = 1u << 16,
     CAP_JIT       = 1u << 17,   /* окно кода JIT: выдать страницы RW-NX и один раз запечатать их RX (никогда W+X вместе); только интерпретатор wasm */
-    CAP_ALL_      = (1u << 18) - 1,
-    CAP_DRIVER_   = CAP_MMIO | CAP_IRQ | CAP_DMA | CAP_PCIDEV | CAP_NETDEV
+    /* Драйвер Ring 3 отдаёт ядру блочное устройство (диск): кольца запросов в общей памяти, регистрация в blk.c (kdrv_blk.h). Только драйвер. */
+    CAP_BLKDEV    = 1u << 18,
+    CAP_ALL_      = (1u << 19) - 1,
+    CAP_DRIVER_   = CAP_MMIO | CAP_IRQ | CAP_DMA | CAP_PCIDEV | CAP_NETDEV | CAP_BLKDEV
 };
 uint32_t    caps_for_program(const char* name);     /* права доверенной программы; неизвестное имя - 0 */
 const char* caps_bit_name(uint32_t bit);            /* "CAP_NET" и т.д. для журнала */

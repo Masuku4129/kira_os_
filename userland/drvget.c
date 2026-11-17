@@ -237,6 +237,7 @@ static const char *cap_text(u32 c) {
     case CAP_DMA: return "CAP_DMA - получать непрерывную память для обмена устройства с ОЗУ";
     case CAP_PCIDEV: return "CAP_PCIDEV - читать и (частично) писать конфигурацию PCI СВОЕГО устройства";
     case CAP_NETDEV: return "CAP_NETDEV - отдать ядру сетевую карту (кольца кадров)";
+    case CAP_BLKDEV: return "CAP_BLKDEV - отдать ядру диск (кольца запросов и данных)";
     default: return "?";
     }
 }
@@ -709,7 +710,7 @@ static int read_pkg(const char *name, kdrv_header_t *h, kdrv_rec_t *rec, int *sh
 }
 
 static void show_caps(u32 c) {
-    static const struct { u32 b; const char *n; } t[] = { { CAP_MMIO, "MMIO" }, { CAP_IRQ, "IRQ" }, { CAP_DMA, "DMA" }, { CAP_PCIDEV, "PCIDEV" }, { CAP_NETDEV, "NETDEV" } };
+    static const struct { u32 b; const char *n; } t[] = { { CAP_MMIO, "MMIO" }, { CAP_IRQ, "IRQ" }, { CAP_DMA, "DMA" }, { CAP_PCIDEV, "PCIDEV" }, { CAP_NETDEV, "NETDEV" }, { CAP_BLKDEV, "BLKDEV" } };
     for (unsigned i = 0; i < sizeof t / sizeof *t; i++) if (c & t[i].b) sayf(" %s", t[i].n);
     if (!c) say(" -");
 }

@@ -130,6 +130,10 @@ class VM:
         if sc.get("disk_mb"):
             with open(self.disk, "r+b") as f:
                 f.truncate(sc["disk_mb"] * 1024 * 1024)
+        self.spare = os.path.join(out, "spare.img")
+        if sc.get("spare_mb"):                      # второй пустой диск (для драйверов Ring 3): файл из нулей, в extra он подставляется как {spare}
+            with open(self.spare, "wb") as f:
+                f.truncate(sc["spare_mb"] * 1024 * 1024)
         self.ser_path = os.path.join(out, "serial.sock")
         self.qmp_path = os.path.join(out, "qmp.sock")
         for p in (self.ser_path, self.qmp_path):
@@ -174,7 +178,7 @@ class VM:
             a += ["-drive", f"file={d},format=raw,if=none,id=kd0", "-device", "ahci,id=ahci0", "-device", "ide-hd,drive=kd0,bus=ahci0.0"]
         elif disk == "nvme":
             a += ["-drive", f"file={d},format=raw,if=none,id=kd0", "-device", "nvme,drive=kd0,serial=KIRA0001"]
-        a += sc.get("extra", [])
+        a += [x.replace("{spare}", self.spare) for x in sc.get("extra", [])]
         if sc.get("flash"):
             fl = os.path.join(self.out, "flash.img")
             shutil.copyfile(sc["flash"], fl)

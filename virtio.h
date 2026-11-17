@@ -70,6 +70,9 @@ void* virtio_dma_alloc(uint32_t bytes, uint64_t* phys);
 /* Блочное устройство virtio-blk. NULL - такого устройства нет или оно не поднялось. */
 struct blk_dev;
 struct blk_dev* virtio_blk_probe(void);
+/* Устройство PCI, которое взял (или пытался взять) встроенный драйвер virtio-blk; 0 - не искал. Ядро пользуется одним диском virtio-blk: остальные
+   не заняты никем, и kdrv.c отдаёт их драйверам Ring 3 (CAP_BLKDEV). */
+const pci_dev_t* virtio_blk_pci(void);
 
 #ifdef KIRA_HOST_TEST
 uint64_t host_mmio_read(const volatile void* a, int size);

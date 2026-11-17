@@ -8,6 +8,9 @@
 #include "kdrv_sig.h"
 #include "kdrv_trust.h"
 #include "kdrv_state.h"
+#include "kdrv_blk.h"
+#include "blk.h"
+#include "virtio.h"
 #include "kmutex.h"
 #include "pci.h"
 #if defined(__x86_64__)
@@ -36,6 +39,7 @@
 #define MMIO_VA USER_VA(0x0000200000000000ULL)      /* окна драйвера в его адресном пространстве (SHM - ниже, до 0x2000_0000_0000) */
 #define DMA_VA  USER_VA(0x0000280000000000ULL)
 #define NET_VA  USER_VA(0x0000300000000000ULL)
+#define BLK_VA  USER_VA(0x0000380000000000ULL)      /* кольца и буферы диска драйвера (CAP_BLKDEV) */
 #define KDRV_STABLE_TICKS (5 * TIMER_HZ)           /* драйвер новой версии считается успешно запущенным, если проработал столько */
 #define RELEASE_DELAY_TICKS (TIMER_HZ / 10 + 1)     /* 100 мс: запросы устройства, уже ушедшие в шину, успевают закончиться */
 
@@ -65,12 +69,20 @@ typedef struct {
     uint32_t tx_head, rx_tail;       /* свои счётчики ядра: общую память драйвера читаем только как данные */
     irqwait_t net_iw;
     uint64_t net_tx, net_rx, net_bad;
+    /* диск драйвера для blk.c (kdrv_blk.h): кольца в общей памяти, запросы ядро кладёт само, ответы драйвера недоверенные */
+    blk_dev_t bd; char blk_id[12]; uint32_t blk_flags; uint64_t blk_sectors;
+    spinlock_t blk_lk; volatile int blk_alive; volatile uint32_t blk_pending; volatile int blk_reg_pending;
+    kdrv_blkctl_t* bctl; uint64_t blk_pa; uint32_t blk_pages;
+    uint32_t req_head, rsp_tail;     /* свои счётчики ядра: общую память драйвера читаем только как данные */
+    kdrv_blk_track_t trk; irqwait_t blk_iw; kmutex_t blk_mx;   /* blk_mx: одна операция за раз (blk.c и так держит свой замок диска; здесь - и для blk_flush_all) */
+    uint64_t blk_ops, blk_bad;
     uint64_t dead_at;
     int floor_pending; uint64_t started_at;   /* пол версий поднимается, когда драйвер проработал KDRV_STABLE_TICKS */
 } bind_t;
 
 static bind_t binds[KDRV_SLOTS];
 static spinlock_t klock = SPINLOCK_INIT;
+static void blk_reg_run(void);
 static volatile uint32_t ndead;
 
 static void print_bdf(const pci_dev_t* d) {
@@ -96,6 +108,8 @@ static int builtin_owned(const pci_dev_t* d) {
     static const uint16_t e1000[] = { 0x100E, 0x100F, 0x1004, 0x1009, 0x100C, 0x100D, 0x1010, 0x1011, 0x1015, 0x1026, 0x1076, 0x1079, 0x107C, 0x10D3 };
     if (d->class_code == 0x06) return 1;                                              /* мосты: драйверу не отдаются никогда */
     if ((d->header_type & 0x7F) != 0) return 1;                                       /* только обычные устройства */
+    /* Второй и далее virtio-blk: встроенный драйвер берёт один диск (первый), остальные никому не принадлежат - их можно отдать драйверу Ring 3. */
+    if (d->vendor == 0x1AF4 && (d->device == 0x1042 || d->device == 0x1001) && d->class_code == 0x01 && virtio_blk_pci() && d != virtio_blk_pci()) return 0;
     if (d->vendor == 0x1AF4 && d->device >= 0x1000 && d->device <= 0x107F) return 1;  /* virtio */
     if (d->vendor == 0x8086) for (unsigned i = 0; i < sizeof e1000 / sizeof e1000[0]; i++) if (d->device == e1000[i]) return 1;
     if (d->class_code == 0x01 && (d->subclass == 0x01 || d->subclass == 0x06 || d->subclass == 0x08)) return 1;   /* IDE, AHCI, NVMe */
@@ -353,6 +367,8 @@ static void bind_reset(bind_t* b) {
     b->nmap = 0; b->mmio_next = MMIO_VA; b->ndma = 0; b->dma_pages = 0; b->dma_next = DMA_VA;
     b->net_alive = 0; b->ctl = 0; b->net_pa = 0; b->net_pages = 0; b->tx_head = b->rx_tail = 0;
     b->net_tx = b->net_rx = b->net_bad = 0;
+    b->blk_alive = 0; b->blk_pending = 0; b->blk_reg_pending = 0; b->bctl = 0; b->blk_pa = 0; b->blk_pages = 0; b->req_head = b->rsp_tail = 0;
+    b->blk_flags = 0; b->blk_sectors = 0; b->blk_id[0] = 0; b->blk_ops = b->blk_bad = 0; kdrv_blk_track_init(&b->trk);
     b->floor_pending = 0; b->started_at = 0;
 }
 
@@ -504,6 +520,10 @@ void kdrv_proc_gone(uint32_t slot, uint32_t pid) {
     uint64_t f = spin_lock_irqsave(&b->nlk);
     b->net_alive = 0;                               /* карта драйвера для стека: link down, send отказывает, recv пуст */
     spin_unlock_irqrestore(&b->nlk, f);
+    f = spin_lock_irqsave(&b->blk_lk);
+    b->blk_alive = 0;                               /* диск драйвера: операции получают -5, общую память ядро больше не трогает */
+    spin_unlock_irqrestore(&b->blk_lk, f);
+    irqwait_fire(&b->blk_iw);                       /* ядро, ждущее ответа драйвера, просыпается и видит, что драйвера нет */
     uint16_t cmd = quiesce(b->dev);
     b->dead_at = timer_get_ticks();
     f = spin_lock_irqsave(&klock);
@@ -513,19 +533,20 @@ void kdrv_proc_gone(uint32_t slot, uint32_t pid) {
     uart_print("[KIRA DRV] drv-"); uart_print(b->name); uart_print(" (pid "); uart_print_dec(pid); uart_print(") завершён: устройство ");
     print_bdf(b->dev); uart_print(" остановлено (команда PCI "); uart_print_hex(cmd); uart_print(", MSI выключено), DMA ");
     uart_print_dec(b->dma_pages); uart_print(" стр. в "); uart_print_dec(b->ndma); uart_print(" блок(ах) и кольца ");
-    uart_print_dec(b->net_pages); uart_print(" стр. вернутся через 100 мс\n");
+    uart_print_dec(b->net_pages + b->blk_pages); uart_print(" стр. вернутся через 100 мс\n");
 }
 
 static void release(bind_t* b) {
     intx_detach(b);
-    uint32_t got = 0, want = b->dma_pages + b->net_pages;
+    uint32_t got = 0, want = b->dma_pages + b->net_pages + b->blk_pages;
     iommu_unmap_all(b->dev);                       /* сначала закрыть доступ устройства, потом отдавать страницы */
     for (uint32_t i = 0; i < b->ndma; i++) if (pmm_free_contiguous(b->dma[i].pa, b->dma[i].pages) == 0) got += b->dma[i].pages;
     if (b->net_pages && pmm_free_contiguous(b->net_pa, b->net_pages) == 0) got += b->net_pages;
+    if (b->blk_pages && pmm_free_contiguous(b->blk_pa, b->blk_pages) == 0) got += b->blk_pages;
     uart_print("[KIRA DRV] "); uart_print(b->name); uart_print(": возвращено памяти DMA и колец "); uart_print_dec(got); uart_print(" из ");
     uart_print_dec(want); uart_print(" стр., отображений устройства и DMA снято "); uart_print_dec(b->nmap + b->ndma);
     uart_print(got == want ? ", утечек нет\n" : ", УТЕЧКА\n");
-    b->ndma = 0; b->dma_pages = 0; b->net_pages = 0; b->nmap = 0; b->ctl = 0;
+    b->ndma = 0; b->dma_pages = 0; b->net_pages = 0; b->blk_pages = 0; b->nmap = 0; b->ctl = 0; b->bctl = 0;
     uint64_t f = spin_lock_irqsave(&klock);
     b->state = B_FREE;                              /* устройство снова можно отдать драйверу */
     spin_unlock_irqrestore(&klock, f);
@@ -600,6 +621,7 @@ void kdrv_poll(void) {
     if (!scanned) { scanned = 1; scan(); }
     else if (__atomic_exchange_n(&rescan_req, 0, __ATOMIC_ACQ_REL)) scan();               /* drvget установил пакет */
     ctl_run();                                                                             /* окно «Драйверы»: запуск и остановка по просьбе */
+    blk_reg_run();                                                                         /* диски драйверов: заводятся здесь, когда драйвер уже обслуживает кольца */
     floor_commit_due();
     if (!__atomic_load_n(&ndead, __ATOMIC_ACQUIRE)) return;
     for (unsigned i = 0; i < KDRV_SLOTS; i++) {
@@ -700,6 +722,190 @@ static int64_t sys_netdev(bind_t* b, uint64_t op, uint64_t a1) {
     proc_space_unlock();
     if (rc > 0 && !b->nd_registered) { b->nd_registered = 1; net_register(&b->nd); }   /* последним: сетевой поток начнёт работать сразу */
     return rc;
+}
+
+/* ---- диск драйвера: кольца запросов в общей памяти (kdrv_blk.h) ---- */
+#define BLK_TIMEOUT_MS 10000u                      /* драйвер не ответил за это время: он завис, диск отключается, драйвер останавливается */
+
+static void blk_copy(void* d, const void* s, uint32_t n) {
+    uint8_t* a = (uint8_t*)d; const uint8_t* b = (const uint8_t*)s;
+    while (n >= 8 && !(((uintptr_t)a | (uintptr_t)b) & 7)) { *(volatile uint64_t*)a = *(const volatile uint64_t*)b; a += 8; b += 8; n -= 8; }
+    while (n--) *a++ = *b++;
+}
+static uint8_t* blk_slot_data(kdrv_blkctl_t* c, unsigned slot) { return (uint8_t*)c + KDRV_BLK_DATA_OFF + (uint64_t)slot * KDRV_BLK_SLOT_BYTES; }
+
+static int blk_lock(bind_t* b) {
+    if (sched_can_sleep()) { kmutex_lock(&b->blk_mx); return 0; }
+    blk_wait_t w; blk_wait_begin(&w, 2000);          /* выключение: спать нельзя, ждём короткое время */
+    while (!kmutex_trylock(&b->blk_mx)) if (!blk_wait_step(&w)) return -4;
+    return 0;
+}
+
+/* Одна операция над диском драйвера. Большая передача режется на куски по буферам данных, до KDRV_BLK_SLOTS кусков одновременно в полёте.
+   Всё, что пришло из общей памяти (head колец, номера и статусы ответов), недоверенно: head вне кольца - пересинхронизация, ответ с неизвестным
+   номером - отброшен и посчитан, статус - только «0 или ошибка». Общая память трогается только под blk_lk и только пока драйвер жив:
+   гибель драйвера (kdrv_proc_gone) берёт тот же замок, а страницы возвращаются не раньше чем через 100 мс. */
+static int bd_xfer(bind_t* b, uint32_t op, uint64_t lba, uint32_t count, void* rbuf, const void* wbuf) {
+    if (!__atomic_load_n(&b->blk_alive, __ATOMIC_ACQUIRE)) return -5;
+    if (op == KDRV_BLK_OP_WRITE && (b->blk_flags & KDRV_BLK_F_RO)) return -6;
+    if (op == KDRV_BLK_OP_FLUSH && !(b->blk_flags & KDRV_BLK_F_FLUSH)) return 0;          /* кэша записи нет: запись уже долговечна */
+    if (op != KDRV_BLK_OP_FLUSH) {
+        if (lba > b->blk_sectors || count > b->blk_sectors - lba) return -1;                /* выход за границы: драйвер этого не увидит */
+        if (count == 0) return 0;
+    }
+    if (blk_lock(b)) return -4;
+    uint64_t next = lba, end = lba + count;
+    const uint8_t* wp = (const uint8_t*)wbuf; uint8_t* rp = (uint8_t*)rbuf;
+    uint8_t* prb[KDRV_BLK_SLOTS]; uint32_t pn[KDRV_BLK_SLOTS];
+    for (unsigned i = 0; i < KDRV_BLK_SLOTS; i++) { prb[i] = 0; pn[i] = 0; }
+    int err = 0, flush_posted = 0;
+    blk_wait_t w; blk_wait_begin(&w, BLK_TIMEOUT_MS); blk_wait_irq(&w, &b->blk_iw);
+    for (;;) {
+        int posted = 0, finished = 0;
+        uint64_t f = spin_lock_irqsave(&b->blk_lk);
+        if (!b->blk_alive || !b->bctl) { spin_unlock_irqrestore(&b->blk_lk, f); err = -5; break; }
+        kdrv_blkctl_t* c = b->bctl;
+        uint32_t head = __atomic_load_n(&c->rsp_head, __ATOMIC_ACQUIRE);
+        int av = kdrv_blk_ring_avail(head, b->rsp_tail, KDRV_BLK_SLOTS);
+        if (av < 0) { b->blk_bad++; b->rsp_tail = head; __atomic_store_n(&c->rsp_tail, head, __ATOMIC_RELEASE); av = 0; }      /* head вне кольца: драйвер врёт */
+        while (av-- > 0) {
+            volatile kdrv_blkrsp_t* rs = &c->rsp[b->rsp_tail % KDRV_BLK_SLOTS];
+            uint32_t rid = rs->id; int32_t rst = rs->status;                          /* один раз: дальше пользуемся копией */
+            b->rsp_tail++;
+            __atomic_store_n(&c->rsp_tail, b->rsp_tail, __ATOMIC_RELEASE);
+            int sl = kdrv_blk_track_complete(&b->trk, rid);
+            if (sl < 0) { b->blk_bad++; continue; }                                   /* такого запроса в полёте нет */
+            if (rst != 0) { if (!err) err = -3; }
+            else if (prb[sl]) blk_copy(prb[sl], blk_slot_data(c, (unsigned)sl), pn[sl] * KDRV_BLK_SECTOR);
+            prb[sl] = 0;
+        }
+        while (!err && b->trk.inflight < KDRV_BLK_SLOTS) {
+            kdrv_blkreq_t q; uint8_t* z = (uint8_t*)&q; for (unsigned i = 0; i < sizeof q; i++) z[i] = 0;
+            uint32_t n = 0;
+            if (op == KDRV_BLK_OP_FLUSH) { if (flush_posted) break; q.op = KDRV_BLK_OP_FLUSH; }
+            else {
+                if (next >= end) break;
+                n = end - next > KDRV_BLK_SLOT_SECTORS ? KDRV_BLK_SLOT_SECTORS : (uint32_t)(end - next);
+                q.op = op; q.lba = next; q.count = n;
+            }
+            uint32_t rt = __atomic_load_n(&c->req_tail, __ATOMIC_ACQUIRE);
+            if (b->req_head - rt >= KDRV_BLK_SLOTS) { if (b->req_head - rt > KDRV_BLK_SLOTS) b->blk_bad++; break; }   /* кольцо запросов полно (или tail вне кольца) */
+            uint32_t id;
+            int sl = kdrv_blk_track_alloc(&b->trk, &id);
+            if (sl < 0) break;
+            q.id = id; q.slot = (uint32_t)sl;
+            if (kdrv_blk_req_check(&q, b->blk_sectors, b->blk_flags) != KDRV_BLK_OK) { (void)kdrv_blk_track_complete(&b->trk, id); err = -1; break; }   /* страховка: ядро само не шлёт плохих запросов */
+            if (op == KDRV_BLK_OP_WRITE) { blk_copy(blk_slot_data(c, (unsigned)sl), wp, n * KDRV_BLK_SECTOR); wp += (uint64_t)n * KDRV_BLK_SECTOR; }
+            prb[sl] = op == KDRV_BLK_OP_READ ? rp : 0; pn[sl] = n;
+            if (op == KDRV_BLK_OP_READ) rp += (uint64_t)n * KDRV_BLK_SECTOR;
+            volatile kdrv_blkreq_t* slot = &c->req[b->req_head % KDRV_BLK_SLOTS];
+            slot->id = q.id; slot->op = q.op; slot->lba = q.lba; slot->count = q.count; slot->slot = q.slot; slot->pad = 0;
+            b->req_head++;
+            __atomic_store_n(&c->req_head, b->req_head, __ATOMIC_RELEASE);
+            posted = 1; next += n; if (op == KDRV_BLK_OP_FLUSH) flush_posted = 1;
+        }
+        finished = b->trk.inflight == 0 && (err || (op == KDRV_BLK_OP_FLUSH ? flush_posted : next >= end));
+        spin_unlock_irqrestore(&b->blk_lk, f);
+        if (posted) { b->blk_ops++; __atomic_store_n(&b->blk_pending, 1, __ATOMIC_RELEASE); irqwait_fire(&b->iw); }   /* звонок драйверу */
+        if (finished) break;
+        if (!blk_wait_step(&w)) {                                                     /* драйвер не ответил в срок */
+            f = spin_lock_irqsave(&b->blk_lk);
+            b->blk_alive = 0;
+            spin_unlock_irqrestore(&b->blk_lk, f);
+            uart_print("[KIRA DRV] drv-"); uart_print(b->name); uart_print(": диск "); uart_print(b->blk_id); uart_print(" - драйвер не ответил за ");
+            uart_print_dec(BLK_TIMEOUT_MS / 1000); uart_print(" с, диск отключён, драйвер останавливается\n");
+            proc_kill(b->pid);
+            err = -4;
+            break;
+        }
+    }
+    kmutex_unlock(&b->blk_mx);
+    return err;
+}
+
+static int bd_read(blk_dev_t* d, uint64_t lba, uint32_t n, void* buf) { return bd_xfer((bind_t*)d->priv, KDRV_BLK_OP_READ, lba, n, buf, 0); }
+static int bd_write(blk_dev_t* d, uint64_t lba, uint32_t n, const void* buf) { return bd_xfer((bind_t*)d->priv, KDRV_BLK_OP_WRITE, lba, n, 0, buf); }
+static int bd_flush(blk_dev_t* d) { return bd_xfer((bind_t*)d->priv, KDRV_BLK_OP_FLUSH, 0, 0, 0, 0); }
+
+static void deny_note(bind_t* b, const char* what, uint64_t v);
+
+static int64_t sys_blkdev(bind_t* b, uint64_t op, uint64_t a1) {
+    if (op == KDRV_BLK_KICK) {
+        if (!__atomic_load_n(&b->blk_alive, __ATOMIC_ACQUIRE)) return KE_NOENT;
+        irqwait_fire(&b->blk_iw);                                                    /* ответы лежат в кольце rsp: ядро, ждущее ответа, проснётся */
+        return 0;
+    }
+    if (op != KDRV_BLK_REGISTER) return KE_ARG;
+    kdrv_blkreg_t r;
+    if (copy_from_user(&r, a1, sizeof r) != 0) return KE_ARG;
+    int e = kdrv_blk_reg_check(&r);
+    if (e != KDRV_BLK_OK) { deny_note(b, "регистрация диска с неверными параметрами, код", (uint64_t)(-e)); return KE_ARG; }
+    if (b->bctl) return KE_EXIST;                                                    /* один диск на драйвер */
+    if (blk_r3_check(r.name, r.sectors) != 0) return KE_EXIST;                       /* имя занято другим диском или диск с этим именем был другой ёмкости */
+    for (unsigned i = 0; i < KDRV_SLOTS; i++) {
+        bind_t* o = &binds[i];
+        if (o != b && o->blk_alive && streq(o->blk_id, r.name)) return KE_EXIST;      /* имя занято живым драйвером */
+    }
+    int dma = (b->granted & CAP_DMA) != 0;
+    uint32_t pages = KDRV_BLK_BYTES / 4096;
+    uint64_t data_bytes = (uint64_t)KDRV_BLK_SLOTS * KDRV_BLK_SLOT_BYTES;
+    proc_space_lock();
+    int64_t rc = 0;
+    uint64_t pa = dma && r.dma_bits ? pmm_alloc_contiguous_below(pages, 1ull << r.dma_bits) : pmm_alloc_contiguous(pages);
+    if (!pa) rc = KE_NOMEM;
+    if (!rc && dma) {                                                                /* устройству нужен тот же адрес, что виден процессору, и в пределах его шины */
+        uint64_t t;
+        if (vmm_translate(pa, &t) != 0 || t != pa || vmm_translate(pa + (uint64_t)(pages - 1) * 4096, &t) != 0 || t != pa + (uint64_t)(pages - 1) * 4096) rc = KE_NOMEM;
+        else if (r.dma_bits && pa + (uint64_t)pages * 4096 > (1ull << r.dma_bits)) rc = KE_NOMEM;
+        if (rc) { pmm_free_contiguous(pa, pages); pa = 0; }
+    }
+    int iommu = 0;
+    if (!rc) {
+        uint8_t* z = (uint8_t*)(uintptr_t)pa;
+        for (uint64_t i = 0; i < (uint64_t)pages * 4096; i++) z[i] = 0;               /* чужих данных драйвер не получит */
+        kdrv_blkctl_t* c = (kdrv_blkctl_t*)(uintptr_t)pa;
+        c->slots = KDRV_BLK_SLOTS; c->slot_sectors = KDRV_BLK_SLOT_SECTORS; c->flags = r.flags; c->sector_size = r.sector_size; c->sectors = r.sectors;
+        c->data_phys = dma ? pa + KDRV_BLK_DATA_OFF : 0;                              /* адрес для устройства - только у драйвера с CAP_DMA */
+        iommu = dma && iommu_device_isolated(b->dev);
+        /* Устройство в своём домене VT-d видит только буферы данных: страница с кольцами ему закрыта. */
+        if (iommu && iommu_map(b->dev, pa + KDRV_BLK_DATA_OFF, pa + KDRV_BLK_DATA_OFF, data_bytes, IOMMU_R | IOMMU_W) != 0) { pmm_free_contiguous(pa, pages); rc = KE_NOMEM; }
+        else if (proc_map_phys(BLK_VA, pa, pages, VMM_WRITE | VMM_NOEXEC) != 0) {
+            if (iommu) iommu_unmap(b->dev, pa + KDRV_BLK_DATA_OFF, data_bytes);
+            pmm_free_contiguous(pa, pages); rc = KE_NOMEM;
+        }
+    }
+    if (!rc) {
+        uint64_t f = spin_lock_irqsave(&b->blk_lk);
+        b->bctl = (kdrv_blkctl_t*)(uintptr_t)pa; b->blk_pa = pa; b->blk_pages = pages;
+        b->req_head = 0; b->rsp_tail = 0; kdrv_blk_track_init(&b->trk);
+        b->blk_flags = r.flags; b->blk_sectors = r.sectors;
+        for (unsigned i = 0; i < sizeof b->blk_id; i++) b->blk_id[i] = r.name[i];
+        b->blk_alive = 1;
+        spin_unlock_irqrestore(&b->blk_lk, f);
+        b->bd.sectors = r.sectors; b->bd.read = bd_read; b->bd.write = bd_write; b->bd.flush = bd_flush; b->bd.priv = b;
+        const char* pre = "Ring 3 drv-"; unsigned k = 0;
+        for (; pre[k]; k++) b->bd.name[k] = pre[k];
+        for (unsigned i = 0; b->name[i] && k < sizeof b->bd.name - 1; i++) b->bd.name[k++] = b->name[i];
+        b->bd.name[k] = 0;
+        rc = (int64_t)BLK_VA;
+    }
+    proc_space_unlock();
+    if (rc > 0) __atomic_store_n(&b->blk_reg_pending, 1, __ATOMIC_RELEASE);          /* в blk.c диск заведёт основной цикл: драйвер к тому времени уже ждёт запросов */
+    return rc;
+}
+
+static void blk_reg_run(void) {
+    for (unsigned i = 0; i < KDRV_SLOTS; i++) {
+        bind_t* b = &binds[i];
+        if (b->state != B_RUN || !__atomic_load_n(&b->blk_reg_pending, __ATOMIC_ACQUIRE)) continue;
+        if (!__atomic_exchange_n(&b->blk_reg_pending, 0, __ATOMIC_ACQ_REL)) continue;
+        blk_dev_t* pub = blk_register_r3(&b->bd, b->blk_id, b->bd.name);
+        uart_print("[KIRA DRV] "); uart_print(b->name);
+        if (!pub) { uart_print(": диск "); uart_print(b->blk_id); uart_print(" не заведён в blk.c (имя занято или список дисков полон)\n"); continue; }
+        uart_print(": диск "); uart_print(b->blk_id); uart_print(" заведён в blk.c: "); uart_print_dec(b->blk_sectors); uart_print(" секторов по ");
+        uart_print_dec(KDRV_BLK_SECTOR); uart_print(" Б"); uart_print(b->blk_flags & KDRV_BLK_F_RO ? ", только чтение" : ""); uart_print(", кольца ");
+        uart_print_dec(b->blk_pages); uart_print(" стр.\n");
+    }
 }
 
 /* ---- политика записи в конфигурацию ---- */
@@ -850,9 +1056,10 @@ static int64_t sys_irq_wait(bind_t* b, uint64_t t10) {
         uint32_t ev = 0;
         if (b->irq_on && __atomic_load_n(&b->irq_count, __ATOMIC_ACQUIRE) != b->irq_seen) { b->irq_seen = __atomic_load_n(&b->irq_count, __ATOMIC_ACQUIRE); ev |= KDRV_EV_IRQ; }
         if (__atomic_exchange_n(&b->tx_pending, 0, __ATOMIC_ACQ_REL)) ev |= KDRV_EV_TX;
+        if (__atomic_exchange_n(&b->blk_pending, 0, __ATOMIC_ACQ_REL)) ev |= KDRV_EV_BLK;
         if (ev) { rc = ev; break; }
         if (proc_dying()) { rc = KE_INTR; break; }
-        if (!b->irq_on && !b->net_alive && !(b->granted & CAP_NETDEV)) { rc = KE_NOENT; break; }   /* ждать нечего: у устройства нет прерывания */
+        if (!b->irq_on && !b->net_alive && !(b->granted & (CAP_NETDEV | CAP_BLKDEV))) { rc = KE_NOENT; break; }   /* ждать нечего: у устройства нет прерывания */
         uint64_t now = timer_get_ticks();
         if (now >= until) { rc = KE_TIMEOUT; break; }
         uint64_t left = until == ~0ULL ? 25 : until - now;
@@ -939,6 +1146,7 @@ int64_t kdrv_sys(unsigned nr, uint64_t a1, uint64_t a2, uint64_t a3) {
     case KDRV_SYS_IO: return sys_io(b, a1, a2, a3);
     case KDRV_SYS_IRQ_WAIT: return sys_irq_wait(b, a1);
     case KDRV_SYS_NETDEV: return sys_netdev(b, a1, a2);
+    case KDRV_SYS_BLKDEV: return sys_blkdev(b, a1, a2);
     default: return KE_ARG;
     }
 }
@@ -973,6 +1181,7 @@ static void show(void) {
         uart_print(", DMA "); uart_print_dec(b->dma_pages); uart_print(" стр., отображений "); uart_print_dec(b->nmap);
         uart_print(", прерываний "); uart_print_dec(b->irq_count);
         if (b->nd_registered) { uart_print(", карта: передано "); uart_print_dec(b->net_tx); uart_print(", принято "); uart_print_dec(b->net_rx); uart_print(", битых "); uart_print_dec(b->net_bad); }
+        if (b->blk_id[0]) { uart_print(", диск "); uart_print(b->blk_id); uart_print(": запросов "); uart_print_dec(b->blk_ops); uart_print(", битых ответов "); uart_print_dec(b->blk_bad); }
         uart_print("\n");
     }
     if (!used) uart_print("  драйверам Ring 3 устройства пока не отданы\n");

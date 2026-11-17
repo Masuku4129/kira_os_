@@ -139,8 +139,9 @@ static uint32_t cap_needed(uint64_t nr) {
     case KDRV_SYS_CFG_READ: case KDRV_SYS_CFG_WRITE: return CAP_PCIDEV;
     case KDRV_SYS_MMIO_MAP: case KDRV_SYS_IO: return CAP_MMIO;
     case KDRV_SYS_DMA_ALLOC: return CAP_DMA;
-    case KDRV_SYS_IRQ_WAIT: return CAP_IRQ | CAP_NETDEV;          /* ждать звонка: прерывание устройства или кольцо передачи карты */
+    case KDRV_SYS_IRQ_WAIT: return CAP_IRQ | CAP_NETDEV | CAP_BLKDEV;   /* ждать звонка: прерывание устройства, кольцо передачи карты или запросов диска */
     case KDRV_SYS_NETDEV: return CAP_NETDEV;
+    case KDRV_SYS_BLKDEV: return CAP_BLKDEV;
     case KDRV_SYS_PCILIST: return CAP_PCILIST;                    /* окно «Драйверы»: список PCI только для чтения */
     default: return 0;                  /* SYS_FS проверяется по операции в fsrv_syscall */
     }
@@ -318,7 +319,7 @@ static uint64_t dispatch(uint64_t nr, uint64_t a1, uint64_t a2, uint64_t a3) {
         return copy_to_user(a1, s, len + 1) ? (uint64_t)-10 : len;
     }
     case KDRV_SYS_INFO: case KDRV_SYS_CFG_READ: case KDRV_SYS_CFG_WRITE: case KDRV_SYS_MMIO_MAP: case KDRV_SYS_DMA_ALLOC:
-    case KDRV_SYS_IRQ_WAIT: case KDRV_SYS_NETDEV: case KDRV_SYS_PCILIST: case KDRV_SYS_IO:
+    case KDRV_SYS_IRQ_WAIT: case KDRV_SYS_NETDEV: case KDRV_SYS_PCILIST: case KDRV_SYS_IO: case KDRV_SYS_BLKDEV:
         return (uint64_t)kdrv_sys((unsigned)nr, a1, a2, a3);
     default:
         return (uint64_t)-1;

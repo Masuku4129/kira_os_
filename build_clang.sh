@@ -17,7 +17,7 @@ COMMON="-ffreestanding -fno-omit-frame-pointer -fno-pic -fno-pie -fno-stack-prot
 # поэтому прерванному потоку не нужно сохранять их при входе в прерывание.
 CFLAGS="$COMMON -mno-mmx -mno-sse -mno-sse2 -I. -Iarch/x86_64"
 
-C_SOURCES="syscall.c percpu.c mem.c sched.c console.c kernel.c pmm.c vmm.c heap.c keyboard.c timer.c mind.c mindnet.c mind_sys.c rtc.c watchdog.c immune.c sha256.c uart.c clock.c klog.c gfx2d.c font8x16.c fb.c fbcon.c display.c wm.c input.c acpi.c proc.c caps.c elf.c trust.c life.c progs.c fsrv.c ata.c store.c experience.c gfxsrv.c gfxui.c icons.c brainfx.c apps.c explorer.c fm.c dock.c usbhid.c usb.c usbhub.c usbmsc.c uhci.c xhci.c kfs.c fat.c part.c vfs.c ahci.c nvme.c uaccess.c devhealth.c kpar.c fscmd.c buildcmd.c mind_build_core.c mind_build_grant.c pci.c virtio.c virtio_blk.c virtio_gpu.c virtio_input.c e1000.c virtio_net.c net.c ip6.c ipfrag.c irqwait.c kdrv.c kdrv_fmt.c hda.c ac97.c sb16.c audio.c blk.c bootmap.c bootinfo.c bootinfo_mb2.c bootinfo_uefi.c mbinfo.c earlycon.c crashdump.c uheap.c userlog.c hwprofile.c ramext.c kmutex.c linebuf.c corefault.c iommu_vtd.c iommu.c drivers/iommu/intel_vtd.c drivers/iommu/vtd_domain.c crypto.c pk.c kdrv_sig.c kdrv_state.c rng.c virtio_rng.c scale.c kobj.c futex.c wx.c framegov.c"
+C_SOURCES="syscall.c percpu.c mem.c sched.c console.c kernel.c pmm.c vmm.c heap.c keyboard.c timer.c mind.c mindnet.c mind_sys.c rtc.c watchdog.c immune.c sha256.c uart.c clock.c klog.c gfx2d.c font8x16.c fb.c fbcon.c display.c wm.c input.c acpi.c proc.c caps.c elf.c trust.c life.c progs.c fsrv.c ata.c store.c experience.c gfxsrv.c gfxui.c icons.c brainfx.c apps.c explorer.c fm.c dock.c usbhid.c usb.c usbhub.c usbmsc.c uhci.c xhci.c kfs.c fat.c part.c vfs.c ahci.c nvme.c uaccess.c devhealth.c kpar.c fscmd.c buildcmd.c mind_build_core.c mind_build_grant.c pci.c virtio.c virtio_blk.c virtio_gpu.c virtio_input.c e1000.c virtio_net.c net.c ip6.c ipfrag.c irqwait.c kdrv.c kdrv_fmt.c kdrv_blk.c hda.c ac97.c sb16.c audio.c blk.c bootmap.c bootinfo.c bootinfo_mb2.c bootinfo_uefi.c mbinfo.c earlycon.c crashdump.c uheap.c userlog.c hwprofile.c ramext.c kmutex.c linebuf.c corefault.c iommu_vtd.c iommu.c drivers/iommu/intel_vtd.c drivers/iommu/vtd_domain.c crypto.c pk.c kdrv_sig.c kdrv_state.c rng.c virtio_rng.c scale.c kobj.c futex.c wx.c framegov.c"
 # Код, зависящий от процессора x86-64 (вход в ядро, прерывания, APIC, ядра, FPU, системные вызовы): arch/x86_64
 ARCH=arch/x86_64
 ARCH_SOURCES="$ARCH/gdt.c $ARCH/idt.c $ARCH/pic.c $ARCH/apic.c $ARCH/ioapic.c $ARCH/irqmode.c $ARCH/fpu.c $ARCH/syscall_arch.c $ARCH/exceptions.c $ARCH/smp.c $ARCH/percpu_arch.c $ARCH/proc_arch.c $ARCH/uaccess_arch.c $ARCH/msi_arch.c $ARCH/power.c $ARCH/rng_arch.c"
@@ -132,6 +132,11 @@ if [ "$RELEASE" != 1 ]; then
     $CC $UCFLAGS -I. -Iuserland -c userland/drvne2kio.c -o userland/drvne2kio.o
     ld.lld $ULINK -o userland/drvne2kio.elf userland/drvne2kio.o
     tools/mkdrv_pkg.sh kira.disk ne2kio userland/drvne2kio.elf 10ec:8029 mmio,pcidev "$HOSTCC"
+    # Диск virtio-blk в Ring 3 (CAP_BLKDEV): второй диск машины, который ядро не берёт; vblknc - тот же ELF без права диска (отказ обязан сработать). Порядок важен: vblk первым.
+    $CC $UCFLAGS -I. -Iuserland -c userland/drvvblk.c -o userland/drvvblk.o
+    ld.lld $ULINK -o userland/drvvblk.elf userland/drvvblk.o
+    tools/mkdrv_pkg.sh kira.disk vblk userland/drvvblk.elf 1af4:1042,1af4:1001 mmio,pcidev,dma,irq,blkdev "$HOSTCC"
+    tools/mkdrv_pkg.sh kira.disk vblknc userland/drvvblk.elf 1af4:1042,1af4:1001 mmio,pcidev,dma,irq "$HOSTCC"
     # Драйвер BSD из корпуса OpenBSD через слой совместимости (docs/BSD_COMPAT.md): NE2000/RTL8029 - карта ne2k_pci QEMU
     if tools/bsd_build.sh ne2k ne ne_pci_ca build-bsd/ne2k.elf dev/ic/dp8390.c dev/ic/ne2000.c dev/ic/rtl80x9.c dev/pci/if_ne_pci.c; then
         tools/mkdrv_pkg.sh kira.disk bsdne build-bsd/ne2k.elf 10ec:8029 mmio,pcidev,netdev,irq "$HOSTCC"

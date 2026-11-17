@@ -107,6 +107,7 @@ kapi kstack.h
 2 fb.*
 2 fbpix.*
 2 kdrv.*
+2 kdrv_blk.*
 5 mind*
 5 devhealth.*
 5 experience.*

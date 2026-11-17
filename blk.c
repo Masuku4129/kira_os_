@@ -10,6 +10,7 @@
 #include "sched.h"
 #include "msi.h"
 #include "iommu.h"
+#include "heap.h"
 
 /* Диски системы. Порядок опроса: virtio-blk (виртуальные машины), NVMe, AHCI (SATA), и только если на шине есть
    IDE-контроллер (или PCI нет вообще) - ATA PIO по старым портам: в режиме AHCI те же диски через порты не видны,
@@ -25,6 +26,7 @@ typedef struct {
     blk_dev_t* raw;              /* драйвер */
     kmutex_t mx;
     blk_info_t info;
+    int r3;                      /* диск драйвера Ring 3 (kdrv.c): слот остаётся после гибели драйвера, новый драйвер с тем же именем занимает его заново */
 } slot_t;
 static slot_t slots[BLK_MAX];
 static int nslots;
@@ -110,17 +112,55 @@ static void classify(slot_t* s) {
         for (int i = 0; i < BLK_SECTOR; i++) if (sec[k][i]) { s->info.foreign = 1; break; }
 }
 
-void blk_register(blk_dev_t* raw, const char* id, const char* model) {
-    if (nslots >= BLK_MAX || !raw || raw->sectors == 0) return;
-    slot_t* s = &slots[nslots++];
+/* Слот заполняется целиком и только потом становится виден (nslots): диски Ring 3 заводятся во время работы, читатели списка без замка. */
+static int register_slot(blk_dev_t* raw, const char* id, const char* model, int r3, blk_dev_t** out) {
+    int n = __atomic_load_n(&nslots, __ATOMIC_ACQUIRE);
+    if (n >= BLK_MAX || !raw || raw->sectors == 0) return -1;
+    slot_t* s = &slots[n];
     s->raw = raw;
     s->pub = *raw;
     s->pub.read = g_read; s->pub.write = g_write; s->pub.flush = g_flush; s->pub.priv = s;
     s->mx = (kmutex_t)KMUTEX_INIT;
     s->info.dev = &s->pub;
+    s->r3 = r3;
     scopy(s->info.id, id, sizeof s->info.id);
     scopy(s->info.model, model, sizeof s->info.model);
-    classify(s);
+    classify(s);                                  /* для диска Ring 3 читает через драйвер: драйвер к этому моменту обязан обслуживать кольца */
+    __atomic_store_n(&nslots, n + 1, __ATOMIC_RELEASE);
+    if (out) *out = &s->pub;
+    return 0;
+}
+
+void blk_register(blk_dev_t* raw, const char* id, const char* model) { (void)register_slot(raw, id, model, 0, 0); }
+
+static slot_t* find_slot_by_id(const char* id) {
+    int n = __atomic_load_n(&nslots, __ATOMIC_ACQUIRE);
+    for (int i = 0; i < n; i++) {
+        const char* a = slots[i].info.id; int k = 0;
+        while (a[k] && a[k] == id[k]) k++;
+        if (!a[k] && !id[k]) return &slots[i];
+    }
+    return 0;
+}
+
+int blk_r3_check(const char* id, uint64_t sectors) {
+    slot_t* s = find_slot_by_id(id);
+    if (!s) return 0;
+    if (!s->r3) return -1;                         /* имя занято встроенным драйвером или чужим диском */
+    return s->pub.sectors == sectors ? 0 : -2;     /* прежний диск с этим именем другой ёмкости: на нём могла быть смонтирована ФС */
+}
+
+blk_dev_t* blk_register_r3(blk_dev_t* raw, const char* id, const char* model) {
+    slot_t* s = find_slot_by_id(id);
+    if (s) {                                       /* драйвер перезапущен: диск тот же, меняется только «провод» к нему */
+        if (!s->r3 || s->pub.sectors != raw->sectors) return 0;
+        kmutex_lock(&s->mx);
+        s->raw = raw;
+        kmutex_unlock(&s->mx);
+        return &s->pub;
+    }
+    blk_dev_t* pub = 0;
+    return register_slot(raw, id, model, 1, &pub) == 0 ? pub : 0;
 }
 
 #if defined(__x86_64__)
@@ -159,8 +199,8 @@ void blk_probe(void) {
     }
 }
 
-int blk_count(void) { return nslots; }
-const blk_info_t* blk_info(int i) { return i >= 0 && i < nslots ? &slots[i].info : 0; }
+int blk_count(void) { return __atomic_load_n(&nslots, __ATOMIC_ACQUIRE); }
+const blk_info_t* blk_info(int i) { return i >= 0 && i < blk_count() ? &slots[i].info : 0; }
 blk_dev_t* blk_find(const char* id) {
     for (int i = 0; i < nslots; i++) {
         const char* a = slots[i].info.id; int k = 0;
@@ -196,4 +236,47 @@ void blk_print(void) {
     irqwait_stats(&fired, &woken);
     uart_print("прерываний устройств (MSI): "); uart_print_dec(fired); uart_print(", из них разбудили ждущий поток: ");
     uart_print_dec(woken); uart_print("\n");
+}
+
+/* ---- test blk ИМЯ: проверка диска (особенно диска драйвера Ring 3) без потери данных ---- */
+static int blk_cmp(const uint8_t* a, const uint8_t* b, uint32_t n) { for (uint32_t i = 0; i < n; i++) if (a[i] != b[i]) return 1; return 0; }
+
+void blk_selftest(const char* arg) {
+    while (*arg == ' ') arg++;
+    char id[12]; unsigned k = 0;
+    while (arg[k] && arg[k] != ' ' && k < sizeof id - 1) { id[k] = arg[k]; k++; }
+    id[k] = 0;
+    if (!k) { uart_print("использование: test blk ИМЯ (диски: disk). Пишет и возвращает несколько секторов на непустом месте диска; системный диск и диски с чужими данными не трогаются\n"); return; }
+    slot_t* s = find_slot_by_id(id);
+    if (!s) { uart_print("[KIRA BLK] test "); uart_print(id); uart_print(": нет такого диска (disk)\n"); return; }
+    blk_dev_t* d = &s->pub;
+    if (d == primary || s->info.foreign) { uart_print("[KIRA BLK] test "); uart_print(id); uart_print(": системный диск и диски с чужими данными не проверяются записью\n"); return; }
+    enum { N = 300 };                                   /* три куска по буферам драйвера (128 + 128 + 44), начало не на границе буфера */
+    uint64_t lba = 7;
+    if (d->sectors < lba + N + 8) { uart_print("[KIRA BLK] test "); uart_print(id); uart_print(": диск слишком мал\n"); return; }
+    uint8_t* orig = (uint8_t*)kmalloc((size_t)N * BLK_SECTOR * 3);
+    if (!orig) { uart_print("[KIRA BLK] test: нет памяти\n"); return; }
+    uint8_t* pat = orig + (size_t)N * BLK_SECTOR; uint8_t* back = pat + (size_t)N * BLK_SECTOR;
+    int bad = 0, r;
+    uart_print("[KIRA BLK] test "); uart_print(id); uart_print(": ");
+    r = d->read(d, lba, N, orig);
+    if (r) { uart_print("чтение "); uart_print_dec(N); uart_print(" секторов: ошибка "); uart_print_dec((uint64_t)(int64_t)-r); uart_print(" (драйвер не работает?) FAIL\n"); kfree(orig); return; }
+    for (uint32_t i = 0; i < N * BLK_SECTOR; i++) pat[i] = (uint8_t)((i * 131u + (i >> 9) * 17u + 0x5Au) ^ (uint8_t)(i >> 3));
+    r = d->write(d, lba, N, pat);
+    if (r) { uart_print("запись: ошибка "); uart_print_dec((uint64_t)(int64_t)-r); uart_print(" FAIL\n"); kfree(orig); return; }
+    r = d->read(d, lba, N, back);
+    if (r || blk_cmp(pat, back, N * BLK_SECTOR)) { uart_print("прочитано не то, что записано (код "); uart_print_dec((uint64_t)(int64_t)-r); uart_print(") "); bad++; }
+    else { uart_print("запись+чтение "); uart_print_dec(N); uart_print(" секторов совпали; "); }
+    r = d->write(d, lba, N, orig);                      /* вернуть прежнее содержимое в любом случае */
+    int r2 = d->read(d, lba, N, back);
+    if (r || r2 || blk_cmp(orig, back, N * BLK_SECTOR)) { uart_print("прежнее содержимое НЕ восстановлено "); bad++; }
+    else uart_print("прежнее содержимое возвращено; ");
+    static uint8_t one[2 * BLK_SECTOR];                 /* нули: даже при сломанной проверке границ за диск не уйдёт ничего, кроме нулей */
+    int o1 = d->read(d, d->sectors, 1, one), o2 = d->read(d, d->sectors - 1, 2, one), o3 = d->write(d, d->sectors, 1, one),
+        o4 = d->read(d, ~0ull, 2, one), o5 = d->write(d, d->sectors - 1, 2, one);
+    if (o1 && o2 && o3 && o4 && o5) uart_print("выход за границы отклонён (5 из 5); ");
+    else { uart_print("выход за границы НЕ отклонён "); bad++; }
+    uart_print(d->flush && d->flush(d) == 0 ? "flush ok " : "flush ОШИБКА "); if (!(d->flush && d->flush(d) == 0)) bad++;
+    uart_print(bad ? "FAIL\n" : "PASS\n");
+    kfree(orig);
 }

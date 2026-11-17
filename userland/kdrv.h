@@ -30,5 +30,14 @@ static inline kdrv_netctl_t* kdrv_net_register(const u8 mac[6]) {
 }
 static inline i64 kdrv_net_kick(void) { return ksys(KDRV_SYS_NETDEV, KDRV_NET_KICK, 0, 0); }
 
+/* Диск (CAP_BLKDEV): регистрация отдаёт область kdrv_blkctl_t с кольцами запросов (req) и ответов (rsp) и буферами данных; результат - область или 0 (код в *err).
+   Ядро кладёт запросы в req и звонит (KDRV_EV_BLK в kdrv_irq_wait); драйвер кладёт ответы в rsp и звонит ядру kdrv_blk_kick. */
+static inline kdrv_blkctl_t* kdrv_blk_register(const kdrv_blkreg_t* r, i64* err) {
+    i64 v = ksys(KDRV_SYS_BLKDEV, KDRV_BLK_REGISTER, (u64)r, 0);
+    if (err) *err = v;
+    return v < 0 ? (kdrv_blkctl_t*)0 : (kdrv_blkctl_t*)(u64)v;
+}
+static inline i64 kdrv_blk_kick(void) { return ksys(KDRV_SYS_BLKDEV, KDRV_BLK_KICK, 0, 0); }
+
 #define KDRV_R32(p, off) (*(volatile u32*)((volatile u8*)(p) + (off)))
 #endif
