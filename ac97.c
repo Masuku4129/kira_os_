@@ -10,6 +10,7 @@
 #include "uart.h"
 #include "sched.h"
 #include "cpu.h"
+#include "iommu.h"
 
 static inline void outb(uint16_t p, uint8_t v) { __asm__ volatile ("outb %0, %1" :: "a"(v), "Nd"(p)); }
 static inline void outw(uint16_t p, uint16_t v) { __asm__ volatile ("outw %0, %1" :: "a"(v), "Nd"(p)); }
@@ -81,17 +82,34 @@ static void fill_bdl(uint32_t* bdl, uint64_t buf_p) {
     for (unsigned i = 0; i < NBD; i++) { bdl[2 * i] = (uint32_t)(buf_p + (uint64_t)i * PART); bdl[2 * i + 1] = PART / 2; }   /* отсчётов, без флагов */
 }
 
+/* Проверка принуждения IOMMU: список буферов ящика записи указывает на страницу, которая устройству НЕ выдана; первое
+   же чтение списка должно кончиться записью нарушения. Нет нарушения - изоляция не объявляется (домен снимается). */
+static int ac97_enforced(const pci_dev_t* p) {
+    uint64_t cp;
+    void* c = usb_dma_alloc(4096, &cp, 1);                       /* намеренно без выдачи */
+    if (!c) return 0;
+    uint32_t before = iommu_fault_count(p);
+    iommu_expect_fault(p, 1);
+    box_start(BOX_IN, (uint32_t)cp);
+    int seen = 0;
+    for (uint32_t i = 0; i < 200 && !seen; i++) { sched_sleep_ticks(1); (void)iommu_fault_poll(); seen = iommu_fault_count(p) > before; }
+    iommu_expect_fault(p, 0);
+    outb((uint16_t)(a.nabm + BOX_IN + B_CR), 0);                 /* стоп; ящик потом запускается заново настоящим списком */
+    return seen;
+}
+
 int ac97_probe(void) {
     const pci_dev_t* p = 0;
     for (int i = 0; i < pci_count() && !p; i++) { const pci_dev_t* d = pci_get(i); if (d->class_code == 0x04 && d->subclass == 0x01) p = d; }
     if (!p) return -1;
     if (!p->bar[0].io || !p->bar[1].io || !p->bar[0].base || !p->bar[1].base) { uart_print("[KIRA AC97] controller without I/O port BARs - not supported.\n"); return -2; }
     a.nam = (uint16_t)p->bar[0].base; a.nabm = (uint16_t)p->bar[1].base;
+    int iso = iommu_isolate_device(p) == 0;                     /* свой домен VT-d без отображений - до включения bus mastering */
     pci_enable(p, PCI_CMD_IO | PCI_CMD_MASTER | PCI_CMD_INTX_OFF);
     outl((uint16_t)(a.nabm + GLOB_CNT), 2);                     /* снять холодный сброс, прерывания выключены */
     int ready = 0;
     for (int i = 0; i < 200 && !ready; i++) { if (inl((uint16_t)(a.nabm + GLOB_STA)) & (1u << 8)) ready = 1; else sched_sleep_ticks(1); }
-    if (!ready) { uart_print("[KIRA AC97] codec did not become ready.\n"); return -3; }
+    if (!ready) { uart_print("[KIRA AC97] codec did not become ready.\n"); if (iso) iommu_release_device(p); return -3; }
     outw((uint16_t)(a.nam + NAM_RESET), 1);
     for (int i = 0; i < 200 && (inw((uint16_t)(a.nam + NAM_POWER)) & 0xF) != 0xF; i++) sched_sleep_ticks(1);
     a.vid = (uint32_t)inw((uint16_t)(a.nam + NAM_VID1)) << 16 | inw((uint16_t)(a.nam + NAM_VID2));
@@ -108,7 +126,19 @@ int ac97_probe(void) {
     a.in = (uint8_t*)usb_dma_alloc(BUFSZ, &a.in_p, 1);
     a.obdl = (uint32_t*)usb_dma_alloc(NBD * 8, &a.obdl_p, 1);
     a.ibdl = (uint32_t*)usb_dma_alloc(NBD * 8, &a.ibdl_p, 1);
-    if (!a.out || !a.in || !a.obdl || !a.ibdl) { uart_print("[KIRA AC97] no memory below 4 GB for DMA buffers.\n"); return -4; }
+    if (!a.out || !a.in || !a.obdl || !a.ibdl) { uart_print("[KIRA AC97] no memory below 4 GB for DMA buffers.\n"); if (iso) iommu_release_device(p); return -4; }
+    if (iso) {
+        if (iommu_map(p, a.out_p, a.out_p, (BUFSZ + 4095) & ~4095u, IOMMU_R | IOMMU_W) || iommu_map(p, a.in_p, a.in_p, (BUFSZ + 4095) & ~4095u, IOMMU_R | IOMMU_W) ||
+            iommu_map(p, a.obdl_p, a.obdl_p, 4096, IOMMU_R) || iommu_map(p, a.ibdl_p, a.ibdl_p, 4096, IOMMU_R)) {
+            uart_print("[KIRA IOMMU] AC97: could not grant DMA memory, controller stays passthrough.\n");
+            iommu_release_device(p); iso = 0;
+        } else if (ac97_enforced(p)) {
+            uart_print("[KIRA IOMMU] AC97: enforcement check passed - DMA to memory that was not granted is blocked.\n");
+        } else {
+            uart_print("[KIRA IOMMU] AC97: no DMA fault seen in the enforcement check: isolation NOT confirmed, controller stays passthrough.\n");
+            iommu_release_device(p); iso = 0;
+        }
+    }
     fill_bdl(a.obdl, a.out_p); fill_bdl(a.ibdl, a.in_p);
     box_start(BOX_IN, (uint32_t)a.ibdl_p);
     a.in_up = 1;

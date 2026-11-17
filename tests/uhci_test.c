@@ -97,6 +97,13 @@ void usb_log_hex(uint64_t v) { char b[24]; snprintf(b, sizeof b, "0x%llX", (unsi
 
 static uint16_t legsup;
 void pci_enable(const pci_dev_t* d, uint16_t b) { (void)d; (void)b; }
+/* IOMMU в модели нет: изоляция недоступна, контроллер остаётся сквозным (как на машине без DMAR) */
+int iommu_isolate_device(const pci_dev_t* d) { (void)d; return -1; }
+int iommu_release_device(const pci_dev_t* d) { (void)d; return 0; }
+int iommu_map(const pci_dev_t* d, uint64_t iova, uint64_t phys, uint64_t len, unsigned rw) { (void)d; (void)iova; (void)phys; (void)len; (void)rw; return 0; }
+void iommu_expect_fault(const pci_dev_t* d, int on) { (void)d; (void)on; }
+int iommu_fault_poll(void) { return 0; }
+uint32_t iommu_fault_count(const pci_dev_t* d) { (void)d; return 0; }
 void pci_write16(const pci_dev_t* d, uint16_t off, uint16_t v) { (void)d; if (off == 0xC0) legsup = v; }
 
 static void port_write(int i, uint16_t v) {

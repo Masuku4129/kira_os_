@@ -125,12 +125,30 @@ ALL = [
         {"log_forbid": NO_ERR},
     ], extra=["-device", "qemu-xhci,id=xhci", "-device", "usb-hub,bus=xhci.0,port=1",
               "-device", "usb-kbd,bus=xhci.0,port=1.2", "-device", "usb-tablet,bus=xhci.0,port=2"], flash=FLASH, hub=True),
+    sc("usb-xhci-iommu", "USB xHCI под VT-d (q35): свой домен, проверка принуждения, кольца и буферы выданы, хаб, клавиатура, флешка", [
+        {"sleep": 6},
+        {"log": [r"\[KIRA IOMMU\] xHCI: enforcement check passed"]},
+        {"cmd": "usb", "must": [r"xHCI", r"хаб", r"клавиатура", r"планшет"]},
+        {"cmd": "cat /usb0/hello.txt", "must": [r"kira-ci"]},
+        {"cmd": "ls /usb0", "must": [r"hello.txt", r"big.bin"]},
+        {"cmd": "umount usb0"},
+        {"log_forbid": NO_ERR + [r"xHCI: .*NOT confirmed", r"DMA fault"]},
+    ], smp=2, mem="1G", machine="q35", extra=["-device", "intel-iommu,aw-bits=48", "-device", "qemu-xhci,id=xhci", "-device", "usb-hub,bus=xhci.0,port=1",
+              "-device", "usb-kbd,bus=xhci.0,port=1.2", "-device", "usb-tablet,bus=xhci.0,port=2"], flash=FLASH, hub=True),
     sc("usb-uhci", "USB UHCI (как в Limbo): планшет, клавиатура, флешка", [
         {"sleep": 4},
         {"cmd": "usb", "must": [r"UHCI", r"клавиатура|планшет"]},
         {"cmd": "cat /usb0/hello.txt", "must": [r"kira-ci"]},
         {"log_forbid": NO_ERR},
     ], extra=["-usb", "-device", "usb-tablet", "-device", "usb-kbd"], flash=FLASH),
+    sc("usb-uhci-iommu", "USB UHCI под VT-d (q35): свой домен, проверка принуждения, память расписания выдана, планшет, клавиатура, флешка", [
+        {"sleep": 6},
+        {"log": [r"\[KIRA IOMMU\] UHCI: enforcement check passed"]},
+        {"cmd": "usb", "must": [r"UHCI", r"клавиатура|планшет"]},
+        {"cmd": "cat /usb0/hello.txt", "must": [r"kira-ci"]},
+        {"log_forbid": NO_ERR + [r"UHCI: .*NOT confirmed", r"UHCI: could not grant", r"DMA fault"]},
+    ], smp=2, mem="1G", machine="q35", extra=["-device", "intel-iommu,aw-bits=48", "-device", "piix3-usb-uhci,id=uhc",
+              "-device", "usb-tablet,bus=uhc.0", "-device", "usb-kbd,bus=uhc.0"], flash=FLASH),
     sc("stress-spam", "20 запусков plasma подряд: система отвечает, ядра загружены равномерно, Разум держит отклик", [
         {"log": BOOT_LOG},
         *[{"send": "plasma"} for _ in range(20)],
@@ -409,6 +427,12 @@ ALL = [
         {"cmd": "record 300", "must": [r"запись: microphone, 14400 кадров за \d+ мс"], "timeout": 10},
         {"log_forbid": NO_ERR},
     ], smp=2, mem="512M", extra=["-device", "AC97,audiodev=a0"]),
+    sc("sound-ac97-iommu", "звук: AC'97 под VT-d (q35): свой домен, проверка принуждения, буферы выданы, вывод и запись работают", [
+        {"log": BOOT_LOG + [r"\[KIRA IOMMU\] AC97: enforcement check passed", r"\[KIRA AC97\] Sound: codec 0x[0-9A-F]+"]},
+        {"cmd": "beep 440 400", "must": [r"DMA прошёл [1-9]\d* байт - карта играет"], "timeout": 15},
+        {"cmd": "record 300", "must": [r"запись: microphone, 14400 кадров за \d+ мс"], "timeout": 10},
+        {"log_forbid": NO_ERR + [r"AC97: .*NOT confirmed", r"AC97: could not grant", r"DMA fault"]},
+    ], smp=2, mem="1G", machine="q35", extra=["-device", "intel-iommu,aw-bits=48", "-device", "AC97,audiodev=a0"]),
     sc("sound-sb16", "звук: Sound Blaster 16 (ISA, как Sound: sb16 в Limbo) - порт, IRQ и DMA от самой карты, 16 бит стерео через 8237 и микшер", [
         {"log": BOOT_LOG + [r"\[KIRA SB16\] Sound: Sound Blaster 16 DSP 4\.\d+ at port 0x[0-9A-F]+ \(DSP reset answered\), IRQ \d+, DMA 8-bit \d+, 16-bit [567] \(from the card's mixer registers 0x80/0x81\)"]},
         {"cmd": "sound", "must": [r"Sound Blaster 16: DSP 4\.\d+, порт 0x[0-9A-F]+, IRQ \d+", r"DMA 8 бит \d+, 16 бит [567]", r"микшер: работает", r"вход: нет"]},
