@@ -404,12 +404,27 @@ static unsigned choose_cpu(const thread_t* t) {
     return this_cpu()->cpu_id;                                   /* пустая маска: вызывающий такого не ставит */
 }
 
+/* ---- Заморозка потоков на время сна (S3) ----
+   Уровень 1: стоят потоки процессов (pid != 0): они не должны писать на диск и трогать устройства, пока драйверы усыпляются.
+   Уровень 2: стоят все, кроме владельца (тот, кто усыпляет машину) и холостых потоков ядер. Поток, держащий мьютекс ядра, не замораживается
+   никогда: остальные, ждущие этот мьютекс, встали бы навсегда. Замороженный поток не теряет ничего: он остаётся в своей очереди и
+   выбирается планировщиком сразу после разморозки. */
+static volatile uint32_t freeze_level;
+static thread_t* volatile freeze_owner;
+static int frozen_now(const thread_t* t) {
+    uint32_t lv = __atomic_load_n(&freeze_level, __ATOMIC_ACQUIRE);
+    if (!lv) return 0;
+    if (t->flags & THREAD_F_IDLE) return 0;
+    if (t == freeze_owner || t->mutexes_held) return 0;
+    return lv >= 2 || t->pid != 0;
+}
+
 /* Первый подходящий поток класса p в очереди c для ядра cpu (замок очереди c у вызывающего). */
 static thread_t* rq_first(unsigned c, unsigned p, unsigned cpu, const thread_t* self) {
     for (thread_t* t = rq[c].head[p]; t; ) {
         thread_t* nx = t->rq_next;
         if (get_state(t) != THREAD_READY) rq_unlink(t);   /* страховка: в очереди только готовые */
-        else if ((t == self || !__atomic_load_n(&t->on_cpu, __ATOMIC_ACQUIRE)) && cm_test(&t->affinity, cpu)) return t;
+        else if ((t == self || !__atomic_load_n(&t->on_cpu, __ATOMIC_ACQUIRE)) && cm_test(&t->affinity, cpu) && !frozen_now(t)) return t;
         t = nx;
     }
     return 0;
@@ -958,6 +973,50 @@ int sched_attach_cpu(void) {
     irq_restore(f);
     return 0;
 }
+
+/* Привязка вызывающего потока к ядрам маски m (сон S3: машину усыпляет и будит загрузочное ядро, поток-владелец должен быть на нём).
+   Возвращает прежнюю маску; к моменту возврата поток уже исполняется на разрешённом ядре. */
+cpumask_t sched_pin_self(cpumask_t m) {
+    thread_t* t = (thread_t*)this_cpu()->current;
+    cpumask_t old = t->affinity;
+    uint64_t f = irq_save();
+    t->affinity = m;
+    irq_restore(f);
+    while (!cm_test(&m, this_cpu()->cpu_id)) sched_yield();
+    return old;
+}
+void sched_set_affinity_self(cpumask_t m) {
+    thread_t* t = (thread_t*)this_cpu()->current;
+    uint64_t f = irq_save();
+    t->affinity = m;
+    irq_restore(f);
+}
+
+void sched_freeze(unsigned level, thread_t* owner) {
+    freeze_owner = owner;
+    __atomic_store_n(&freeze_level, level, __ATOMIC_RELEASE);
+    for (unsigned i = 0; i < percpu_count(); i++) smp_resched_cpu(i);    /* ядра выбирают поток заново: замороженные уступают */
+    this_cpu()->need_resched = 1;
+}
+
+/* Все ядра больше не исполняют замороженных: на каждом идёт холостой поток либо поток, которому можно. */
+int sched_freeze_settled(void) {
+    for (unsigned i = 0; i < percpu_count(); i++) {
+        const percpu_t* c = &percpu_table[i];
+        if (!c->sched_on || !c->online) continue;
+        const thread_t* t = c->current;
+        if (t && frozen_now(t)) return 0;
+    }
+    return 1;
+}
+
+void sched_thaw(void) {
+    __atomic_store_n(&freeze_level, 0, __ATOMIC_RELEASE);
+    freeze_owner = 0;
+    for (unsigned i = 0; i < percpu_count(); i++) smp_resched_cpu(i);
+}
+
+unsigned sched_freeze_level(void) { return __atomic_load_n(&freeze_level, __ATOMIC_ACQUIRE); }
 
 int sched_cpu_stats(unsigned cpu, uint64_t* idle_cycles, uint64_t* total_cycles, uint64_t* switches) {
     if (cpu >= PERCPU_MAX_CPUS) return -1;

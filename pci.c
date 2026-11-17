@@ -207,10 +207,16 @@ static void scan_bus(uint8_t bus) {
     }
 }
 
+#if !defined(KIRA_HOST_TEST) && defined(__x86_64__)
+static void pci_sleep_register(void);
+#endif
 int pci_init(void) {
     ndevs = 0;
     for (int i = 0; i < 256; i++) bus_seen[i] = 0;
     scan_bus(ecam ? ecam_bus0 : 0);
+#if !defined(KIRA_HOST_TEST) && defined(__x86_64__)
+    pci_sleep_register();
+#endif
     return ndevs;
 }
 
@@ -256,4 +262,87 @@ void pci_print(void) {
         uart_print("\n");
     }
 }
+#endif
+
+/* ---- Сон S3: конфигурация PCI ----
+   После пробуждения устройства сброшены: BAR, команда, окна мостов, MSI/MSI-X, настройки PCIe - в состоянии по умолчанию (на настоящем железе
+   устройство в D3cold теряет то же самое). Хук регистрируется первым (при пробуждении выполняется первым, при сне - последним): без конфигурации
+   ни одно устройство не работает. Копия первых 256 байт каждой функции делается при засыпании; возвращаются мосты (номера шин, окна), затем
+   остальные: BAR при выключенном декодировании, указатели capabilities (MSI, MSI-X, PCIe), и только потом команда. Таблицы MSI-X - в самих
+   устройствах: их возвращает pci_msix_replay() по журналу записей. */
+#if !defined(KIRA_HOST_TEST) && defined(__x86_64__)
+#include "devpm.h"
+#include "heap.h"
+#include "msi.h"
+static uint32_t* cfg_save;
+
+static int pci_sleep_suspend(void* ctx) {
+    (void)ctx;
+    if (!pci_msix_log_complete()) { uart_print("[KIRA SLEEP] pci: the MSI-X entry log is full: interrupts could not be restored after sleep.\n"); return -2; }
+    if (cfg_save) { kfree(cfg_save); cfg_save = 0; }
+    if (!ndevs) return 0;
+    cfg_save = (uint32_t*)kmalloc((size_t)ndevs * 256);
+    if (!cfg_save) return -1;
+    for (int i = 0; i < ndevs; i++) for (int k = 0; k < 64; k++) cfg_save[i * 64 + k] = cr32(&devs[i], (uint16_t)(k * 4));
+    return 0;
+}
+
+static uint16_t sv16(const uint32_t* s, unsigned off) { return (uint16_t)(s[off / 4] >> ((off & 2) * 8)); }
+static uint8_t sv8(const uint32_t* s, unsigned off) { return (uint8_t)(s[off / 4] >> ((off & 3) * 8)); }
+
+static void pci_restore_fn(const pci_dev_t* d, const uint32_t* s) {
+    uint16_t cmd = (uint16_t)s[1];
+    uint8_t ht = (uint8_t)(sv8(s, 0x0E) & 0x7F);
+    pci_write16(d, 0x04, 0);                                        /* декодирование выключено, пока возвращаются BAR и окна */
+    if (ht == 1) {                                                  /* мост PCI-PCI: BAR, номера шин, окна */
+        pci_write32(d, 0x10, s[4]); pci_write32(d, 0x14, s[5]); pci_write32(d, 0x18, s[6]);
+        pci_write32(d, 0x1C, s[7] & 0xFFFFu);                       /* старшая половина - вторичный статус (сброс записью 1): не трогаем */
+        pci_write32(d, 0x20, s[8]); pci_write32(d, 0x24, s[9]); pci_write32(d, 0x28, s[10]); pci_write32(d, 0x2C, s[11]); pci_write32(d, 0x30, s[12]);
+        pci_write32(d, 0x38, s[14]); pci_write32(d, 0x3C, s[15]);
+    } else {
+        for (int b = 0; b < 6; b++) pci_write32(d, (uint16_t)(0x10 + 4 * b), s[4 + b]);
+        pci_write32(d, 0x30, s[12]); pci_write32(d, 0x3C, s[15]);
+    }
+    uint8_t c = (uint8_t)(sv8(s, 0x34) & 0xFC);
+    for (int guard = 0; c >= 0x40 && c < 0xF8 && guard < 48; guard++) {
+        uint8_t id = sv8(s, c), next = (uint8_t)(sv8(s, (unsigned)c + 1) & 0xFC);
+        if (id == 0x05) {                                           /* MSI: адрес, данные, маска, и только затем управление (включение) */
+            uint16_t ctl = sv16(s, (unsigned)c + 2);
+            pci_write32(d, (uint16_t)(c + 4), s[(c + 4) / 4]);
+            if (ctl & 0x80) { pci_write32(d, (uint16_t)(c + 8), s[(c + 8) / 4]); pci_write16(d, (uint16_t)(c + 12), sv16(s, (unsigned)c + 12)); if ((ctl & 0x100) && c + 16 < 0x100) pci_write32(d, (uint16_t)(c + 16), s[(c + 16) / 4]); }
+            else { pci_write16(d, (uint16_t)(c + 8), sv16(s, (unsigned)c + 8)); if ((ctl & 0x100) && c + 12 < 0x100) pci_write32(d, (uint16_t)(c + 12), s[(c + 12) / 4]); }
+            pci_write16(d, (uint16_t)(c + 2), ctl);
+        } else if (id == 0x11) {                                    /* MSI-X: функция замаскирована до возврата записей таблицы (pci_msix_replay) */
+            pci_write16(d, (uint16_t)(c + 2), (uint16_t)(sv16(s, (unsigned)c + 2) | 0x4000));
+        } else if (id == 0x10) {                                    /* PCIe: управление устройством и каналом (размеры пакетов и т. п.) */
+            pci_write16(d, (uint16_t)(c + 8), sv16(s, (unsigned)c + 8));
+            pci_write16(d, (uint16_t)(c + 0x10), (uint16_t)(sv16(s, (unsigned)c + 0x10) & ~0x20u));   /* бит «повторить обучение канала» не возвращаем */
+            if ((sv16(s, (unsigned)c + 2) & 0xF) >= 2) pci_write16(d, (uint16_t)(c + 0x28), sv16(s, (unsigned)c + 0x28));
+        }
+        c = next;
+    }
+    pci_write16(d, 0x04, cmd);
+}
+
+static int pci_sleep_resume(void* ctx) {
+    (void)ctx;
+    if (!cfg_save && ndevs) return -1;
+    int missing = 0;
+    for (int pass = 0; pass < 2; pass++) {                          /* мосты первыми: пока их окна не возвращены, устройства за ними не видны */
+        for (int i = 0; i < ndevs; i++) {
+            const pci_dev_t* d = &devs[i];
+            const uint32_t* s = &cfg_save[i * 64];
+            int bridge = (sv8(s, 0x0E) & 0x7F) == 1;
+            if ((pass == 0) != bridge) continue;
+            if ((cr32(d, 0) & 0xFFFF) != d->vendor) { if (pass == 1 || bridge) { missing++; uart_print("[KIRA SLEEP] pci "); uart_print_dec(d->bus); uart_print(":"); uart_print_dec(d->dev); uart_print("."); uart_print_dec(d->fn); uart_print(": device did not answer after sleep.\n"); } continue; }
+            pci_restore_fn(d, s);
+        }
+    }
+    int bad = pci_msix_replay();
+    if (bad) { uart_print("[KIRA SLEEP] pci: could not restore "); uart_print_dec((uint64_t)bad); uart_print(" MSI-X entries.\n"); }
+    kfree(cfg_save); cfg_save = 0;
+    return (missing || bad) ? -3 : 0;
+}
+
+static void pci_sleep_register(void) { (void)devpm_register("pci", pci_sleep_suspend, pci_sleep_resume, 0); }
 #endif

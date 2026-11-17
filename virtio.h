@@ -46,6 +46,11 @@ int  virtio_attach(virtio_dev_t* v, const pci_dev_t* pci);
 int  virtio_begin(virtio_dev_t* v, uint64_t want);
 int  virtio_queue_setup(virtio_dev_t* v, virtq_t* q, uint16_t index, uint16_t max_size);
 void virtio_driver_ok(virtio_dev_t* v);
+/* Сон S3: stop - сбросить устройство (ни DMA, ни прерываний); resume_begin - после пробуждения: сброс, ACK, DRIVER, прежние признаки (v->features),
+   FEATURES_OK (0 - готово); queue_resume - очередь на прежней памяти (кольца обнуляются, счётчики с нуля). После них - буферы заново и virtio_driver_ok. */
+void virtio_stop(virtio_dev_t* v);
+int  virtio_resume_begin(virtio_dev_t* v);
+int  virtio_queue_resume(virtio_dev_t* v, virtq_t* q);
 void virtio_fail(virtio_dev_t* v);                      /* FAILED + сброс: устройство больше не пишет в нашу память */
 /* Отправляет цепочку буферов (до 8) и ждёт завершения. 0 - готово, -1 - таймаут. */
 int  virtq_run(virtq_t* q, const virtq_buf_t* bufs, int n);

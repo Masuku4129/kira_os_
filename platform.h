@@ -14,4 +14,9 @@ typedef struct { int percent, charging, ac, minutes_left; unsigned version; } pl
 int         platform_battery(platform_battery_t* b);
 void        platform_acpi_cmd(const char* args);   /* команда acpi: x86-64 - интерпретатор AML и таблицы; ARM64 - сообщение, что AML там не используется */
 int         platform_fb_probe(void);   /* экран платформы без загрузочного и virtio-gpu (ARM: ramfb, simple-framebuffer); 0 - есть */
+/* Сон S3. supported: 1 - машина умеет (x86-64: пакет \_S3 и FACS); 0 - нет, *why - причина (строка, не освобождать).
+   platform_sleep: усыпляет процессоры и машину, возвращается ПОСЛЕ пробуждения: 1 - спали и проснулись, 0 - машина сон не приняла (состояние цело),
+   <0 - отказ до начала сна. Устройства и потоки усыпляет вызывающий (sleep.c) до вызова и будит после. */
+int         platform_sleep_supported(const char** why);
+int         platform_sleep(void);
 #endif

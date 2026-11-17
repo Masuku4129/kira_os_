@@ -61,4 +61,8 @@ int smp_selftest_start(void);
 // 0 - поток запущен, <0 - нельзя.
 int smp_crash_test(unsigned mode, unsigned cpu);
 
+// Сон S3 (arch/x86_64/sleep.c): трамплин служит вектором пробуждения; остальные ядра после сна запускаются тем же INIT-SIPI.
+int smp_tramp_install(uint64_t stack_top, void (*entry)(uint64_t), uint64_t arg);   // 0 - трамплин и параметры на месте
+int smp_ap_wake(unsigned idx);          // INIT-SIPI ядру idx и сверка его TSC; 0 - ядро дошло до точки пробуждения
+void smp_resume_sync_ap(void);          // со стороны пробуждаемого ядра
 #endif

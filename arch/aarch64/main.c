@@ -1068,6 +1068,9 @@ void platform_poweroff(void) {
     psci_call(0x84000008ull, 0, 0, 0);
     kprintf("[KIRA PSCI] SYSTEM_OFF returned: firmware refused to power off.\n");
 }
+/* Сон S3 на ARM64 не реализован (PSCI SYSTEM_SUSPEND и сохранение состояния ядер здесь не делались): честный отказ с причиной, не заглушка сна. */
+int platform_sleep_supported(const char** why) { if (why) *why = "ARM64: PSCI SYSTEM_SUSPEND is not implemented"; return 0; }
+int platform_sleep(void) { return -1; }
 void platform_reboot(void) {
     kprintf("[KIRA PSCI] rebooting (SYSTEM_RESET)\n");
     psci_call(0x84000009ull, 0, 0, 0);

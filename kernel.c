@@ -46,6 +46,8 @@
 #include "experience.h"
 #include "irqmode.h"
 #include "acpirt.h"
+#include "sleep.h"
+#include "blk.h"
 #include "mbinfo.h"
 #include "bootinfo.h"
 #include "earlycon.h"
@@ -344,11 +346,13 @@ void kernel_main(unsigned long magic, unsigned long addr) {
 
     fssvc_init();        // порт kira.fs: файловая служба на сообщениях CBOR
     gfxctl_init();       // порт kira.gfx: окна и события на сообщениях CBOR
+    blk_sleep_register();   // сон S3: затвор дисков - последним из хуков (ко сну первым, при пробуждении последним)
     for (;;) {
         bbsave_core_tick();  // чёрный ящик: разрыв между проходами этого цикла
         console_poll();
         acpirt_poll();       // события ACPI и обновление питания
         if (acpirt_take_poweroff()) console_graceful_poweroff();   // нажата кнопка питания: сохранить и выключить
+        if (acpirt_take_sleep()) (void)sleep_enter("кнопка сна / крышка ACPI");   // кнопка сна или закрытая крышка: сон S3
         prog_poll();         // запуск, заказанный дисплеем (иконки дока)
         fssvc_poll();        // запросы к порту kira.fs
         gfxctl_poll();       // запросы к порту kira.gfx

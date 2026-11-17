@@ -20,6 +20,15 @@ static inline void outb(uint16_t port, uint8_t val) {
     __asm__ volatile ("outb %0, %1" : : "a"(val), "Nd"(port));
 }
 
+static uint32_t pit_divisor;      /* 0 - PIT не программировался */
+static void pit_program(uint32_t divisor) {
+    outb(PIT_COMMAND_PORT, 0x36); // Channel 0, lobyte/hibyte, rate generator
+    outb(PIT_CHANNEL0_PORT, (uint8_t)(divisor & 0xFF));
+    outb(PIT_CHANNEL0_PORT, (uint8_t)((divisor >> 8) & 0xFF));
+}
+/* Сон S3: после пробуждения PIT сброшен - частота возвращается. */
+void timer_resume(void) { if (pit_divisor) pit_program(pit_divisor); }
+
 int timer_init(uint32_t frequency) {
     // PIT: базовая частота 1193182 Гц, делитель 16-битный (0 означает 65536)
     if (frequency < 19 || frequency > 1193182) {

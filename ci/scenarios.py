@@ -52,6 +52,31 @@ OCSP_FWD = (_G % (8444, "--chain " + TLS_CHAIN + " --prefix ed_") + _G % (8445, 
 RESUME_DAEMON = ["openssl", "s_server", "-quiet", "-accept", "18449", "-cert", "{chain}/leaf.pem", "-key", "{chain}/leaf.key",
                  "-cert_chain", "{chain}/inter.pem", "-tls1_3", "-www"]
 
+# Сон S3: до сна - сеть, файл, часы; QMP system_wakeup будит машину; после - всё то же самое плюс новая запись, часы идут, ядра на месте
+S3_STEPS = [
+    {"log": BOOT_LOG + [r"\[KIRA ACPI\] AML up"]},
+    {"sleep": 8},
+    {"cmd": "net", "must": [r"адрес 10\.0\.2\.15"]},
+    {"cmd": "ping 10.0.2.2 2", "must": [r"отправлено 2, получено [1-2]"], "timeout": 20},
+    {"cmd": "write /s3-before.txt kira-before-sleep"},
+    {"cmd": "sleep status", "must": [r"сон S3: поддерживается", r"хуки устройств"]},
+    {"send": "status"}, {"sleep": 1}, {"capture": {"t0": r"precise clock ms: (\d+)"}},
+    {"send": "sleep"},
+    {"qmp": "system_wakeup", "wait_status": "suspended", "after_status": "running", "within": 60},
+    {"expect": r"\[KIRA SLEEP\] awake: devices restored, 0 failed to come back", "timeout": 60},
+    {"sleep": 3},
+    {"cmd": "net", "must": [r"адрес 10\.0\.2\.15"]},
+    {"cmd": "ping 10.0.2.2 3", "must": [r"отправлено 3, получено [1-3]"], "timeout": 30},
+    {"cmd": "cat /s3-before.txt", "must": [r"kira-before-sleep"]},
+    {"cmd": "write /s3-after.txt kira-after-sleep"},
+    {"cmd": "cat /s3-after.txt", "must": [r"kira-after-sleep"]},
+    {"send": "status"}, {"sleep": 1}, {"capture": {"t1": r"precise clock ms: (\d+)"}},
+    {"num": ["t1", "t0", 1, 600000]},
+    {"cmd": "smp", "must": [r"(?s)(  online  .*){4}"], "forbid": [r"FAILED", r"offline"], "timeout": 10},
+    {"cmd": "sleep status", "must": [r"сеансов сна: 1, отказов: 0, устройств не вернулось: 0"]},
+    {"log_forbid": NO_ERR + [r"did not come back", r"power button pressed", r"НЕ ВОССТАНОВИЛОСЬ", r"did not answer"]},
+]
+
 ALL = [
     sc("boot-grub", "запасной образ kira-grub.iso (GRUB): загрузка и базовые проверки", BASIC + [
         {"log": [r"Processors online: 4"]},
@@ -596,6 +621,12 @@ ALL = [
         {"log": [r"\[KIRA ACPI\] power button pressed", r"\[KIRA ACPI\] powering off \(S5\)"]},
         {"log_forbid": NO_ERR + [r"did not power off", r"AML is busy"]},
     ], smp=2, mem="512M", machine="q35"),
+    sc("sleep-s3-q35", "сон S3 (плата q35/ICH9, сеть e1000): sleep -> QMP system_wakeup -> сеть, диск, часы, все ядра на месте", S3_STEPS, smp=4, mem="512M", machine="q35",
+       extra=["-global", "ICH9-LPC.disable_s3=0", "-global", "ICH9-LPC.disable_s4=1", "-nic", "user,model=e1000"]),
+    sc("sleep-s3-q35-virtio", "сон S3 (плата q35, сеть virtio-net): та же цепочка с virtio-устройствами", S3_STEPS, smp=4, mem="512M", machine="q35",
+       extra=["-global", "ICH9-LPC.disable_s3=0", "-global", "ICH9-LPC.disable_s4=1", "-nic", "user,model=virtio-net-pci"]),
+    sc("sleep-s3-pc", "сон S3 (плата pc/PIIX4, сеть e1000): sleep -> QMP system_wakeup -> всё работает", S3_STEPS, smp=4, mem="512M",
+       extra=["-global", "PIIX4_PM.disable_s3=0", "-global", "PIIX4_PM.disable_s4=1", "-nic", "user,model=e1000"]),
     sc("power-reboot","перезагрузка на q35 (регистр сброса FADT / 0xCF9): система поднимается снова, файл, записанный до сброса, на месте", [
         {"log": BOOT_LOG},
         {"cmd": "write /reboot.txt kira-before-reboot"},

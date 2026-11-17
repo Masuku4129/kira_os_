@@ -17,4 +17,5 @@ uint64_t timer_get_ticks(void);
 void timer_lock_state(uint32_t* next, uint32_t* owner);   /* для аварийного отчёта */
 uint64_t timer_get_irqs(void);   // сколько прерываний таймера реально пришло (тики при потерях догоняются по TSC)
 
+void timer_resume(void);   /* сон S3: вернуть частоту PIT */
 #endif

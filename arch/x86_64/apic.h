@@ -30,4 +30,8 @@ void apic_timer_stop(void);
 void apic_timer_mask_local(void);   /* только этого ядра, общий счёт не трогает */
 uint32_t apic_timer_initial_count(void);   /* 0, если таймер LAPIC не работает (тики идут от PIT) */
 
+// Сон S3: сохранение и возврат регистров локального APIC этого ядра (TPR, LINT0/1, ошибка, таймер). apic_restore включает APIC заново.
+typedef struct { uint32_t tpr, svr, lint0, lint1, lerr, ltimer, tdcr, ticr; int valid; } apic_state_t;
+void apic_save(apic_state_t* s);
+int  apic_restore(const apic_state_t* s);   /* 0 - готово */
 #endif

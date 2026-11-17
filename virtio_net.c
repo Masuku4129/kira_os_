@@ -7,6 +7,9 @@
 #include "msi.h"
 #include "uart.h"
 #include "spinlock.h"
+#ifndef KIRA_HOST_TEST
+#include "devpm.h"
+#endif
 
 #define NRX 64
 #define NTX 32
@@ -24,6 +27,7 @@ static struct {
     spinlock_t lk;
     irqwait_t iw;
     netdev_t nd;
+    volatile int asleep;                      /* сон S3: устройство сброшено, обращаться к нему нельзя */
 } v = { .lk = SPINLOCK_INIT, .iw = IRQWAIT_INIT };
 
 static void reclaim(void) {                                       /* отправленные кадры: буферы свободны */
@@ -35,6 +39,7 @@ static int send(netdev_t* d, const void* frame, uint32_t len) {
     (void)d;
     if (len > BUF - HDR || len < 14) return -1;
     uint64_t f = spin_lock_irqsave(&v.lk);
+    if (v.asleep) { spin_unlock_irqrestore(&v.lk, f); return -1; }
     reclaim();
     unsigned id = v.tx_next;
     if (v.tx_busy[id]) { spin_unlock_irqrestore(&v.lk, f); return -1; }   /* все буферы в пути */
@@ -53,7 +58,7 @@ static int send(netdev_t* d, const void* frame, uint32_t len) {
 static int recv(netdev_t* d, void* buf, uint32_t max) {
     (void)d;
     uint16_t id; uint32_t len;
-    if (!virtq_take(&v.rx, &id, &len)) return 0;
+    if (v.asleep || !virtq_take(&v.rx, &id, &len)) return 0;
     int n = 0;
     if (id < NRX && len > HDR && len - HDR <= max) {
         const uint8_t* s = v.rxb + id * BUF + HDR; uint8_t* o = (uint8_t*)buf;
@@ -66,11 +71,40 @@ static int recv(netdev_t* d, void* buf, uint32_t max) {
 
 static int link(netdev_t* d) {
     (void)d;
-    if (!(v.dev.features & (1ull << 16))) return 1;               /* без STATUS канал считается есть */
+    if (v.asleep || !(v.dev.features & (1ull << 16))) return 1;   /* без STATUS (и во сне) канал считается есть */
     return MMIO_R16(v.dev.devcfg + 6) & 1;
 }
 
 static void irq(void* ctx) { (void)ctx; irqwait_fire(&v.iw); }
+#ifndef KIRA_HOST_TEST
+/* Сон S3: устройство сбрасывается (под замком: отправка и приём больше не трогают очереди); после пробуждения очереди возвращаются на прежней
+   памяти, буферы приёма отдаются устройству заново, передача - со всеми буферами свободными. */
+static int vnet_suspend(void* ctx) {
+    (void)ctx;
+    uint64_t f = spin_lock_irqsave(&v.lk);
+    v.asleep = 1;
+    virtio_stop(&v.dev);
+    spin_unlock_irqrestore(&v.lk, f);
+    return 0;
+}
+static int vnet_resume(void* ctx) {
+    (void)ctx;
+    uint64_t f = spin_lock_irqsave(&v.lk);
+    int rc = 0;
+    if (virtio_resume_begin(&v.dev) || virtio_queue_resume(&v.dev, &v.rx) || virtio_queue_resume(&v.dev, &v.tx)) { virtio_fail(&v.dev); rc = -1; }
+    else {
+        for (unsigned i = 0; i < NTX; i++) v.tx_busy[i] = 0;
+        v.tx_next = 0;
+        unsigned nrx = v.rx.size < NRX ? v.rx.size : NRX;
+        for (unsigned i = 0; i < nrx; i++) virtq_post(&v.rx, (uint16_t)i, v.rxb_p + i * BUF, BUF, 1);
+        virtio_driver_ok(&v.dev);
+        virtq_kick(&v.rx);
+        v.asleep = 0;
+    }
+    spin_unlock_irqrestore(&v.lk, f);
+    return rc;
+}
+#endif
 
 int virtio_net_probe(void) {
     const pci_dev_t* p = pci_find(VIRTIO_VENDOR, 0x1041);
@@ -105,6 +139,9 @@ int virtio_net_probe(void) {
     for (int i = 0; i < 6; i++) { m[3 * i] = hx[v.nd.mac[i] >> 4]; m[3 * i + 1] = hx[v.nd.mac[i] & 15]; m[3 * i + 2] = i < 5 ? ':' : 0; }
     uart_print("[KIRA NET] virtio-net: MAC "); uart_print(m);
     uart_print(has_irq ? ", receive wakes the network thread by MSI-X\n" : ", polled\n");
+#ifndef KIRA_HOST_TEST
+    (void)devpm_register("virtio-net", vnet_suspend, vnet_resume, 0);
+#endif
     return 0;
 }
 

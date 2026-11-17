@@ -497,6 +497,45 @@ def run(sc, args):
                     raise Fail(f"после «{st['qmp_exit']}» QEMU завершился с кодом {vm.qemu.returncode}")
                 vm.exited = True
                 result["checks"].append({"qmp_exit": st["qmp_exit"], "ok": True})
+            elif "qmp" in st:                         # произвольная команда QMP без выключения машины (например system_wakeup после сна S3); wait_status - дождаться состояния машины (query-status)
+                if "wait_status" in st:
+                    end_t = time.time() + st.get("within", 60) * args.timeout_scale
+                    got = None
+                    while time.time() < end_t:
+                        r = vm.qmp_cmd({"execute": "query-status"})
+                        got = (r or {}).get("return", {}).get("status")
+                        if got == st["wait_status"]:
+                            break
+                        vm.drain(0.3)
+                    if got != st["wait_status"]:
+                        raise Fail(f"QMP: машина не перешла в состояние «{st['wait_status']}» за {st.get('within', 60)} с (сейчас «{got}»)")
+                    result["checks"].append({"qmp_status": st["wait_status"], "ok": True})
+                msg = {"execute": st["qmp"]}
+                if "args" in st:
+                    msg["arguments"] = st["args"]
+                r = vm.qmp_cmd(msg)
+                if r is None or "error" in r:
+                    raise Fail(f"QMP «{st['qmp']}»: {r}")
+                result["checks"].append({"qmp": st["qmp"], "ok": True})
+                if "after_status" in st:              # состояние машины после команды (например running после пробуждения)
+                    end_t = time.time() + st.get("within", 60) * args.timeout_scale
+                    got = None
+                    while time.time() < end_t:
+                        r = vm.qmp_cmd({"execute": "query-status"})
+                        got = (r or {}).get("return", {}).get("status")
+                        if got == st["after_status"]:
+                            break
+                        vm.drain(0.3)
+                    if got != st["after_status"]:
+                        raise Fail(f"QMP: после «{st['qmp']}» машина не перешла в «{st['after_status']}» (сейчас «{got}»)")
+                    result["checks"].append({"qmp_after_status": st["after_status"], "ok": True})
+            elif "num" in st:                         # числа, снятые capture: [больше, меньше, мин. разность, макс. разность]: names[больше] - names[меньше] в пределах
+                hi, lo, dmin, dmax = st["num"]
+                d = int(names[hi]) - int(names[lo])
+                ok = dmin <= d <= dmax
+                result["checks"].append({"num": f"{hi}-{lo}={d}", "range": [dmin, dmax], "ok": ok})
+                if not ok:
+                    raise Fail(f"числа: {hi} - {lo} = {d}, ожидалось от {dmin} до {dmax}")
             elif "relaunch" in st:                  # выключить машину и поднять её снова на ТОМ ЖЕ диске с другим набором устройств (extra):
                 vm.send("poweroff\r")                  # драйвер, установленный в первой фазе, нужен устройству, которого в первой фазе не было
                 end_t = time.time() + 30 * args.timeout_scale

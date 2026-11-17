@@ -82,6 +82,17 @@ static int vblk_flush(blk_dev_t* d) {
 
 #ifndef KIRA_HOST_TEST
 #include "msi.h"
+#include "devpm.h"
+/* Сон S3: перед сном устройство сбрасывается (обращений к нему в это время нет: слой blk держит мьютексы всех дисков), после - те же шаги запуска
+   на прежней памяти очереди и буферов. Не вернулось - диск помечается мёртвым (операции отказывают, а не пишут в пустоту). */
+static int vblk_suspend(void* ctx) { (void)ctx; if (present && !dead) virtio_stop(&vdev); return 0; }
+static int vblk_resume(void* ctx) {
+    (void)ctx;
+    if (!present || dead) return 0;
+    if (virtio_resume_begin(&vdev) != 0 || virtio_queue_resume(&vdev, &vq) != 0) { dead = 1; virtio_fail(&vdev); return -1; }
+    virtio_driver_ok(&vdev);
+    return 0;
+}
 static irqwait_t vblk_iw = IRQWAIT_INIT;
 static void vblk_irq(void* ctx) { (void)ctx; irqwait_fire(&vblk_iw); }
 uint64_t virtio_blk_irq_wakeups(void) { return vblk_iw.wakeups; }
@@ -188,6 +199,9 @@ blk_dev_t* virtio_blk_probe(void) {
     while (nm[i] && i + 1 < sizeof disk.name) { disk.name[i] = nm[i]; i++; }
     disk.name[i] = 0;
     present = 1;
+#ifndef KIRA_HOST_TEST
+    (void)devpm_register("virtio-blk", vblk_suspend, vblk_resume, 0);
+#endif
     uart_print("[KIRA VIRTIO] Disk virtio-blk, "); uart_print_dec(cap / 2048); uart_print(" MB (PCI ");
     uart_print_dec(pd->bus); uart_print(":"); uart_print_dec(pd->dev); uart_print(".");  uart_print_dec(pd->fn);
     uart_print(irq ? ", virtio 1.0, completion by MSI-X interrupt" : ", virtio 1.0, polling");

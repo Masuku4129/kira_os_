@@ -13,6 +13,11 @@
 
 #define APIC_REG_ID        0x020
 #define APIC_REG_VERSION   0x030
+#define APIC_REG_TPR       0x080
+#define APIC_REG_LVT_ERR   0x370
+#define APIC_REG_LVT_LINT0 0x350
+#define APIC_REG_LVT_LINT1 0x360
+#define APIC_REG_ESR       0x280
 #define APIC_REG_EOI       0x0B0
 #define APIC_REG_SVR       0x0F0
 #define APIC_REG_ICR_LOW   0x300
@@ -180,4 +185,27 @@ int apic_enable_this_cpu(void) {
     if (x2 && !(msr & APIC_BASE_X2APIC)) cpu_wrmsr(MSR_APIC_BASE, msr | APIC_BASE_X2APIC);
     apic_write(APIC_REG_SVR, APIC_SVR_ENABLE | APIC_SPURIOUS_VECTOR);
     return (apic_read(APIC_REG_SVR) & APIC_SVR_ENABLE) ? 0 : -1;
+}
+
+/* Сон S3: локальный APIC после пробуждения - в состоянии сброса (прошивка настраивает только загрузочное ядро и по-своему). Регистры, которые
+   ядро меняло или получило от прошивки (подчинённые линии LINT0/LINT1, ошибка, порог TPR, таймер), запоминаются и возвращаются как были. */
+void apic_save(apic_state_t* s) {
+    s->valid = 0;
+    if (!enabled) return;
+    s->tpr = apic_read(APIC_REG_TPR); s->svr = apic_read(APIC_REG_SVR);
+    s->lint0 = apic_read(APIC_REG_LVT_LINT0); s->lint1 = apic_read(APIC_REG_LVT_LINT1); s->lerr = apic_read(APIC_REG_LVT_ERR);
+    s->ltimer = apic_read(APIC_REG_LVT_TIMER); s->tdcr = apic_read(APIC_REG_TDCR);
+    s->ticr = timer_initial && !(s->ltimer & APIC_LVT_MASKED) ? timer_initial : 0;    /* счётчик читается «на лету»: берём то, чем запущен таймер */
+    s->valid = 1;
+}
+int apic_restore(const apic_state_t* s) {
+    if (!enabled || !s->valid) return -1;
+    if (apic_enable_this_cpu() != 0) return -2;
+    apic_write(APIC_REG_ESR, 0);
+    apic_write(APIC_REG_TPR, s->tpr);
+    apic_write(APIC_REG_LVT_LINT0, s->lint0); apic_write(APIC_REG_LVT_LINT1, s->lint1); apic_write(APIC_REG_LVT_ERR, s->lerr);
+    apic_write(APIC_REG_TDCR, s->tdcr);
+    apic_write(APIC_REG_LVT_TIMER, s->ltimer);
+    apic_write(APIC_REG_TICR, s->ticr);                   /* последним: счёт начинается с этой записи */
+    return 0;
 }
