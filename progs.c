@@ -61,7 +61,7 @@ void progs_policy_report(void) {
 
 /* Загрузить и проверить подписанный манифест. 0 - манифест верен (в *out буфер, освобождает вызывающий, *len - длина), иначе причина в *why. */
 static int signed_manifest_load(uint8_t** out, size_t* len, const char** why) {
-    static char reason[80];
+    static char reason[192];     /* причина по-русски: 2 байта на букву, с запасом, чтобы не резать UTF-8 посреди знака */
     kfs_stat_t st;
     *out = 0;
     int r = kfs_stat(APPMAN_PATH, &st);
