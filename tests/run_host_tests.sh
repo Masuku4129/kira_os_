@@ -530,6 +530,10 @@ $CC $FLAGS -fsanitize=address,undefined -o $T/sb16 tests/sb16_test.c sb16.c
 $T/sb16
 $CC $FLAGS -fsanitize=address,undefined -o $T/net tests/net_test.c net.c
 $T/net
+# фаззинг приёма кадров (А6): настоящий стек (net.c включён в тест, ядерные вызовы подменены), ip6.c, ipfrag.c; ARP, IPv4/IPv6, ICMP, UDP, TCP, DHCP, DNS, ND/RA, фрагменты;
+# проверка всего, что стек отправил (длина, суммы, адреса). Зерно 1 и число сценариев задаёт KIRA_NET_FUZZ_SCEN (по умолчанию 20000, около 10 с); глубокий прогон: KIRA_NET_FUZZ_SCEN=2000000
+$CC $FLAGS -fsanitize=address,undefined -o $T/net_fuzz tests/net_fuzz.c ip6.c ipfrag.c
+ASAN_OPTIONS=detect_leaks=0:abort_on_error=1 UBSAN_OPTIONS=halt_on_error=1:abort_on_error=1 $T/net_fuzz ${KIRA_NET_FUZZ_SCEN:-20000} 1
 echo "== fuzz: загрузчик ELF (инварианты elf.h на искажённых программах) и разборщик CBOR =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/elf_fuzz tests/elf_fuzz.c elf.c
 if ls userland/*.elf >/dev/null 2>&1; then ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=halt_on_error=1 $T/elf_fuzz ${KIRA_FUZZ_ITERS:-20000} 1 userland/*.elf; fi

@@ -31,8 +31,9 @@ int net_parse_ip(const char* s, uint32_t* ip) {
     return 0;
 }
 
-#ifdef KIRA_HOST_TEST
-/* хост: стека нет (тест консоли видит команды, тест сети - чистые функции) */
+#if defined(KIRA_HOST_TEST) && !defined(KIRA_NET_HOST)
+/* хост: стека нет (тест консоли видит команды, тест сети - чистые функции). Фаззер приёма (tests/net_fuzz.c) определяет
+   KIRA_NET_HOST и включает net.c целиком: настоящий стек на хосте, ядерные вызовы подменены в тесте. */
 void netcmd_net(const char* a) { (void)a; }
 void netcmd_ping(const char* a) { (void)a; }
 void netcmd_dns(const char* a) { (void)a; }
@@ -501,6 +502,20 @@ static void icmp6_input(const uint8_t* eth_src, const uint8_t* src, const uint8_
     }
 }
 
+/* Адреса IPv4 (RFC 1122 п. 3.2.1.3, 4.2.3.10). Одиночный адрес узла - не 0.0.0.0, не 127/8, не групповой и не класса E,
+   не 255.255.255.255. */
+static int ip4_basic(uint32_t a) { return a != 0 && a != 0xFFFFFFFFu && (a >> 24) != 127 && (a >> 28) < 0xE; }
+/* Узел сети с маской mask: ещё и не адрес сети и не широковещательный адрес подсети (у /31 и /32 их нет). */
+static int ip4_host_ok(uint32_t a, uint32_t mask) {
+    if (!ip4_basic(a)) return 0;
+    return !(~mask > 1 && ((a & ~mask) == 0 || (a & ~mask) == ~mask));
+}
+/* Отправитель/получатель одиночный и не широковещательный в нашей подсети (адрес сети допустим: так приходят и от шлюза). */
+static int ip4_unicast(uint32_t a) {
+    if (!ip4_basic(a)) return 0;
+    return !(my_mask && ~my_mask > 1 && (a & ~my_mask) == ~my_mask && (a & my_mask) == (my_ip & my_mask));
+}
+
 /* ---------- DHCP ---------- */
 enum { D_INIT, D_SELECTING, D_REQUESTING, D_BOUND };
 static int dstate;
@@ -524,6 +539,8 @@ static void dhcp_send(int type) {
     ip_send(BCAST, 0, 0xFFFFFFFF, 17, u, sizeof u);
 }
 
+static void tcp_drop_v4_not(uint32_t keep);
+
 static void dhcp_input(const uint8_t* b, uint32_t len) {
     if (len < 240 || b[0] != 2 || get32(b + 4) != xid || get32(b + 236) != 0x63825363) return;
     int type = 0; uint32_t mask = 0, gw = 0, dns = 0, srv = 0, lease = 0;
@@ -540,11 +557,18 @@ static void dhcp_input(const uint8_t* b, uint32_t len) {
         i += 2u + n;
     }
     uint32_t yi = get32(b + 16);
+    if (type == 2 || type == 5) {                                   /* адрес и параметры должны быть годными: иначе стек стал бы узлом 0.0.0.0, 224.x или с маской-«дырой» */
+        uint32_t eff = mask ? mask : 0xFFFFFF00;
+        if ((mask && (~mask & (~mask + 1)) != 0) || !ip4_host_ok(yi, eff)) return;
+        if (!ip4_basic(gw)) gw = 0;                                 /* негодный шлюз и DNS - как будто не заданы */
+        if (!ip4_basic(dns)) dns = 0;
+    }
     if (type == 2 && dstate == D_SELECTING) {                       /* OFFER -> REQUEST */
         offer_ip = yi; offer_srv = srv; dstate = D_REQUESTING; dtries = 0;
         dhcp_send(3); dnext = timer_get_ticks() + 2 * TIMER_HZ;
     } else if (type == 5 && dstate == D_REQUESTING) {               /* ACK: адрес наш */
         my_ip = yi; my_mask = mask ? mask : 0xFFFFFF00; my_gw = gw; my_dns = dns; lease_s = lease ? lease : 3600;
+        tcp_drop_v4_not(yi);                                        /* адрес сменился: соединения со старым адресом больше не наши */
         dstate = D_BOUND; dbound_at = timer_get_ticks();
         unsigned bits = 0; for (uint32_t m = my_mask; m; m <<= 1) bits++;
         uart_print("[KIRA NET] DHCP: address "); print_ip(my_ip); uart_print("/"); uart_print_dec(bits);
@@ -867,6 +891,18 @@ static void tcp_tick(uint64_t now) {
     spin_unlock_irqrestore(&tlk, f);
 }
 
+/* Соединения IPv4 с локальным адресом, отличным от keep, сбрасываются (поток «net»): после смены адреса по DHCP их сегменты шли бы
+   с чужого теперь адреса; ждущие вызовы получат «сброс» (reset). Слушатели от адреса не зависят. */
+static void tcp_drop_v4_not(uint32_t keep) {
+    uint64_t f = spin_lock_irqsave(&tlk);
+    for (int i = 0; i < TCP_MAX; i++) {
+        tcb_t* t = &tcbs[i];
+        if (t->state == T_FREE || t->state == T_CLOSED || t->lip.fam != 4 || ipa_to4(&t->lip) == keep) continue;
+        t->state = T_CLOSED; t->reset = 1; t->rto_at = 0;
+    }
+    spin_unlock_irqrestore(&tlk, f);
+}
+
 static int tcp_wait(tcb_t* t, int (*cond)(const tcb_t*), uint64_t ticks) {
     uint64_t until = timer_get_ticks() + ticks;
     while (!cond(t)) {
@@ -1170,12 +1206,14 @@ static void udp_input(const ipa_t* src, const ipa_t* dst, const uint8_t* d, uint
     udp_deliver(src, sport, dport, d + 8, ul - 8);
 }
 
-/* Транспорт IPv4 после сборки: d - данные датаграммы. */
+/* Транспорт IPv4 после сборки: d - данные датаграммы. Ответ (эхо, RST, SYN-ACK) идёт только узлу с одиночным адресом:
+   на запрос от 0.0.0.0, широковещательного или группового адреса отвечать некому, а SYN на широковещательный адрес
+   RFC 1122 п. 4.2.3.10 велит молча отбросить. */
 static void ip_deliver(const uint8_t* eth_src, uint32_t src, uint32_t dst, uint8_t proto, const uint8_t* d, uint32_t n) {
-    if (proto == 1) icmp_input(eth_src, src, d, n);
+    if (proto == 1) { if (ip4_unicast(src)) icmp_input(eth_src, src, d, n); }
     else if (proto == 17 && n >= 8 && get16(d + 2) == 68 && get16(d) == 67) dhcp_input(d + 8, n - 8);
     else if (proto == 17 && n >= 8 && dns_port && get16(d + 2) == dns_port && get16(d) == 53 && src == my_dns) dns_input(d + 8, n - 8);
-    else if (proto == 6) { ipa_t s = ipa_v4(src), t = ipa_v4(dst); tcp_input(&s, &t, eth_src, d, n); }
+    else if (proto == 6) { if (ip4_unicast(src) && ip4_unicast(dst)) { ipa_t s = ipa_v4(src), t = ipa_v4(dst); tcp_input(&s, &t, eth_src, d, n); } }
     else if (proto == 17 && n >= 8 && my_ip) { ipa_t s = ipa_v4(src), t = ipa_v4(dst); udp_input(&s, &t, d, n); }
 }
 
@@ -1338,6 +1376,17 @@ int64_t net_udp_sys(unsigned op, uint64_t a1, uint64_t a2, uint64_t a3) {
     return -10;
 }
 
+/* Один принятый кадр Ethernet: счётчики, проверка длины, разбор по типу. Вынесено из net_main без смены поведения:
+   фаззер на хосте подаёт кадры сюда напрямую (функция static, публичного интерфейса ядро не получает). */
+static void net_rx_frame(const uint8_t* f, uint32_t n) {
+    rx_frames++;
+    if (n < 14) { rx_drop++; return; }
+    uint16_t type = get16(f + 12);
+    if (type == 0x0806) arp_input(f + 14, n - 14);
+    else if (type == 0x0800) ip_input(f + 6, f + 14, n - 14);
+    else if (type == 0x86DD) ip6_input(f + 6, f + 14, n - 14);
+}
+
 static void net_main(void* arg) {
     (void)arg;
     static uint8_t f[2048];
@@ -1346,14 +1395,7 @@ static void net_main(void* arg) {
     uint32_t mark = dev->iw ? irqwait_mark(dev->iw) : 0;
     for (;;) {
         int n;
-        while ((n = dev->recv(dev, f, sizeof f)) > 0) {
-            rx_frames++;
-            if (n < 14) { rx_drop++; continue; }
-            uint16_t type = get16(f + 12);
-            if (type == 0x0806) arp_input(f + 14, (uint32_t)n - 14);
-            else if (type == 0x0800) ip_input(f + 6, f + 14, (uint32_t)n - 14);
-            else if (type == 0x86DD) ip6_input(f + 6, f + 14, (uint32_t)n - 14);
-        }
+        while ((n = dev->recv(dev, f, sizeof f)) > 0) net_rx_frame(f, (uint32_t)n);
         int l = dev->link(dev);
         if (l != had_link) {
             if (had_link >= 0) uart_print(l ? "[KIRA NET] link up\n" : "[KIRA NET] link down\n");
