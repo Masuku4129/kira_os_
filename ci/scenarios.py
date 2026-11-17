@@ -61,7 +61,7 @@ ALL = [
         # The release image is built with initrd.img; the MB2 handoff must report one module.
         {"log": [r"\[KIRA FB\] Bootloader mode: 1280x720x32", r"Processors online: 4", r"modules=1"]},
         *DISK_IRQ,
-    ], boot="bios"),
+    ], boot="bios", needs=["initrd"]),
     sc("boot-virtio", "загрузка: virtio-blk, 4 ядра, базовые проверки", BASIC + [
         {"log": [r"Processors online: 4", r"parallel helpers: 3", r"virtio-blk, .*completion by MSI-X interrupt"]},
         *DISK_IRQ,
@@ -187,7 +187,7 @@ ALL = [
         {"log": [r"\[KIRA NET\] IPv6: fec0::5054:ff:fe12:3456 \(SLAAC /64, DAD passed\) ready"]},   # RA приходит на групповой MAC: фильтр MTA карты
         {"cmd": "ping6 fec0::2 2", "must": [r"ответ от fec0::2", r"отправлено 2, получено [1-2]"], "timeout": 20},
         {"log_forbid": NO_ERR},
-    ], smp=2, mem="512M", extra=["-netdev", "user,id=n0,ipv4=on,ipv6=on,guestfwd=tcp:10.0.2.100:80-cmd:python3 " + HTTP_ONCE, "-device", "e1000,netdev=n0"]),
+    ], smp=2, mem="512M", extra=["-netdev", "user,id=n0,ipv4=on,ipv6=on,guestfwd=tcp:10.0.2.100:80-cmd:python3 " + HTTP_ONCE, "-device", "e1000,netdev=n0"], needs=["dns"]),
     sc("net-e1000e", "сеть: Intel 82574 (e1000e) на q35 - приём по прерыванию MSI, DHCP, TCP, программа fetch", [
         {"log": BOOT_LOG}, {"sleep": 8},
         {"log": [r"\[KIRA NET\] e1000 \(8086:10d3\).*receive by MSI interrupt", r"\[KIRA NET\] DHCP: address 10\.0\.2\.15/24"]},
@@ -398,7 +398,7 @@ ALL = [
         {"log": [r"wasm: x86-64 native code, \d+ bytes \(JIT\)", r"wgfx: frame0=%s frame30=%s" % WGFX,
                  r"wasm: finished with code 0 in \d{1,3} ms"]},                 # порог: < 1000 мс
         {"log_forbid": NO_ERR + [r"wasm: stopped", r"wasm: interpreter mode"]},
-    ], smp=2, mem="512M"),
+    ], smp=2, mem="512M", needs=["kvm"]),
     sc("sound-hda", "звук: Intel HDA (как Sound: hda в Limbo) - кодек, путь к выходу, тон через DMA", [
         {"log": BOOT_LOG + [r"\[KIRA HDA\] Sound: codec .* output path pin \d+ <- DAC \d+"]},
         {"cmd": "sound", "must": [r"выход: вывод \d+ <- ЦАП \d+"]},
@@ -638,7 +638,7 @@ ALL = [
         {"cmd": "net", "must": [r"фрагменты IP: собрано [1-9]\d*"]},
         {"log_forbid": NO_ERR + [r"is already used by another node"]},
     ], smp=2, mem="512M", extra=["-netdev", "user,id=n0,ipv4=on,ipv6=on,hostfwd=udp:127.0.0.1:18082-:9000",
-                                 "-device", "virtio-net-pci,netdev=n0"]),
+                                 "-device", "virtio-net-pci,netdev=n0"], needs=["ipv6"]),
 ]
 
 # ---- Разум: рычаги 13-23 ----

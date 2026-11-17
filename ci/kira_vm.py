@@ -128,6 +128,26 @@ PROMPT = "кира> ".encode()
 FATAL = [rb"\[KIRA FATAL\]", rb"\[KIRA KERNEL PANIC\]", rb"\[KIRA WATCHDOG\] Halting"]
 
 
+def env_missing(needs, kvm):
+    """Чего не хватает хозяину для сценария (None - всё есть). Сценарий без нужной среды не падает, а пропускается с причиной."""
+    for n in needs or []:
+        if n == "kvm" and not kvm:
+            return "нужен KVM (на TCG скорость не измеряется честно)"
+        if n == "ipv6":
+            try:
+                t = socket.socket(socket.AF_INET6); t.bind(("::1", 0)); t.close()
+            except OSError:
+                return "у хозяина нет IPv6 (loopback ::1 недоступен)"
+        if n == "dns":
+            try:
+                socket.getaddrinfo("example.com", 80)
+            except OSError:
+                return "у хозяина нет DNS/интернета (example.com не находится)"
+        if n == "initrd" and not os.environ.get("KIRA_INITRD"):
+            return "образ собран без initrd.img (задайте KIRA_INITRD при сборке и запуске)"
+    return None
+
+
 class Fail(Exception):
     pass
 
@@ -628,7 +648,14 @@ def main():
         return 2
     fails = 0
     summary = []
+    skipped = 0
     for sc in chosen:
+        why = env_missing(sc.get("needs"), a.kvm)
+        if why:
+            print(f"SKIP {sc['name']:<22} {why}", flush=True)
+            summary.append({"name": sc["name"], "ok": None, "skipped": why})
+            skipped += 1
+            continue
         r = run(sc, a)
         mark = "OK  " if r["ok"] else "FAIL"
         line = f"{mark} {sc['name']:<22} {r['seconds']:>6} с" + (f"  загрузка {r.get('boot_seconds')} с" if r.get("boot_seconds") else "")
