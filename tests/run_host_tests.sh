@@ -96,6 +96,10 @@ echo "== driver package format (kdrv_format.h: header, record, matching, hostile
 $CC $FLAGS -fsanitize=address,undefined -o $T/kdrv tests/kdrv_test.c kdrv_fmt.c
 $T/kdrv
 
+echo "== Ring 3 block device channel (kdrv_blk.h: registration, request bounds, rings, in-flight tracking, hostile responses) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/kdrv_blk tests/kdrv_blk_test.c kdrv_blk.c
+$T/kdrv_blk
+
 echo "== kdrvpack: mandatory publisher state requires explicit confirmation =="
 $CC $FLAGS -o $T/kdrvpack tools/kdrvpack.c kdrv_fmt.c sha256.c
 printf '\177ELF\002\001\001\000' > $T/sample.elf
