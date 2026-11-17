@@ -1,4 +1,5 @@
 /* Сон S3: оркестратор (см. sleep.h). Машинная часть - platform_sleep (arch/x86_64/sleep.c); на ARM64 сна S3 нет, платформа отвечает отказом с причиной. */
+#include "auditev.h"
 #include "sleep.h"
 #include "devpm.h"
 #include "platform.h"
@@ -45,6 +46,7 @@ int sleep_enter(const char* source) {
     uart_print("[KIRA SLEEP] sleep requested: "); uart_print(source ? source : "?"); uart_print("\n");
     if (!platform_sleep_supported(&why)) {
         uart_print("[KIRA SLEEP] S3 is not available on this machine: "); uart_print(why); uart_print(".\n");
+        audit_event(AUD_K_SLEEP, audit_cmd_source(), AUD_R_FAIL, 0, 0, 0, "sleep", why ? why : "S3 not available");
         copy_why(why); st.refused++;
         __atomic_store_n(&busy, 0, __ATOMIC_RELEASE);
         return 0;
@@ -52,6 +54,7 @@ int sleep_enter(const char* source) {
     char drv[16] = "";
     if (kdrv_active_count(drv) > 0) {          /* устройством владеет программа Ring 3: ни остановить его, ни восстановить после сна ядро не может */
         uart_print("[KIRA SLEEP] sleep refused: Ring 3 driver drv-"); uart_print(drv); uart_print(" owns a device (stop it first: drv stop "); uart_print(drv); uart_print(").\n");
+        audit_event(AUD_K_SLEEP, audit_cmd_source(), AUD_R_DENIED, 0, 0, 0, "sleep", "refused: Ring 3 driver running");
         copy_why("Ring 3 driver is running"); st.refused++;
         __atomic_store_n(&busy, 0, __ATOMIC_RELEASE);
         return 0;
@@ -64,6 +67,7 @@ int sleep_enter(const char* source) {
         copy_why("processes did not stop"); st.refused++;
         goto out;
     }
+    audit_event(AUD_K_SLEEP, audit_cmd_source(), AUD_R_OK, 0, 0, 0, "sleep", source ? source : "?");
     uart_print("сохраняю опыт и данные дисков перед сном...\n");
     console_power_prepare();                                   /* опыт Разума, чёрный ящик, отложенная запись ФС, кэши дисков - как при выключении */
     uart_print("[KIRA SLEEP] suspending "); uart_print_dec((uint64_t)devpm_count()); uart_print(" device hooks...\n");
@@ -86,6 +90,7 @@ int sleep_enter(const char* source) {
         uart_print("[KIRA SLEEP] awake: devices restored, "); uart_print_dec((uint64_t)bad); uart_print(" failed to come back; asleep for ");
         if (st.last_wall_s >= 0) { uart_print_dec((uint64_t)st.last_wall_s); uart_print(" s by the real-time clock"); } else uart_print("an unknown time");
         uart_print(".\n");
+        audit_event(AUD_K_WAKE, AUD_SRC_SYSTEM, bad ? AUD_R_FAIL : AUD_R_OK, 0, 0, (uint32_t)bad, "sleep", bad ? "awake, some devices failed to return" : "awake, devices restored");
         copy_why("");
         result = 1;
     } else {

@@ -47,6 +47,9 @@ int iommu_fault_poll(void) { return 0; }
 uint32_t iommu_fault_count(const pci_dev_t* d) { (void)d; return 0; }
 void blk_selftest(const char* id) { (void)id; emit("[BLKTEST]\n"); }
 void rconcmd(const char* arg) { (void)arg; emit("[RCON]\n"); }
+void audit_command(const char* arg) { (void)arg; emit("[AUDIT]\n"); }
+void audit_shutdown(void) {}
+void audit_sync(void) {}
 void usb_print(void) { emit("[USB]\n"); }
 void usb_hid_allow_all(void) { emit("[ALLOW]\n"); }
 blk_dev_t* blk_primary(void) { return 0; }

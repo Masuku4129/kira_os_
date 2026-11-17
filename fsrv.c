@@ -1,3 +1,4 @@
+#include "auditev.h"
 #include "caps.h"
 #include "fsrv.h"
 #include "vfs.h"
@@ -138,7 +139,13 @@ static int streq16(const char* a, const char* b) { while (*a && *a == *b) { a++;
 static int drv_tool(const char* who) { return who && (streq16(who, "drvget") || streq16(who, "drvman")); }
 
 /* FS_OP_DRV_*: пакеты драйверов. Вызывающий - только drvget или drvman (проверено выше и здесь по имени процесса). */
-static void drv_execute(fsrv_req_t* r) {
+static void drv_execute_inner(fsrv_req_t* r);
+static void drv_execute(fsrv_req_t* r) {                              /* пакеты драйверов: установка и удаление попадают в журнал аудита (кто, что, чем кончилось) */
+    drv_execute_inner(r);
+    if (r->op == FS_OP_DRV_WRITE || r->op == FS_OP_DRV_REMOVE)
+        audit_event_cur(r->op == FS_OP_DRV_WRITE ? AUD_K_DRV_INSTALL : AUD_K_DRV_REMOVE, r->result >= 0 ? AUD_R_OK : (r->result == FS_E_DENIED ? AUD_R_DENIED : AUD_R_FAIL), (uint32_t)(r->result < 0 ? -r->result : 0), r->name);
+}
+static void drv_execute_inner(fsrv_req_t* r) {
     if (!drv_tool(r->prog)) { r->result = FS_E_DENIED; return; }
     char path[48];
     if (r->op == FS_OP_DRV_LIST) {

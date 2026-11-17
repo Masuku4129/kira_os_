@@ -1,3 +1,4 @@
+#include "auditev.h"
 #include "immune.h"
 #include "uart.h"
 
@@ -146,11 +147,13 @@ immune_verdict_t immune_classify(const void* buf, size_t size) {
     // 2. Враждебный? (антитела)
     if (has_nop_sled(p, size)) {
         quarantine_add(digest, size, IMMUNE_HOSTILE, "nop-sled");
+        audit_event(AUD_K_IMMUNE, AUD_SRC_KERNEL, AUD_R_DENIED, 0, 0, (uint32_t)IMMUNE_HOSTILE, "immune", "hostile: nop-sled");
         return IMMUNE_HOSTILE;
     }
     for (uint32_t i = 0; i < antibody_total; i++) {
         if (find_pattern(p, size, antibodies[i].pattern, antibodies[i].len)) {
             quarantine_add(digest, size, IMMUNE_HOSTILE, antibodies[i].name);
+            audit_event(AUD_K_IMMUNE, AUD_SRC_KERNEL, AUD_R_DENIED, 0, 0, (uint32_t)IMMUNE_HOSTILE, "immune", antibodies[i].name);
             return IMMUNE_HOSTILE;
         }
     }

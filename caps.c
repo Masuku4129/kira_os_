@@ -63,6 +63,7 @@ const char* caps_bit_name(uint32_t bit) {
     case CAP_DMA: return "CAP_DMA";           case CAP_PCIDEV: return "CAP_PCIDEV";
     case CAP_NETDEV: return "CAP_NETDEV";     case CAP_PCILIST: return "CAP_PCILIST";
     case CAP_JIT: return "CAP_JIT";           case CAP_STDIN: return "CAP_STDIN";       case CAP_BLKDEV: return "CAP_BLKDEV";
+    case CAP_AUDIT: return "CAP_AUDIT";
     default: return "CAP_?";
     }
 }
