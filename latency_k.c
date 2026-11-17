@@ -3,14 +3,23 @@
 #include "percpu.h"
 #include "heap.h"
 #include "uart.h"
+extern char kernel_start[];
+#ifdef __x86_64__
 #include "kptr.h"
+#else
+/* ARM64: KASLR нет (образ лежит по фиксированному адресу), kptr.c в сборке нет: адрес образа печатаем как K+смещение так же, как x86-64 */
+extern char __kernel_end[];
+static int kptr_in_image(uint64_t v) { return v >= (uint64_t)(uintptr_t)kernel_start && v < (uint64_t)(uintptr_t)__kernel_end; }
+static void kptr_print(uint64_t v) {
+    if (kptr_in_image(v)) { uart_print("K+"); uart_print_hex(v - (uint64_t)(uintptr_t)kernel_start); }
+    else uart_print_hex(v);
+}
+#endif
 #include "bbring.h"
 #include "timer.h"
 
 /* Подключение измерений времени реакции к ядру (А8). Что и как меряется - docs/LATENCY.md.
    Горячий путь: без замков и выделения памяти, только своё ядро пишет в свою гистограмму (latency.c). */
-
-extern char kernel_start[];
 
 volatile int lat_irqoff_on;                 /* флаг замера секций с выключенными прерываниями */
 static lat_set_t g;
