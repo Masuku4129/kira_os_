@@ -178,7 +178,7 @@ class VM:
         if sc.get("flash"):
             fl = os.path.join(self.out, "flash.img")
             shutil.copyfile(sc["flash"], fl)
-            bus = "usb-bus.0" if "-usb" in a else "xhci.0"
+            bus = sc.get("flash_bus") or ("usb-bus.0" if "-usb" in a else "xhci.0")
             port = ",port=1.1" if sc.get("hub") else ""
             a += ["-drive", f"if=none,id=stick,format=raw,file={fl}", "-device", f"usb-storage,bus={bus}{port},drive=stick,removable=on"]
         return a
