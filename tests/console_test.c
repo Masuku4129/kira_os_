@@ -54,7 +54,8 @@ void blk_print(void) { emit("[DISKS]\n"); }
 static char fsarg[96]; static const char* fscall;
 #define fsclr() (fsarg[0] = 0)
 #define FSSTUB(n) void n(const char* a) { fscall = #n; fsarg[0] = 0; strncpy(fsarg, a, sizeof fsarg - 1); }
-FSSTUB(fscmd_ls) FSSTUB(fscmd_cat) FSSTUB(fscmd_write) FSSTUB(fscmd_rm) FSSTUB(fscmd_mkdir) FSSTUB(fscmd_df) FSSTUB(fscmd_verify) FSSTUB(fscmd_json) FSSTUB(fscmd_format) FSSTUB(fscmd_cp) FSSTUB(fscmd_umount) FSSTUB(fscmd_remount)
+FSSTUB(fscmd_ls) FSSTUB(fscmd_cat) FSSTUB(fscmd_write) FSSTUB(fscmd_rm) FSSTUB(fscmd_mkdir) FSSTUB(fscmd_df) FSSTUB(fscmd_verify) FSSTUB(fscmd_json) FSSTUB(fscmd_format) FSSTUB(fscmd_cp) FSSTUB(fscmd_umount) FSSTUB(fscmd_remount) FSSTUB(fscmd_anchor)
+int trustanchor_shutdown_calls; void trustanchor_shutdown(void) { trustanchor_shutdown_calls++; }   /* якорь диска: здесь только факт вызова при выключении */
 void uart_print(const char* s) { emit(s); }
 void uart_putchar(char c) { char b[2] = { c, 0 }; emit(b); }
 void uart_print_serial(const char* s) { size_t n = strlen(s); memcpy(serial + sern, s, n); sern += n; }
