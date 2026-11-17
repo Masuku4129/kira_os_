@@ -6,6 +6,7 @@
 #include "clock.h"
 #include "percpu.h"
 #include "spinlock.h"
+#include "latency.h"
 
 #define PIT_CHANNEL0_PORT 0x40
 #define PIT_COMMAND_PORT  0x43
@@ -78,6 +79,7 @@ void timer_handler(void) {
         __atomic_fetch_add(&ticks, 1, __ATOMIC_RELEASE);
     }
     uart_tick_flush();
+    lat_flush();                                   // А8: превышения порогов задержки - в чёрный ящик (вне горячего пути)
     watchdog_check();
     sched_tick(); // пробуждение спящих, учёт кванта; само вытеснение - после EOI
 }

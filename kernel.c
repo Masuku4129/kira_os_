@@ -2,6 +2,7 @@
 #include "kptr.h"
 #include "kaslr_arch.h"
 #include "cpu.h"
+#include "latency.h"
 #include "uart.h"
 #include "gdt.h"
 #include "idt.h"
@@ -335,6 +336,7 @@ void kernel_main(unsigned long magic, unsigned long addr) {
 
     // Современная схема прерываний: IOAPIC + таймер LAPIC. Все шаги проверяются, при сбое - остаёмся на PIC/PIT.
     irqmode_enable_apic(tsc_khz_val, apic_rate, have_apic, TIMER_HZ);
+    lat_init(hw_get()->cpus, tsc_khz_val);     // А8: измерения времени реакции (после калибровки TSC и таймера LAPIC)
 
     {
         const acpi_info_t* ai = acpi_get();

@@ -33,6 +33,7 @@
 #include "audio.h"
 #include "spinlock.h"
 #include "usb.h"
+#include "latency.h"
 #if defined(__x86_64__)
 #include "kaslr_arch.h"
 #endif
@@ -295,6 +296,7 @@ static void cmd_3d(const char* a) { (void)a; prog_start("cube3d"); }
 static const console_shell_t* shell;
 void console_set_shell(const console_shell_t* sh) { shell = sh; }
 static void cmd_bb(const char* a) { bbsave_command(a); }
+static void cmd_latency(const char* a) { lat_command(a); }
 static void cmd_fb(const char* a) { (void)a; if (shell && shell->print_info) shell->print_info(); else uart_print("экрана нет\n"); }
 static void cmd_hw(const char* a) { (void)a; platform_hw(uart_print); }
 static void cmd_fpu(const char* a) { (void)a; uart_print("[FPU TEST] 3 fpu processes compute x87 + SSE + double in parallel; each reports its own verdict\n"); prog_start("fpu"); prog_start("fpu"); prog_start("fpu"); }
@@ -648,6 +650,7 @@ static const cmd_t cmds[] = {
     { "hw",        0,   "профиль железа: процессор, ядра, ОЗУ, пределы для программ", cmd_hw },
     { "fb",        'f', "статистика экрана (и сводка чёрного ящика)", cmd_fb },
     { "bb",        0,   "чёрный ящик: bb [N|all] последние события, bb old - прошлый запуск, bb save, bb clear, bb file, bb pause мс (проверка)", cmd_bb },
+    { "latency",   0,   "время реакции: гистограммы задержек (прерывание, обработчик, критические секции, планировщик по классам); latency reset | limit ИМЯ нс | irqoff on|off | bench", cmd_latency },
     { "burn",      'l', "процесс-нагрузка на 3 с (вытесняющее планирование)", cmd_burn },
     { "burnall",   0,   "по процессу-нагрузке на каждое ядро, 3 с (сравни итерации с burn)", cmd_burnall },
     { "3d",        'g', "окно 3D (программа cube3d из /bin)", cmd_3d },

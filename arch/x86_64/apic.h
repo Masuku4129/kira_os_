@@ -28,6 +28,7 @@ int  apic_enable_this_cpu(void);
 void apic_timer_start_periodic(uint8_t vector, uint32_t initial_count);
 void apic_timer_stop(void);
 void apic_timer_mask_local(void);   /* только этого ядра, общий счёт не трогает */
+uint32_t apic_timer_current_count(void);   /* текущий счёт таймера LAPIC */
 uint32_t apic_timer_initial_count(void);   /* 0, если таймер LAPIC не работает (тики идут от PIT) */
 
 // Сон S3: сохранение и возврат регистров локального APIC этого ядра (TPR, LINT0/1, ошибка, таймер). apic_restore включает APIC заново.
