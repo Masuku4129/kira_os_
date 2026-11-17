@@ -137,6 +137,9 @@ static void test_text(void) {
     r.b = 0xFFFF; r.c = 7; bb_format(&r, l, sizeof l); CHECK(strstr(l, "мьютекс ядра, владелец - поток #7"));
     r.b = 1; bb_format(&r, l, sizeof l); CHECK(strstr(l, "таблица потоков"));
     r.kind = BB_CPUWAIT; r.a = 87; r.b = 2; r.c = 3; bb_format(&r, l, sizeof l); CHECK(strstr(l, "ждал процессор 87 мс") && strstr(l, "critical"));
+    memset(&r, 0, sizeof r); r.kind = BB_LAT; r.a = 14153165; r.b = 2; r.c = 10000000; r.d = 0x2b6a4; r.flags = 3; strcpy(r.name, "irqoff"); bb_format(&r, l, sizeof l);
+    CHECK(strstr(l, "[KIRA LAT] irqoff: 14153165 нс при пороге 10000000") && strstr(l, "место K+0x2b6a4") && strstr(l, "слито 3"));
+    r.d = 0xFFFFFFFFu; r.flags = 1; bb_format(&r, l, sizeof l); CHECK(!strstr(l, "место") && !strstr(l, "слито"));
     r.kind = BB_GAP; r.a = 21000; r.b = BB_GAP_MACHINE; r.sev = BB_SEV_SEVERE; strcpy(r.name, "machine");
     bb_format(&r, l, sizeof l); CHECK(strstr(l, "ТЯЖЁЛО") && strstr(l, "пауза 21000 мс") && strstr(l, "тиков таймера не было"));
     r.kind = BB_WATCHDOG; r.a = 2500; r.b = BB_WD_WARN; strcpy(r.name, "no feed"); bb_format(&r, l, sizeof l);

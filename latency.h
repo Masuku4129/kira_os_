@@ -101,6 +101,7 @@ static inline void lat_irq_entry(uint64_t rip) { (void)rip; }
 static inline void lat_isr_note(uint64_t t, uint64_t v) { (void)t; (void)v; }
 static inline void lat_sched_note(unsigned p, uint64_t t, uint32_t id) { (void)p; (void)t; (void)id; }
 static inline void lat_flush(void) {}
+static inline void lat_command(const char* a) { (void)a; }
 static inline void lat_inject(void) {}
 static inline void lat_spin_note(uint64_t t, uint64_t s) { (void)t; (void)s; }
 static inline void lat_part(unsigned p, uint64_t t) { (void)p; (void)t; }
