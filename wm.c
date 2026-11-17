@@ -72,6 +72,7 @@ static int brain_cx, brain_cy;
 
 #define SYS_ZONE_W 200
 static void damage_home(void);
+static int topbar_right(surface_t* c, int ox, int oy, int dry);
 static int home_open = 1;                                /* обзор системы: по клику на системную зону, по умолчанию скрыт */
 
 static const char* const cursor_art[CUR_H] = {
@@ -170,6 +171,16 @@ static void focus_moved(int prev_top) {
 }
 static void damage_cursor(void) { damage(cx, cy, cx + CUR_W, cy + CUR_H); }
 static void damage_top(void) { damage(0, 0, scr->w, WM_TOP_H); }
+/* Левый край правой капсулы (время, здоровье, батарея) без рисования. */
+static int top_cap_left(void) { return topbar_right(0, 0, 0, 1) - 16; }
+/* Часы, батарея и метры меняют только правую капсулу: перерисовываем её (старую и новую ширину), а не всю панель. */
+static void damage_top_right(int old_left) {
+    int l = top_cap_left();
+    if (old_left < l) l = old_left;
+    l -= 6;
+    if (l < 0) l = 0;
+    damage(l, 0, scr->w, WM_TOP_H);
+}
 
 static int fs_top(void) {
     for (int i = zcount - 1; i >= 0; i--) {
@@ -812,9 +823,10 @@ static int same_str(const char* a, const char* b, int cap) {
 
 void wm_set_clock(const char* date, const char* hm) {
     if (same_str(clock_date, date, (int)sizeof clock_date) && same_str(clock_hm, hm, (int)sizeof clock_hm)) return;
+    int l0 = top_cap_left();
     str_copy(clock_date, date, sizeof clock_date);
     str_copy(clock_hm, hm, sizeof clock_hm);
-    damage_top();
+    damage_top_right(l0);
     damage_home();
 }
 
@@ -824,8 +836,9 @@ void wm_set_battery(int present, int percent, int charging) {
     if (percent < 0) percent = -1;
     if (!present) { percent = -1; charging = 0; }
     if (present == m_bat_on && percent == m_bat_pct && (charging ? 1 : 0) == m_bat_chg) return;
+    int l0 = top_cap_left();
     m_bat_on = present; m_bat_pct = percent; m_bat_chg = charging ? 1 : 0;
-    damage_top();
+    damage_top_right(l0);
 }
 
 void wm_set_meters(const uint8_t* busy, int ncores, int mem_pct, int health) {
@@ -833,9 +846,10 @@ void wm_set_meters(const uint8_t* busy, int ncores, int mem_pct, int health) {
     int changed = ncores != m_cores || mem_pct != m_mem || health != m_health;
     for (int i = 0; i < ncores && !changed; i++) if (m_busy[i] / 8 != busy[i] / 8) changed = 1;   /* шаг столбика ~ 8% */
     if (!changed) return;
+    int l0 = top_cap_left();
     for (int i = 0; i < ncores; i++) m_busy[i] = busy[i];
     m_cores = ncores; m_mem = mem_pct; m_health = health;
-    damage_top();
+    damage_top_right(l0);
     damage_home();
 }
 

@@ -450,6 +450,7 @@ int main(void) {
     CHECK(!wm_compose(&x, &y, &w, &h));
     wm_set_battery(1, 55, 1);
     CHECK(wm_compose(&x, &y, &w, &h));
+    CHECK(x > 200 && x + w >= 600 && y == 0 && h <= WM_TOP_H);   /* только правая капсула, бренд и вкладки слева не трогаются */
     wm_set_battery(0, -1, 0);
     CHECK(wm_compose(&x, &y, &w, &h));
     wm_set_battery(0, -1, 0);
