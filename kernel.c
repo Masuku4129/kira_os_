@@ -48,6 +48,7 @@
 #include "acpirt.h"
 #include "mbinfo.h"
 #include "bootinfo.h"
+#include "boottrust.h"
 #include "earlycon.h"
 #include "spinlock.h"
 #include "rtc.h"
@@ -114,6 +115,7 @@ void kernel_uefi_entry(const void *blob, uint32_t blob_size) {
         uart_print("[KIRA UEFI] Invalid loader-neutral BootInfo; refusing to start.\n");
         for (;;) __asm__ volatile ("cli; hlt");
     }
+    boottrust_init(h);      /* сведения о Secure Boot и подписи ядра: проверил загрузчик, ядро их хранит и печатает в kernel_main */
     uefi_rsdp_override = h->rsdp_phys;
     uart_print("[KIRA UEFI] Boot modules: ");
     uart_print_dec(h->modules_count);
@@ -154,6 +156,7 @@ void kernel_main(unsigned long magic, unsigned long addr) {
     uart_print("[KIRA OS] Kernel core starting...\n");
     if (!uart_present()) uart_print("[KIRA UART] No COM1 serial port: the log goes to the screen only, commands - from the keyboard.\n");
     uart_print("==================================================\n");
+    boottrust_report(boottrust_get(), uart_print, uart_print_dec);
 
     // Загрузчик (UEFI) мог положить Multiboot2-структуру выше 1 ГБ: переносим её в ядро
     // и сразу включаем раннюю консоль на экране, чтобы любой сбой дальше был виден.

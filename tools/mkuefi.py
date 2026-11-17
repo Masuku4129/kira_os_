@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Собирает загрузочный UEFI-диск Киры: GPT с одним разделом ESP (FAT32), в нём \\EFI\\BOOT\\BOOTX64.EFI (наш загрузчик) и
 \\EFI\\KIRA\\KIRA.ELF (ядро). GRUB не нужен. Использует mformat/mcopy (mtools) для FAT внутри образа по смещению.
-Использование: mkuefi.py BOOTX64.EFI kira.bin kira-uefi.img [размер_МиБ] [initrd.img]"""
+Использование: mkuefi.py [--sig KIRA.SIG] BOOTX64.EFI kira.bin kira-uefi.img [размер_МиБ] [initrd.img]
+  --sig: подписанный манифест (tools/kirasig.py) - кладётся в \\EFI\\KIRA\\KIRA.SIG; нужен загрузчику в доверенном режиме (docs/SECURE_BOOT.md)"""
 import os, struct, subprocess, sys, uuid, zlib
 
 SECTOR = 512
@@ -28,11 +29,21 @@ def gpt_image(total_sectors, part_first, part_last, disk_guid, part_guid):
     return bytes(mbr), primary, bytes(entries), backup
 
 def main():
-    if len(sys.argv) < 4:
+    argv = sys.argv[1:]
+    sig = None
+    if "--sig" in argv:
+        i = argv.index("--sig")
+        if i + 1 >= len(argv):
+            sys.exit(__doc__)
+        sig = argv[i + 1]
+        del argv[i:i + 2]
+        if not os.path.isfile(sig) or os.path.getsize(sig) == 0:
+            sys.exit(f"mkuefi: invalid manifest file: {sig}")
+    if len(argv) < 3:
         sys.exit(__doc__)
-    efi, kernel, out = sys.argv[1:4]
-    mib = int(sys.argv[4]) if len(sys.argv) > 4 else 64
-    initrd = sys.argv[5] if len(sys.argv) > 5 else None
+    efi, kernel, out = argv[0:3]
+    mib = int(argv[3]) if len(argv) > 3 else 64
+    initrd = argv[4] if len(argv) > 4 else None
     if initrd and (not os.path.isfile(initrd) or os.path.getsize(initrd) == 0):
         sys.exit(f"mkuefi: invalid initrd file: {initrd}")
     if initrd and os.path.getsize(initrd) > 64 * 1024 * 1024:
@@ -65,6 +76,8 @@ def main():
     run("mmd", "-i", img, "::/EFI", "::/EFI/BOOT", "::/EFI/KIRA")
     run("mcopy", "-i", img, efi, "::/EFI/BOOT/BOOTX64.EFI")
     run("mcopy", "-i", img, kernel, "::/EFI/KIRA/KIRA.ELF")
+    if sig:
+        run("mcopy", "-i", img, sig, "::/EFI/KIRA/KIRA.SIG")
     if initrd:
         run("mcopy", "-i", img, initrd, "::/EFI/KIRA/INITRD.IMG")
     extra = f", initrd {os.path.getsize(initrd)} байт" if initrd else ""

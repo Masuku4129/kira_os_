@@ -357,6 +357,13 @@ $CC $FLAGS -fsanitize=address,undefined -o $T/kdrv_sig tests/kdrv_sig_test.c kdr
 $T/kdrv_sig
 python3 -m unittest ci.test_kdrvsign
 
+echo "== доверенная загрузка (А2): подписанный манифест KIRA.SIG - проверка, подмена любого байта, откат версии, формат совместим с tools/kirasig.py =="
+CC=$CC bash tests/bootsig_test.sh
+
+echo "== доверенная загрузка (А2): состояние Secure Boot и подписи в ядре (boottrust) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/boottrust tests/boottrust_test.c boottrust.c
+$T/boottrust
+
 echo "== KDRV anti-rollback (version floor, corrupt state, revoked key, clock rollback, key rotation) =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/kdrv_state tests/kdrv_state_test.c kdrv_state.c kdrv_sig.c kdrv_fmt.c pk.c crypto.c sha256.c
 $T/kdrv_state
