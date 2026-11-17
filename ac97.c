@@ -82,19 +82,29 @@ static void fill_bdl(uint32_t* bdl, uint64_t buf_p) {
     for (unsigned i = 0; i < NBD; i++) { bdl[2 * i] = (uint32_t)(buf_p + (uint64_t)i * PART); bdl[2 * i + 1] = PART / 2; }   /* отсчётов, без флагов */
 }
 
-/* Проверка принуждения IOMMU: список буферов ящика записи указывает на страницу, которая устройству НЕ выдана; первое
-   же чтение списка должно кончиться записью нарушения. Нет нарушения - изоляция не объявляется (домен снимается). */
+/* Проверка принуждения IOMMU: список буферов (он выдан) указывает на страницу, которая устройству НЕ выдана; первая же
+   запись звука на неё должна кончиться записью нарушения. Нет нарушения - изоляция не объявляется (домен снимается).
+   Сам список честный: эмулятор, встретив недоступный список, зацикливается, поэтому недоступным делаем только буфер. */
 static int ac97_enforced(const pci_dev_t* p) {
     uint64_t cp;
     void* c = usb_dma_alloc(4096, &cp, 1);                       /* намеренно без выдачи */
     if (!c) return 0;
+    a.ibdl[0] = (uint32_t)cp; a.ibdl[1] = 64;                     /* один короткий буфер на невыданной странице */
     uint32_t before = iommu_fault_count(p);
     iommu_expect_fault(p, 1);
-    box_start(BOX_IN, (uint32_t)cp);
+    uint16_t b = (uint16_t)(a.nabm + BOX_IN);
+    outb((uint16_t)(b + B_CR), 0);
+    outb((uint16_t)(b + B_CR), 2);
+    for (int i = 0; i < 100000 && (inb((uint16_t)(b + B_CR)) & 2); i++) cpu_relax();
+    outl((uint16_t)(b + B_BDBAR), (uint32_t)a.ibdl_p);
+    outb((uint16_t)(b + B_LVI), 0);
+    outw((uint16_t)(b + B_SR), 0x1C);
+    outb((uint16_t)(b + B_CR), 1);
     int seen = 0;
     for (uint32_t i = 0; i < 200 && !seen; i++) { sched_sleep_ticks(1); (void)iommu_fault_poll(); seen = iommu_fault_count(p) > before; }
     iommu_expect_fault(p, 0);
-    outb((uint16_t)(a.nabm + BOX_IN + B_CR), 0);                 /* стоп; ящик потом запускается заново настоящим списком */
+    outb((uint16_t)(b + B_CR), 0);                               /* стоп; ящик потом запускается заново настоящим списком */
+    fill_bdl(a.ibdl, a.in_p);
     return seen;
 }
 
