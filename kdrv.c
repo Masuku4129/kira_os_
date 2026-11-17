@@ -275,7 +275,8 @@ static uint16_t find_cap(const pci_dev_t* d, uint8_t want) {
    пока драйвер не вызовет KDRV_SYS_IRQ_WAIT снова (то есть снял причину). Линию делят несколько драйверов; линия, занятая ядром, не отдаётся. ---- */
 #if defined(__x86_64__)
 #define XL_MAX 8
-static struct { bind_t* volatile b[XL_MAX]; volatile int active; int reg; volatile uint32_t unclaimed; } xl[16];
+#define XH_MAX 8                                  /* линии с GSI 16 и выше: ключи 16..23 в той же таблице */
+static struct { bind_t* volatile b[XL_MAX]; volatile int active; int reg; volatile uint32_t unclaimed; uint32_t gsi; uint8_t vec; } xl[16 + XH_MAX];
 #define XL_STORM 2000u   /* столько срабатываний подряд без владельца - уже шторм чужого устройства: линия гасится */
 static void intx_dispatch(unsigned irq) {
     __atomic_add_fetch(&xl[irq].active, 1, __ATOMIC_ACQ_REL);
@@ -292,27 +293,59 @@ static void intx_dispatch(unsigned irq) {
     /* Никто из наших не держит линию. Одно такое срабатывание - обычное дело (драйвер на другом ядре уже снял причину раньше, чем мы прочитали статус): линия
        уровневая, без источника она больше не сработает. Гасить её нужно только при шторме - подряд много срабатываний без владельца (чужое устройство на общей линии). */
     if (fired) __atomic_store_n(&xl[irq].unclaimed, 0, __ATOMIC_RELAXED);
-    else if (__atomic_add_fetch(&xl[irq].unclaimed, 1, __ATOMIC_RELAXED) >= XL_STORM) (void)irqmode_pci_line(irq, 0);
+    else if (__atomic_add_fetch(&xl[irq].unclaimed, 1, __ATOMIC_RELAXED) >= XL_STORM) (void)(irq < 16 ? irqmode_pci_line(irq, 0) : irqmode_pci_gsi(xl[irq].gsi, xl[irq].vec, 0));
     __atomic_sub_fetch(&xl[irq].active, 1, __ATOMIC_ACQ_REL);
 }
 #define XH(n) static void intx_h##n(void) { intx_dispatch(n); }
 XH(0) XH(1) XH(2) XH(3) XH(4) XH(5) XH(6) XH(7) XH(8) XH(9) XH(10) XH(11) XH(12) XH(13) XH(14) XH(15)
 static const irq_handler_t intx_h[16] = { intx_h0, intx_h1, intx_h2, intx_h3, intx_h4, intx_h5, intx_h6, intx_h7, intx_h8, intx_h9, intx_h10, intx_h11, intx_h12, intx_h13, intx_h14, intx_h15 };
 
+static void intx_high(void* ctx) { intx_dispatch((unsigned)(uintptr_t)ctx); }   /* линия с GSI >= 16: вызывается через вектор пула MSI */
+
+/* Устройство за мостами PCI-PCI: линия INTx выбирается по правилу моста (PCI-to-PCI Bridge Architecture, 9.1): на каждом шаге
+   вверх номер ножки сдвигается на номер устройства; _PRT спрашивается для устройства на корневой шине. Мосты со своим _PRT - вне этого. */
+static void intx_root(const pci_dev_t* d, unsigned* bus, unsigned* dev, unsigned* fn, unsigned* pin) {
+    *bus = d->bus; *dev = d->dev; *fn = d->fn;
+    for (int hop = 0; hop < 8; hop++) {
+        const pci_dev_t* br = 0;
+        for (int i = 0; i < pci_count() && !br; i++) {
+            const pci_dev_t* c = pci_get(i);
+            if (c->class_code == 0x06 && c->subclass == 0x04 && (c->header_type & 0x7F) == 1 &&
+                pci_read8(c, 0x19) <= *bus && *bus <= pci_read8(c, 0x1A) && c->bus != *bus) br = c;
+        }
+        if (!br) return;
+        *pin = ((*pin - 1 + *dev) & 3) + 1;
+        *bus = br->bus; *dev = br->dev; *fn = br->fn;
+    }
+}
+
 static int intx_attach(bind_t* b) {
     const pci_dev_t* d = b->dev;
     unsigned pin = pci_read8(d, 0x3D), line = pci_read8(d, 0x3C);
-    if (pin && pin <= 4 && (line < 3 || line >= 16) && irqmode_is_apic()) {
-        /* Прошивка не записала линию (0xFF у UEFI-плат) - спрашиваем таблицу _PRT; годится только линия 3..15, куда ядро умеет вешать обработчик
-           (GSI 16 и выше - отдельная работа: обработчики на векторах IOAPIC). Устройства за мостами PCI-PCI _PRT здесь пока не разбирается. */
+    uint32_t gsi = 0;                                                               /* 0 - линия не определена */
+    if (pin && pin <= 4 && irqmode_is_apic()) {
+        /* В APIC-режиме верна только таблица _PRT (по правилу моста): регистр 0x3C - маршрут PIC, на q35 и почти на всех ПК он не
+           совпадает с GSI IOAPIC. Нет _PRT или нет ответа - берём регистр, если там ISA 3..15. */
+        unsigned rb, rd_, rf, rp = pin;
+        intx_root(d, &rb, &rd_, &rf, &rp);
         acpidev_irq_t q;
-        if (acpidev_pci_irq(d->bus, d->dev, d->fn, pin, &q) && q.gsi >= 3 && q.gsi < 16) {
-            line = q.gsi;
-            pci_write16(d, 0x3C, (uint16_t)((pci_read16(d, 0x3C) & 0xFF00u) | line));    /* регистр - только для программ, на устройство не действует */
-        }
+        if (acpidev_pci_irq(rb, rd_, rf, rp, &q) && q.gsi >= 3 && q.gsi < 16 + XH_MAX * 8) {
+            gsi = q.gsi;
+            if (gsi < 16) pci_write16(d, 0x3C, (uint16_t)((pci_read16(d, 0x3C) & 0xFF00u) | gsi));   /* регистр - только для программ, на устройство не действует */
+        } else if (line >= 3 && line < 16) gsi = line;
     }
-    if (!pin || pin > 4 || line < 3 || line >= 16 || !irqmode_is_apic()) return 0;
-    if (!xl[line].reg && irq_has_handler(line)) return 0;                           /* линию занял драйвер ядра */
+    if (!pin || pin > 4 || !gsi || !irqmode_is_apic()) return 0;
+    unsigned key;                                                                   /* ключ таблицы: ISA 3..15 как есть, GSI >= 16 - 16..23 */
+    if (gsi < 16) key = gsi;
+    else {
+        key = 0;
+        uint64_t hf = spin_lock_irqsave(&klock);
+        for (unsigned k = 16; k < 16 + XH_MAX; k++) if (xl[k].gsi == gsi) { key = k; break; }
+        if (!key) for (unsigned k = 16; k < 16 + XH_MAX; k++) if (!xl[k].reg && !xl[k].gsi) { key = k; xl[k].gsi = gsi; break; }
+        spin_unlock_irqrestore(&klock, hf);
+        if (!key) return 0;
+    }
+    if (key < 16 && !xl[key].reg && irq_has_handler(key)) return 0;                 /* линию занял драйвер ядра */
     uint16_t cmd = pci_read16(d, 0x04);
     pci_write16(d, 0x04, (uint16_t)(cmd | PCI_CMD_INTX_OFF));
     int can = (pci_read16(d, 0x04) & PCI_CMD_INTX_OFF) != 0;                      /* устройство обязано уметь INTx-disable (PCI 2.3) */
@@ -320,17 +353,19 @@ static int intx_attach(bind_t* b) {
     if (!can) return 0;
     uint64_t f = spin_lock_irqsave(&klock);
     int slot = -1;
-    for (int i = 0; i < XL_MAX; i++) if (!xl[line].b[i]) { slot = i; break; }
+    for (int i = 0; i < XL_MAX; i++) if (!xl[key].b[i]) { slot = i; break; }
     if (slot < 0) { spin_unlock_irqrestore(&klock, f); return 0; }
-    if (!xl[line].reg) {
-        if (irq_register_handler((unsigned char)line, intx_h[line]) != 0) { spin_unlock_irqrestore(&klock, f); return 0; }
-        xl[line].reg = 1;
+    if (!xl[key].reg) {
+        if (key < 16) { if (irq_register_handler((unsigned char)key, intx_h[key]) != 0) { spin_unlock_irqrestore(&klock, f); return 0; } }
+        else if (msi_vector_alloc(intx_high, (void*)(uintptr_t)key, &xl[key].vec) != 0) { spin_unlock_irqrestore(&klock, f); return 0; }
+        xl[key].reg = 1;
     }
-    b->intx_masked = 0; b->intx_line = (int)line;
-    __atomic_store_n(&xl[line].b[slot], b, __ATOMIC_RELEASE);
+    b->intx_masked = 0; b->intx_line = (int)key;
+    __atomic_store_n(&xl[key].b[slot], b, __ATOMIC_RELEASE);
     spin_unlock_irqrestore(&klock, f);
-    if (irqmode_pci_line(line, 1) != 0) return 0;
+    if ((key < 16 ? irqmode_pci_line(key, 1) : irqmode_pci_gsi(xl[key].gsi, xl[key].vec, 1)) != 0) return 0;
     b->intx = 1;
+    uart_print("[KIRA DRV] INTx: GSI "); uart_print_dec(gsi); uart_print(gsi >= 16 ? " via IOAPIC vector" : " via ISA line"); uart_print(" (PCI "); uart_print_dec(d->bus); uart_print(":"); uart_print_dec(d->dev); uart_print("."); uart_print_dec(d->fn); uart_print(")\n");
     return 1;
 }
 static void intx_detach(bind_t* b) {
@@ -342,7 +377,10 @@ static void intx_detach(bind_t* b) {
     for (int i = 0; i < XL_MAX; i++) { if (xl[line].b[i] == b) __atomic_store_n(&xl[line].b[i], 0, __ATOMIC_RELEASE); else if (xl[line].b[i]) left++; }
     spin_unlock_irqrestore(&klock, f);
     while (__atomic_load_n(&xl[line].active, __ATOMIC_ACQUIRE)) cpu_relax();       /* обработчик на другом ядре мог держать b */
-    if (!left) { (void)irqmode_pci_line(line, 0); irq_unregister_handler(line); xl[line].reg = 0; }
+    if (!left) {
+        if (line < 16) { (void)irqmode_pci_line(line, 0); irq_unregister_handler(line); xl[line].reg = 0; }
+        else (void)irqmode_pci_gsi(xl[line].gsi, xl[line].vec, 0);                  /* вектор пула остаётся за линией: выдаётся один раз */
+    }
     b->intx = 0;
 }
 static void intx_rearm(bind_t* b) {

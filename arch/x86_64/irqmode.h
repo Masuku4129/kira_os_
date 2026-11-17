@@ -17,6 +17,10 @@ int irqmode_core_failed(uint32_t failed_apic_id, uint32_t new_apic_id);
    0 - готово, <0 - нет APIC-режима или линии. */
 int irqmode_pci_line(unsigned irq, int on);
 
+/* Линия PCI INTx с номером GSI 16 и выше (почти все устройства настоящих ПК): on=1 - направить на заданный вектор (уровень, активный
+   низкий) на текущее ядро; on=0 - заглушить. Вектор выдаёт msi_vector_alloc. 0 - готово. */
+int irqmode_pci_gsi(uint32_t gsi, uint8_t vector, int on);
+
 /* Результат калибровки таймера LAPIC (команда status); 0 - калибровки нет. */
 void irqmode_set_apic_rate(uint64_t rate);
 

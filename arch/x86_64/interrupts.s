@@ -441,10 +441,28 @@ MSI 12
 MSI 13
 MSI 14
 MSI 15
+MSI 16
+MSI 17
+MSI 18
+MSI 19
+MSI 20
+MSI 21
+MSI 22
+MSI 23
+MSI 24
+MSI 25
+MSI 26
+MSI 27
+MSI 28
+MSI 29
+MSI 30
+MSI 31
 global msi_stub_table
 msi_stub_table:
     dq msi0, msi1, msi2, msi3, msi4, msi5, msi6, msi7
     dq msi8, msi9, msi10, msi11, msi12, msi13, msi14, msi15
+    dq msi16, msi17, msi18, msi19, msi20, msi21, msi22, msi23
+    dq msi24, msi25, msi26, msi27, msi28, msi29, msi30, msi31
 
 global load_idt
 load_idt:

@@ -854,7 +854,7 @@ def _bsd_dma_sc(name, about, pci, ifname, qdev, irq=True):
         {"cmd": "net", "must": [r"канал есть", r"адрес 10\.0\.2\.15"]},
         {"cmd": "ping 10.0.2.2 3", "must": [r"ответ от 10\.0\.2\.2", r"отправлено 3, получено [1-3]"], "timeout": 20},
         {"sleep": 6},
-        {"log": [r"bsdrt: прерывания: INTx по событию", r"bsdrt: %s: tx [1-9][0-9]* rx [1-9][0-9]* .* irq [1-9][0-9]*" % ifname]} if irq else
+        {"log": [r"\[KIRA DRV\] INTx: GSI (1[6-9]|2[0-3]) via IOAPIC vector", r"bsdrt: прерывания: INTx по событию", r"bsdrt: %s: tx [1-9][0-9]* rx [1-9][0-9]* .* irq [1-9][0-9]*" % ifname]} if irq else
         {"log": [r"bsdrt: прерывания: опрос раз в 10 мс", r"bsdrt: %s: tx [1-9][0-9]* rx [1-9][0-9]* " % ifname]},
         {"log_forbid": [r"bsdrt: .*FAIL", r"bsd panic", r"irq [0-9]{5,}", r"\[KIRA IOMMU\] DMA fault", r"00:03\.0 .*NOT isolated: (named|no active|domain setup)",
                         r"00:03\.0 back to passthrough"] + NO_ERR},
@@ -863,6 +863,15 @@ def _bsd_dma_sc(name, about, pci, ifname, qdev, irq=True):
 
 
 ALL.append(_bsd_dma_sc("drv-bsd-pcn", "драйвер OpenBSD pcn(4) в Ring 3 с DMA под VT-d: карта pcnet на q35, DHCP и ping через неё, прерывания INTx", "1022:2000", "pcn0", "pcnet"))
+ALL.append(sc("drv-bsd-pcn-bridge", "драйвер OpenBSD pcn(4) в Ring 3 за мостом PCIe (корневой порт, шина 1) под VT-d: линия INTx по правилу моста, DHCP, ping", [
+    {"log": BOOT_LOG}, {"sleep": 8},
+    {"log": [r"pcn0 at pci 1022:2000", r"\[KIRA DRV\] INTx: GSI (1[6-9]|2[0-3]) via IOAPIC vector \(PCI 1:0\.0\)", r"bsdrt: pcn0 up, mac 52:54:00:12:34:56",
+             r"\[KIRA NET\] DHCP: address 10\.0\.2\.15/24"]},
+    {"cmd": "ping 10.0.2.2 3", "must": [r"отправлено 3, получено [1-3]"], "timeout": 20},
+    {"sleep": 6},
+    {"log": [r"bsdrt: прерывания: INTx по событию", r"bsdrt: pcn0: tx [1-9][0-9]* rx [1-9][0-9]* .* irq [1-9][0-9]*"]},
+    {"log_forbid": [r"bsdrt: .*FAIL", r"bsd panic", r"irq [0-9]{5,}"] + NO_ERR},
+], smp=2, mem="1G", machine="q35", extra=["-device", "intel-iommu,aw-bits=48", "-netdev", "user,id=n0", "-device", "pcie-root-port,id=rp1,chassis=1,slot=1", "-device", "pcnet,netdev=n0,bus=rp1,romfile="]))
 ALL.append(_bsd_dma_sc("drv-bsd-fxp", "драйвер OpenBSD fxp(4) в Ring 3 с DMA под VT-d: Intel 82559 (i82559er) на q35, DHCP и ping через неё, прерывания INTx", "8086:1209", "fxp0", "i82559er"))
 ALL.append(_bsd_dma_sc("drv-bsd-dc", "драйвер OpenBSD dc(4) в Ring 3 с DMA под VT-d: DEC 21143 (tulip) на q35, DHCP и ping, прерывания INTx", "1011:0019", "dc0", "tulip"))
 
