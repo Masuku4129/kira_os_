@@ -1,4 +1,6 @@
 #include "kernel.h"
+#include "kptr.h"
+#include "kaslr_arch.h"
 #include "cpu.h"
 #include "uart.h"
 #include "gdt.h"
@@ -70,7 +72,7 @@ void kernel_panic(const char* reason) {
     uart_print("\n[KIRA KERNEL PANIC] ");
     uart_print(reason);
     uart_print("\n[KIRA KERNEL PANIC] called from ");
-    uart_print_hex((uint64_t)(uintptr_t)__builtin_return_address(0));
+    kptr_print((uint64_t)(uintptr_t)__builtin_return_address(0));
     uart_print("\n");
     bb_event(BB_NOTE, BB_SEV_SEVERE, 0, 0, 0, 0, 0, "kernel panic");
     bb_dump_tail(24, uart_print);   // диск в панике не трогаем: прерывания выключены; последние события - в отчёте
@@ -161,6 +163,8 @@ void kernel_main(unsigned long magic, unsigned long addr) {
     // Загрузчик (UEFI) мог положить Multiboot2-структуру выше 1 ГБ: переносим её в ядро
     // и сразу включаем раннюю консоль на экране, чтобы любой сбой дальше был виден.
     addr = mbinfo_relocate(magic, addr);
+    if (mbinfo_cmdline_has(addr, "kira.debug")) kptr_set_debug(1);   // политика kptr: настоящие адреса ядра в журнале только в режиме отладки
+    kaslr_log();                     // образ мог быть перемещён ещё до первой строки ядра (arch/x86_64/kaslr_arch.c): итог и источник энтропии
     const void* bootinfo = 0;
     uint32_t bootinfo_size = 0;
     uint32_t mb2_size = 0;
@@ -204,6 +208,7 @@ void kernel_main(unsigned long magic, unsigned long addr) {
         if (vmm_translate(0, &pa) == 0) kernel_panic("NULL guard page check failed");
         uart_print("[KIRA VMM] NULL guard installed: first 2 MB split into 4 KB pages, page 0 unmapped.\n");
     }
+    if (vmm_check_early_wx() != 0)  kernel_panic("early page map has W+X pages");
 
     {
         int smep = vmm_enable_smep();
@@ -392,7 +397,7 @@ void kernel_main(unsigned long magic, unsigned long addr) {
             if (n != seen_fix) {
                 seen_fix = n;
                 uart_print("[KIRA GS] kernel entered with the process GS: vector "); uart_print_dec(gs_fixup_vec);
-                uart_print(" at RIP "); uart_print_hex(gs_fixup_rip); uart_print(", times "); uart_print_dec(n); uart_print("\n");
+                uart_print(" at RIP "); kptr_print(gs_fixup_rip); uart_print(", times "); uart_print_dec(n); uart_print("\n");
             }
         }
         {   /* машина стояла целиком (хозяин приостановил ВМ): сообщить, сторож этот промежуток не засчитал */
@@ -406,7 +411,7 @@ void kernel_main(unsigned long magic, unsigned long addr) {
                 uart_print("): not counted as a hang. Either the host paused the VM or this code ran with interrupts off: core ");
                 extern uint64_t watchdog_stall_where[]; extern uint32_t watchdog_stall_cpu;
                 uart_print_dec(watchdog_stall_cpu); uart_print(" at");
-                for (int k = 0; k < 6 && watchdog_stall_where[k]; k++) { uart_print(" "); uart_print_hex(watchdog_stall_where[k]); }
+                for (int k = 0; k < 6 && watchdog_stall_where[k]; k++) { uart_print(" "); kptr_print(watchdog_stall_where[k]); }
                 uart_print("\n");
             }
         }

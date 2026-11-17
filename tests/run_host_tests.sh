@@ -69,6 +69,17 @@ echo "== W^X ядра (дробление страниц, права секци�
 $CC $FLAGS -fsanitize=address,undefined -o $T/wx tests/wx_test.c wx.c
 ASAN_OPTIONS=detect_leaks=0 $T/wx
 
+echo "== ранний W^X образа ядра (карта страниц с первой инструкции: права по секциям, мост KASLR, нет W+X) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/earlymap tests/earlymap_test.c earlymap.c wx.c
+ASAN_OPTIONS=detect_leaks=0 $T/earlymap
+
+echo "== KASLR (выбор базы: выравнивание, диапазон, занятое, энтропия; таблица перемещений; слова командной строки; политика kptr) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/kaslr tests/kaslr_test.c kaslr.c kptr.c bootinfo.c -Wl,--defsym=kernel_start=0x30000000 -Wl,--defsym=kernel_end=0x30600000
+$T/kaslr
+
+echo "== перемещение образа по таблице tools/mkkreloc.py (эталон - образ, собранный компоновщиком по другому адресу) =="
+tests/kreloc_test.sh
+
 echo "== W^X ядра ARM64 (дробление блоков, права секций, обход таблиц, поиск W+X) =="
 $CC $FLAGS -fsanitize=address,undefined -Iarch/aarch64 -o $T/wx_arm tests/wx_arm_test.c arch/aarch64/wx_arm.c
 ASAN_OPTIONS=detect_leaks=0 $T/wx_arm

@@ -16,4 +16,9 @@ typedef struct { uint64_t cr0, cr2, cr3, cr4; } crash_regs_t;
 // без зависимостей от ядра, поэтому проверяется хост-тестом.
 void crashdump_print(const uint64_t* frame, const crash_regs_t* cr, const uint64_t* stack, crash_out_fn out);
 
+// То же, но значения внутри образа ядра [img_lo, img_hi) печатаются как "K+смещение" (политика kptr.h: база KASLR не
+// раскрывается журналом). img_lo == img_hi - без маски (режим отладки).
+void crashdump_print_masked(const uint64_t* frame, const crash_regs_t* cr, const uint64_t* stack, crash_out_fn out,
+                            uint64_t img_lo, uint64_t img_hi);
+
 #endif
