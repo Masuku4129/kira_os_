@@ -87,6 +87,18 @@ int main(void) {
     CHECK(memcmp((const uint8_t *)blob + h->cmdline_off,
                  test_command_line, sizeof(test_command_line)) == 0);
 
+    /* Состояние доверенной загрузки доходит до ядра через заголовок и проходит kbi_validate. */
+    CHECK(h->trust_flags == 0 && h->image_version == 0);
+    info.trust_flags = KBI_TRUST_SB_KNOWN | KBI_TRUST_SB_ENABLED | KBI_TRUST_ENFORCING | KBI_TRUST_SIG_VERIFIED;
+    info.image_version = 42;
+    CHECK(kira_uefi_build_kbi(map, sizeof(map), sizeof(map[0]), 1,
+                              &info, blob, sizeof(blob), &size) == EFI_SUCCESS);
+    CHECK(kbi_validate(blob, size) == 0);
+    h = (const kbi_header_t *)blob;
+    CHECK(h->trust_flags == info.trust_flags && h->image_version == 42);
+    info.trust_flags = 0;
+    info.image_version = 0;
+
     /* A UEFI boot without INITRD.IMG and LoadOptions remains valid. */
     info.module_base = 0;
     info.module_size = 0;
@@ -111,6 +123,25 @@ int main(void) {
     CHECK(entries[2].type == KBI_MEM_BOOTLOADER);
     CHECK(entries[3].type == KBI_MEM_BOOTLOADER);
     CHECK(entries[4].type == KBI_MEM_RESERVED);
+
+    /* Карта прошивки не обязана идти по возрастанию (EDK2 с SMM дописывает область 0x30000 в конец): записи упорядочиваются, смысл не теряется. */
+    {
+        EFI_MEMORY_DESCRIPTOR shuffled[5];
+        descriptor(&shuffled[0], EfiMemoryMappedIO, 0xe0000000, 0x400);
+        descriptor(&shuffled[1], EfiConventionalMemory, 0x100000, 0x100);
+        descriptor(&shuffled[2], EfiBootServicesData, 0xa01000, 1);
+        descriptor(&shuffled[3], EfiReservedMemoryType, 0x30000, 0x20);
+        descriptor(&shuffled[4], EfiLoaderData, 0xa00000, 1);
+        CHECK(kira_uefi_build_kbi(shuffled, sizeof(shuffled), sizeof(shuffled[0]), 1,
+                                  &info, blob, sizeof(blob), &size) == EFI_SUCCESS);
+        CHECK(kbi_validate(blob, size) == 0);
+        h = (const kbi_header_t *)blob;
+        entries = kbi_mmap(blob);
+        CHECK(h->mmap_count == 5);
+        CHECK(entries[0].base == 0x30000 && entries[0].type == KBI_MEM_RESERVED && entries[0].length == 0x20000);
+        CHECK(entries[1].base == 0x100000 && entries[1].type == KBI_MEM_USABLE);
+        CHECK(entries[2].base == 0xa00000 && entries[3].base == 0xa01000 && entries[4].base == 0xe0000000);
+    }
 
     /* Unsupported GOP pixel formats must produce a valid headless handoff. */
     info.format = 0;

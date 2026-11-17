@@ -21,6 +21,8 @@ typedef struct {
     uint32_t module_name_len;
     const char *command_line;
     uint32_t command_line_len;
+    uint32_t trust_flags;     /* KBI_TRUST_* (bootinfo.h) */
+    uint32_t image_version;   /* номер выпуска из проверенного манифеста */
 } kira_uefi_kbi_info;
 
 int kira_uefi_gop_geometry_valid(uint64_t base, uint64_t size,
