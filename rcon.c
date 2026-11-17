@@ -1,4 +1,5 @@
 #include "rcon.h"
+#include "auditev.h"
 #include "sha256.h"
 #ifndef KIRA_HOST_TEST
 #include "console.h"
@@ -99,11 +100,13 @@ static void session(int h) {
                     const char* pw = rcon_parse_auth(line);
                     if (pw && rcon_check_pass(R.key, pw)) {
                         authed = 1; R.fails = 0; R.active = 1;
+                        audit_event(AUD_K_RCON_LOGIN, AUD_SRC_RCON, AUD_R_OK, 0, 0, 0, "rcon", "client logged in");
                         cursor = klog_total();
                         uart_print("[KIRA RCON] client logged in\n");
                         if (send_str(h, "OK\n")) return;
                     } else {
                         R.denied++;
+                        audit_event(AUD_K_RCON_LOGIN, AUD_SRC_RCON, AUD_R_DENIED, 0, 0, R.fails + 1, "rcon", R.fails + 1 >= MAX_FAILS ? "wrong password, locked for a minute" : "wrong password");
                         if (++R.fails >= MAX_FAILS) { R.lock_until = timer_get_ticks() + (uint64_t)LOCK_SECS * TIMER_HZ; R.fails = 0; uart_print("[KIRA RCON] too many wrong passwords: locked for a minute\n"); }
                         sched_sleep_ticks(TIMER_HZ);                       /* медленный перебор */
                         send_str(h, "ERR\n");
@@ -116,8 +119,8 @@ static void session(int h) {
                     if (line[0] == 'P' && line[1] == 'I' && line[2] == 'N' && line[3] == 'G' && !line[4]) { if (send_str(h, "PONG\n")) { R.active = 0; return; } }
                     else if (line[0]) {
                         int quiet = line[0] == 'r' && line[1] == 'c' && line[2] == 'o' && line[3] == 'n' && line[4] == ' ' && line[5] == 'p';   /* «rcon passwd» не в журнал */
-                        if (!quiet) { uart_print("[KIRA RCON] command: "); uart_print(line); uart_print("\n"); }
-                        if (console_request(line) != 0 && send_str(h, "BUSY\n")) { R.active = 0; return; }
+                        if (!quiet) { uart_print("[KIRA RCON] command: "); uart_print(line); uart_print("\n"); audit_event(AUD_K_RCON_CMD, AUD_SRC_RCON, AUD_R_OK, 0, 0, 0, "rcon", line); }
+                        if (console_request_src(line, AUD_SRC_RCON) != 0 && send_str(h, "BUSY\n")) { R.active = 0; return; }
                     }
                 }
             } else if (c != '\r') line[ll++] = c;
@@ -145,7 +148,7 @@ static void rcon_main(void* arg) {
         }
         int h = tcp_accept(R.listener, TIMER_HZ / 2 ? TIMER_HZ / 2 : 1);
         if (h < 0) continue;
-        if (timer_get_ticks() < R.lock_until) { R.denied++; tcp_close(h); continue; }
+        if (timer_get_ticks() < R.lock_until) { R.denied++; audit_event(AUD_K_RCON_LOGIN, AUD_SRC_RCON, AUD_R_DENIED, 0, 0, 0, "rcon", "connection refused: locked"); tcp_close(h); continue; }
         R.sessions++;
         session(h);
         R.active = 0;
@@ -180,20 +183,23 @@ void rconcmd(const char* arg) {
     #define IS(s) word_is(w, wl, s)
     if (IS("passwd")) {
         unsigned n = 0; while (rest[n]) n++;
-        if (n < 8) { uart_print("rcon: пароль короче 8 знаков\n"); return; }
+        if (n < 8) { uart_print("rcon: пароль короче 8 знаков\n"); audit_event(AUD_K_RCON_PASSWD, audit_cmd_source(), AUD_R_FAIL, 0, 0, 0, "rcon", "rejected: too short"); return; }
         uint8_t salt[16]; rng_get(salt, 16);
         rcon_make_key(salt, rest, R.key);
         vfs_mkdir("/var");
         if (vfs_write(KEY_FILE, R.key, RCON_KEY_LEN) != 0) { uart_print("rcon: не удалось сохранить пароль на диск (работает до перезагрузки)\n"); }
         R.have_key = 1;
+        audit_event(AUD_K_RCON_PASSWD, audit_cmd_source(), AUD_R_OK, 0, 0, 0, "rcon", "password changed");      /* сам пароль в журнал не попадает */
         uart_print("rcon: пароль задан\n");
     } else if (IS("on")) {
         if (!R.have_key) { uart_print("rcon: сначала задайте пароль: rcon passwd ПАРОЛЬ\n"); return; }
         if (*rest) { unsigned p = 0; for (const char* q = rest; *q >= '0' && *q <= '9'; q++) p = p * 10 + (unsigned)(*q - '0'); if (p == 0 || p > 65535) { uart_print("rcon: порт 1..65535\n"); return; } if (p != R.port && R.listener >= 0) { tcp_unlisten(R.listener); R.listener = -1; } R.port = (uint16_t)p; }
         R.on = 1; conf_save();
+        audit_event(AUD_K_CONFIG, audit_cmd_source(), AUD_R_OK, R.port, 0, 1, "rcon", "rcon on");
         uart_print("rcon: включена, порт "); uart_print_dec(R.port); uart_print("\n");
     } else if (IS("off")) {
         R.on = 0; conf_save();
+        audit_event(AUD_K_CONFIG, audit_cmd_source(), AUD_R_OK, R.port, 0, 0, "rcon", "rcon off");
         uart_print("rcon: выключена\n");
     } else if (IS("status")) {
         uart_print("rcon: "); uart_print(R.on ? "включена" : "выключена"); uart_print(", порт "); uart_print_dec(R.port);

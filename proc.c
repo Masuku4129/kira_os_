@@ -17,6 +17,7 @@
 #include "kobj.h"
 #include "futex.h"
 #include "caps.h"
+#include "auditev.h"
 #include "smp.h"
 
 /* Адреса программы (пользовательская половина):
@@ -146,6 +147,7 @@ static int spawn(const char* name, const void* image, size_t len, const char* gr
     int e = elf_parse(image, len, USER_CODE_VA, USER_CODE_END, max_proc_pages(), &info);
     if (e != ELF_OK) {
         uart_print("[KIRA PROC] '"); uart_print(name); uart_print("' rejected: "); uart_print(elf_strerror(e)); uart_print(".\n");
+        audit_event(AUD_K_EXEC, drv ? AUD_SRC_SYSTEM : audit_cmd_source(), AUD_R_FAIL, 0, 0, 0, name, elf_strerror(e));
         return -1;
     }
 
@@ -160,6 +162,7 @@ static int spawn(const char* name, const void* image, size_t len, const char* gr
     if (!p || in_dom >= domain_proc_max(dom)) {      /* нет места или домен выбрал свою квоту */
         spin_unlock_irqrestore(&proc_lock, f);
         if (p) { uart_print("[KIRA PROC] '"); uart_print(name); uart_print("' refused: domain "); uart_print(domain_name(dom)); uart_print(" is at its process limit.\n"); }
+        audit_event(AUD_K_EXEC, drv ? AUD_SRC_SYSTEM : audit_cmd_source(), AUD_R_DENIED, 0, dom, 0, name, p ? "domain process limit" : "no free process slot");
         return -1;
     }
     p->used = 1;                       /* занят до конца настройки */
@@ -231,6 +234,7 @@ static int spawn(const char* name, const void* image, size_t len, const char* gr
     uart_print(" '"); uart_print(p->name);
     uart_print("' started from ELF: Ring 3, own address space, "); uart_print_dec(info.pages);
     uart_print(" page(s) of segments, W^X enforced, stack RW-NX.\n");
+    audit_event(AUD_K_EXEC, drv ? AUD_SRC_SYSTEM : audit_cmd_source(), AUD_R_OK, p->pid, dom, p->caps, p->name, domain_name(dom));
     return (int)p->pid;
 }
 
@@ -344,6 +348,8 @@ int proc_cap_denied(uint32_t cap, uint64_t nr) {
         for (const char* q = caps_bit_name(cap); *q && n < 140; q++) m[n++] = *q;
         m[n++] = '.'; m[n++] = '\n'; m[n] = 0;
         uart_print(m);
+        { char d[24]; unsigned dl = 0; const char* sa = "syscall "; while (*sa) d[dl++] = *sa++; char t[21]; unsigned tl = 0; uint64_t vv = nr; do { t[tl++] = (char)('0' + vv % 10); vv /= 10; } while (vv); while (tl) d[dl++] = t[--tl]; d[dl] = 0;
+          audit_event(AUD_K_CAP_DENY, AUD_SRC_PROGRAM, AUD_R_DENIED, p->pid, p->domain, cap, p->name, d); }
     }
     return -12;                                                   /* KE_PERM */
 }

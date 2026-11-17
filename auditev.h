@@ -35,6 +35,13 @@ enum { AUD_SRC_KERNEL = 0, AUD_SRC_CONSOLE = 1, AUD_SRC_RCON = 2, AUD_SRC_PROGRA
 enum { AUD_R_OK = 0, AUD_R_DENIED = 1, AUD_R_FAIL = 2, AUD_R_MAX = 3 };                                                           /* результат */
 enum { AUD_BOOT_UNCLEAN = 1, AUD_BOOT_TAMPER = 2, AUD_BOOT_NEWKEY = 4 };
 
+#ifdef KIRA_HOST_TEST
+/* Хост-тесты других подсистем (rtc, immune, консоль...) собираются без ядра: событие уходит в никуда (журнал проверяется tests/audit_test.c). */
+static inline void audit_event(unsigned k, unsigned s, unsigned r, uint32_t p, uint32_t d, uint32_t a, const char* su, const char* de) { (void)k; (void)s; (void)r; (void)p; (void)d; (void)a; (void)su; (void)de; }
+static inline void audit_event_cur(unsigned k, unsigned r, uint32_t a, const char* de) { (void)k; (void)r; (void)a; (void)de; }
+static inline void audit_set_cmd_source(unsigned s) { (void)s; }
+static inline unsigned audit_cmd_source(void) { return AUD_SRC_CONSOLE; }
+#else
 /* subject - кто/что (имя программы, пользователь, устройство), detail - подробности; обе строки усекаются (24 и 56 байт) и могут быть 0. */
 void audit_event(unsigned kind, unsigned src, unsigned res, uint32_t pid, uint32_t dom, uint32_t arg, const char* subject, const char* detail);
 /* То же от имени текущего процесса (pid, домен, имя из proc.c) - для мест, где вызов идёт из программы. */
@@ -42,5 +49,6 @@ void audit_event_cur(unsigned kind, unsigned res, uint32_t arg, const char* deta
 /* Источник команды консоли, выполняемой сейчас (консоль или rcon): ставит console.c; события, вызванные командой, берут его. */
 void audit_set_cmd_source(unsigned src);
 unsigned audit_cmd_source(void);
+#endif
 
 #endif

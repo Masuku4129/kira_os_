@@ -2,6 +2,7 @@
    ядра: в слоте живут прерывание устройства (вектор MSI выдаётся один раз и не отдаётся обратно) и карта драйвера для сетевого стека
    (стек не умеет забывать карты). Все обращения драйвера к устройству идут через вызовы KDRV_SYS_* ниже, и каждый из них смотрит
    на привязку ТЕКУЩЕГО процесса: другого устройства драйвер не видит, потому что вызовы его не называют. */
+#include "auditev.h"
 #include "kdrv.h"
 #include "fb.h"
 #include "kdrv_format.h"
@@ -1307,6 +1308,7 @@ static int state_cmd(const char* verb, const char* arg) {
     state_load_locked();
     if (streq(verb, "state-reset")) {
         kdrv_state_init(&gst); gst_loaded = 1; gst.dirty = 1;
+        audit_event(AUD_K_CONFIG, audit_cmd_source(), AUD_R_OK, 0, 0, 0, "drv", "state-reset (rollback floors, time max, revocations)");
         if (state_save_locked() == 0) uart_print("[KIRA DRV] состояние защиты от отката СБРОШЕНО явной командой: полы версий, максимум времени и отзывы из файла очищены (ключи, отозванные в самом ядре, остаются отозванными)\n");
         kmutex_unlock(&state_mx);
         return 1;
@@ -1317,6 +1319,7 @@ static int state_cmd(const char* verb, const char* arg) {
         if (rtc_now(0, &t) != 0) uart_print("[KIRA DRV] часов нет: максимум времени не меняю\n");
         else {
             kdrv_state_reset_time(&gst, (uint64_t)rtc_to_epoch(&t));
+            audit_event(AUD_K_CONFIG, audit_cmd_source(), AUD_R_OK, 0, 0, 0, "drv", "time-reset");
             if (state_save_locked() == 0) { uart_print("[KIRA DRV] максимум времени := текущие часы (явная команда); убедитесь, что часы верны\n"); }
         }
     } else if (streq(verb, "revoke")) {
@@ -1324,6 +1327,7 @@ static int state_cmd(const char* verb, const char* arg) {
         if (n != KDRV_SIG_KEY_ID_SIZE) uart_print("использование: drv revoke ИДКЛЮЧА (ровно 16 знаков, как в kdrv_trust.h)\n");
         else {
             int r = kdrv_state_revoke_key(&gst, (const uint8_t*)arg);
+            { char d[40] = "revoke key "; for (unsigned q = 0; q < KDRV_SIG_KEY_ID_SIZE && q < 16; q++) d[11 + q] = arg[q]; d[27] = 0; audit_event(AUD_K_DRV_REMOVE, audit_cmd_source(), r < 0 ? AUD_R_FAIL : AUD_R_OK, 0, 0, 0, "drv", d); }
             if (r < 0) uart_print("[KIRA DRV] список отзывов полон\n");
             else { uart_print(r ? "[KIRA DRV] ключ отозван; пакеты с его подписью больше не принимаются\n" : "[KIRA DRV] ключ уже был отозван\n"); (void)state_save_locked(); }
         }
@@ -1338,7 +1342,8 @@ static int state_cmd(const char* verb, const char* arg) {
             int r = kdrv_state_raise_floor(&gst, name, v);
             if (r < 0) uart_print("[KIRA DRV] таблица полов полна\n");
             else if (r == 0) { uart_print("[KIRA DRV] пол не изменён: он уже не ниже "); uart_print_dec(v); uart_print(" (понизить можно только drv state-reset)\n"); }
-            else { uart_print("[KIRA DRV] пол версий "); uart_print(name); uart_print(" := "); uart_print_dec(v); uart_print("\n"); (void)state_save_locked(); }
+            else { { char d[40] = "floor "; unsigned q = 6; for (unsigned z = 0; name[z] && q < 30; z++) d[q++] = name[z]; d[q++] = ' '; for (unsigned z = 0; num[z] && q < 39; z++) d[q++] = num[z]; d[q] = 0; audit_event(AUD_K_CONFIG, audit_cmd_source(), AUD_R_OK, v, 0, 0, "drv", d); }
+                   uart_print("[KIRA DRV] пол версий "); uart_print(name); uart_print(" := "); uart_print_dec(v); uart_print("\n"); (void)state_save_locked(); }
         }
     }
     kmutex_unlock(&state_mx);

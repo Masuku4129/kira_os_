@@ -1,3 +1,4 @@
+#include "auditev.h"
 #include "usbmsc_fs.h"
 #include "usb.h"
 #include "part.h"
@@ -27,6 +28,7 @@ static int msc_fs_mount(int slot, blk_dev_t* blk, const char* vendor, const char
         usb_log("[KIRA USB] storage: FAT"); usb_log_dec((uint64_t)fat->type);
         if (fat->label[0]) { usb_log(" '"); usb_log(fat->label); usb_log("'"); }
         usb_log(" mounted at /usb"); usb_log_dec((uint64_t)vol); usb_log("\n");
+        audit_event(AUD_K_MOUNT, AUD_SRC_SYSTEM, AUD_R_OK, 0, 0, (uint32_t)vol, desc, "usb fat read-only");
         return vol;
     }
     if (np == 0 && s0[3] == 'E' && s0[4] == 'X' && s0[5] == 'F' && s0[6] == 'A' && s0[7] == 'T') usb_log("[KIRA USB] storage: exFAT is not supported yet (format the stick as FAT32)\n");

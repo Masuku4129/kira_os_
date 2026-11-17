@@ -102,7 +102,7 @@ for f in $A/boot.S $A/mem.S $A/context.S $A/fpu.S $A/uaccess.S; do
 done
 # Общее ядро (те же файлы, что и на x86-64) и платформа ARM64
 for f in fdt.c bootinfo.c bootinfo_fdt.c percpu.c sched.c scale.c kmutex.c heap.c pci.c virtio.c virtio_blk.c blk.c nvme.c ahci.c kfs.c store.c sha256.c \
-         experience.c fscmd.c buildcmd.c mind_build_core.c mind_build_grant.c vfs.c fat.c part.c life.c wire.c usbmsc_fs.c mind.c mindnet.c mind_sys.c devhealth.c klog.c bbring.c bbsave.c linebuf.c kpar.c clock.c \
+         experience.c fscmd.c buildcmd.c mind_build_core.c mind_build_grant.c vfs.c fat.c part.c life.c wire.c usbmsc_fs.c mind.c mindnet.c mind_sys.c devhealth.c klog.c bbring.c bbsave.c auditcore.c auditstore.c audit.c linebuf.c kpar.c clock.c \
          immune.c iommu_smmu.c drivers/iommu/arm_smmu.c drivers/iommu/smmu_dom.c kobj.c json.c fssvc.c ksvc.c gfxctl.c futex.c corefault.c crypto.c pk.c kdrv_sig.c kdrv_state.c rng.c virtio_rng.c $A/rng_arch.c watchdog.c proc.c caps.c syscall.c elf.c progs.c trust.c uheap.c userlog.c fsrv.c uaccess.c \
          devpm.c sleep.c virtio_gpu.c virtio_input.c e1000.c virtio_net.c net.c ip6.c ipfrag.c rcon.c irqwait.c kdrv.c kdrv_fmt.c kdrv_blk.c hda.c audio.c console.c fb.c display.c wm.c gfx2d.c gfxui.c gfxsrv.c framegov.c fbcon.c font8x16.c apps.c explorer.c fm.c dock.c \
          icons.c brainfx.c wallpaper.c zstd.c cbor.c cas.c sysseal.c input.c rtc.c usb.c usbhid.c usbhub.c usbmsc.c xhci.c \

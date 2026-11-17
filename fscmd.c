@@ -1,3 +1,4 @@
+#include "auditev.h"
 #include "fscmd.h"
 #include "kfs.h"
 #include "blk.h"
@@ -175,6 +176,7 @@ void fscmd_format(const char* arg) {
     int r = kfs_format(d, KFS_BASE_LBA);
     if (r) { fail("format", r); return; }
     if (d != blk_primary()) { blk_set_primary(d); experience_attach(); }
+    audit_event(AUD_K_MOUNT, audit_cmd_source(), AUD_R_OK, 0, 0, 0, "kirafs", "formatted and mounted (all data erased)");
     uart_print("KiraFS создана и подключена");
     if (inf) { uart_print(" на "); uart_print(inf->id); }
     uart_print(".\n");
@@ -189,11 +191,13 @@ void fs_init(void) {
         uart_print("[KIRA FS] KiraFS mounted: "); uart_print_dec((uint64_t)i.free_blocks * 4); uart_print(" KB free");
         if (i.repaired) { uart_print(", repaired after unclean shutdown: "); uart_print_dec(i.repaired); }
         uart_print(".\n");
+        audit_event(AUD_K_MOUNT, AUD_SRC_SYSTEM, AUD_R_OK, 0, 0, i.free_blocks * 4, "kirafs", i.repaired ? "mounted, repaired after unclean shutdown" : "mounted");
         (void)fs_verify_seal(1);                 /* печать системы: одна строка в журнал; подробности - команда verify */
     } else if (r == KFS_ERR_NOFS) {
         uart_print("[KIRA FS] No KiraFS on disk. Type 'format yes' to create one.\n");
     } else {
         uart_print("[KIRA FS] Mount failed: "); uart_print(kfs_strerror(r)); uart_print(" (data untouched; see 'format').\n");
+        audit_event(AUD_K_MOUNT, AUD_SRC_SYSTEM, AUD_R_FAIL, 0, 0, (uint32_t)-r, "kirafs", kfs_strerror(r));
     }
 }
 

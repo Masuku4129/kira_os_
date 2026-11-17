@@ -1,3 +1,4 @@
+#include "audit.h"
 #include "kernel.h"
 #include "kptr.h"
 #include "kaslr_arch.h"
@@ -71,6 +72,7 @@ void kernel_panic(const char* reason) {
     smp_halt_others();  // остальные ядра встают (второе паникующее ядро встанет молча)
     spin_bust_locks();  // замок мог держать упавший код: аварийный вывод не должен на нём зависнуть
     earlycon_alert();   // на раннем экране паника красным
+    audit_event(AUD_K_PANIC, AUD_SRC_KERNEL, AUD_R_FAIL, 0, 0, 0, "kernel", reason);   // в кольце журнала аудита: на диск в панике не пишем, следующая загрузка отметит запуск без shutdown
     uart_print("\n[KIRA KERNEL PANIC] ");
     uart_print(reason);
     uart_print("\n[KIRA KERNEL PANIC] called from ");
@@ -244,6 +246,7 @@ void kernel_main(unsigned long magic, unsigned long addr) {
     fs_init();           // файловая система на том же диске (после хранилища опыта)
     life_init();         // журнал организма и профили программ в /var
     bbsave_init();       // чёрный ящик: кольцо событий производительности, сброс на диск вне горячего пути
+    audit_init();        // журнал аудита: цепочка SHA-256 и подписанные контрольные точки, /var/audit.log (начинает писать, когда готова ФС)
     mind_sys_init();     // Разум: нормы, профили и выученный квант из /var/mind*
 
     // Экран необязателен. Раннее окно снимается до того, как драйвер дисплея сам

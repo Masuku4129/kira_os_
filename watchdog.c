@@ -1,3 +1,4 @@
+#include "auditev.h"
 #include "watchdog.h"
 #include "cpu.h"
 #include "uart.h"
@@ -61,7 +62,8 @@ void watchdog_check(void) {
     }
     uint64_t last = __atomic_load_n(&last_feed_tick, __ATOMIC_ACQUIRE);
     if (timer_get_ticks() - last > WATCHDOG_WARN_LIMIT && __atomic_exchange_n(&warned_feed, last, __ATOMIC_ACQ_REL) != last)
-        bb_event(BB_WATCHDOG, BB_SEV_SEVERE, (uint32_t)((timer_get_ticks() - last) * 1000 / TIMER_HZ), BB_WD_WARN, 0, 0, 0, "no feed");
+        { bb_event(BB_WATCHDOG, BB_SEV_SEVERE, (uint32_t)((timer_get_ticks() - last) * 1000 / TIMER_HZ), BB_WD_WARN, 0, 0, 0, "no feed");
+          audit_event(AUD_K_WATCHDOG, AUD_SRC_KERNEL, AUD_R_FAIL, 0, 0, (uint32_t)((timer_get_ticks() - last) * 1000 / TIMER_HZ), "watchdog", "warning: main loop not fed for half the timeout"); }
     if (timer_get_ticks() - last > WATCHDOG_TIMEOUT_LIMIT) {
         watchdog_trigger_panic("Watchdog timeout: System thread hang detected!");
     }
@@ -69,6 +71,7 @@ void watchdog_check(void) {
 
 void watchdog_trigger_panic(const char* reason) {
     cpu_irq_off();
+    audit_event(AUD_K_WATCHDOG, AUD_SRC_KERNEL, AUD_R_FAIL, 0, 0, 3, "watchdog", reason);      /* в кольце: диск в панике не трогаем; следующая загрузка отметит запуск без записи shutdown */
     bb_event(BB_WATCHDOG, BB_SEV_SEVERE, (uint32_t)((timer_get_ticks() - __atomic_load_n(&last_feed_tick, __ATOMIC_ACQUIRE)) * 1000 / TIMER_HZ), BB_WD_PANIC, 0, 0, 0, reason);
     smp_halt_others();                // остановить остальные ядра: иначе «система остановлена» было бы неправдой
     spin_bust_locks();                // замок мог держать зависший код: отчёт не должен на нём встать

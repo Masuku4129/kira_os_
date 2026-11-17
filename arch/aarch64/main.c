@@ -4,6 +4,7 @@
    остальное - устройства без исполнения), каждое ядро получает свой тик и проверяется.
    Второй этап: поверх платформы работает общее ядро - менеджер страниц, куча, планировщик с очередями на каждом
    ядре, мьютексы ядра; межъядерные сигналы - SGI контроллера GIC. Файловые системы, Разум, программы - дальше. */
+#include "audit.h"
 #include "wx_arm.h"
 #include <stdint.h>
 #include "../../fdt.h"
@@ -1482,6 +1483,7 @@ void arm_main(uint64_t dtb, uint64_t entry_el, uint64_t loader_tag) {
     kprintf("[KIRA SYSCALL] SVC from EL0: the same calls as on x86-64 (number in x8, arguments x0..x2); PAN %s; user pointers validated.\n",
             uaccess_enable_smap() ? "on (kernel touches programs only via LDTR/STTR)" : "not offered by this CPU (copies still use LDTR/STTR)");
     bbsave_init();           /* чёрный ящик: кольцо событий производительности, сброс на диск вне горячего пути */
+    audit_init();            /* журнал аудита: цепочка SHA-256 и подписанные контрольные точки, /var/audit.log */
     mind_sys_init();         /* Разум: нормы, модель предвидения, тактика ~40 Гц */
     rtc_pl031(fdt);
 

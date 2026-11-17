@@ -1,5 +1,6 @@
 /* Системные вызовы программ: номера и обработка общие для всех архитектур. Вход в ядро (SYSCALL на x86-64, SVC на
    ARM64) и регистры - в arch/<архитектура>/syscall_arch.c и ассемблере входа. */
+#include "audit.h"
 #include "rng.h"
 #include "rtc.h"
 #include "crypto.h"
@@ -78,6 +79,7 @@ static userlog_t ulog;
 #define SYS_TIME          37 // -> секунды UTC от 1970 (часы реального времени) или -1, если часов нет
 #define SYS_JIT           56 // (операция JIT_ALLOC/JIT_SEAL, a, b) -> адрес окна кода / 0 или отрицательный код; право CAP_JIT
 #define SYS_STDIN         58 // (буфер, ёмкость <= 4096) -> байт строки консоли (с \n); 0 - конец ввода; < 0 - ошибка, -4 прервано, -16 ввод у другой программы; право CAP_STDIN
+#define SYS_AUDIT         62 // (from_seq, буфер, ёмкость >= 160) -> записей журнала аудита (по 160 байт, не больше 8), 0 - больше нет; право CAP_AUDIT; только чтение
 #define SYS_RANDOM        36 // (буф, байт <= 256) -> 1 аппаратный источник, 0 - только время событий
 
 #define SYS_MAX_WRITE 4096
@@ -138,6 +140,7 @@ static uint32_t cap_needed(uint64_t nr) {
     case SYS_THREAD_CREATE: return CAP_THREAD;
     case SYS_JIT: return CAP_JIT;
     case SYS_STDIN: return CAP_STDIN;
+    case SYS_AUDIT: return CAP_AUDIT;
     /* Драйверы Ring 3 (kdrv.c): права выдаёт только менеджер драйверов, процессу обычной программы они недоступны; устройство - привязка процесса. */
     case KDRV_SYS_INFO: return CAP_DRIVER_;                         /* свои устройство и права: любое из прав драйвера */
     case KDRV_SYS_CFG_READ: case KDRV_SYS_CFG_WRITE: return CAP_PCIDEV;
@@ -385,6 +388,8 @@ static uint64_t dispatch(uint64_t nr, uint64_t a1, uint64_t a2, uint64_t a3) {
             sched_sleep_ticks(TIMER_PER_10MS);                    // строки ещё нет: ждать, не занимая ядро
         }
     }
+    case SYS_AUDIT:
+        return (uint64_t)audit_sys_read(a1, a2, a3);
     case SYS_ARGS: {
         const char* s = proc_current_args();
         uint64_t len = 0; while (s[len]) len++;
