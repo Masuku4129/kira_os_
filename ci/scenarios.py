@@ -664,9 +664,6 @@ ALL = [
        smp=4, mem="1G", machine="q35", vga="none",
        extra=S3_Q35 + ["-device", "intel-iommu,aw-bits=48", "-device", "virtio-rng-pci,disable-legacy=on,iommu_platform=on", "-device", "virtio-keyboard-pci,disable-legacy=on,iommu_platform=on",
                        "-device", "virtio-gpu-pci,disable-legacy=on,iommu_platform=on", "-netdev", "user,id=n0", "-device", "virtio-net-pci,netdev=n0,disable-legacy=on,iommu_platform=on"]),
-    sc("tmp-a", "tmp", s3_steps(net=False), smp=4, mem="1G", machine="q35", vga="none", extra=S3_Q35 + ["-device", "intel-iommu,aw-bits=48", "-device", "virtio-gpu-pci,disable-legacy=on,iommu_platform=on"]),
-    sc("tmp-b", "tmp", s3_steps(net=False), smp=4, mem="1G", machine="q35", vga="none", extra=S3_Q35 + ["-device", "intel-iommu,aw-bits=48", "-device", "virtio-rng-pci,disable-legacy=on,iommu_platform=on", "-device", "virtio-keyboard-pci,disable-legacy=on,iommu_platform=on"]),
-    sc("tmp-c", "tmp", s3_steps(net=True), smp=4, mem="1G", machine="q35", extra=S3_Q35 + ["-device", "intel-iommu,aw-bits=48", "-netdev", "user,id=n0", "-device", "virtio-net-pci,netdev=n0,disable-legacy=on,iommu_platform=on"]),
     sc("power-reboot","перезагрузка на q35 (регистр сброса FADT / 0xCF9): система поднимается снова, файл, записанный до сброса, на месте", [
         {"log": BOOT_LOG},
         {"cmd": "write /reboot.txt kira-before-reboot"},

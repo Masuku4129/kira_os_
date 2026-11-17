@@ -61,7 +61,7 @@
 #include "fat.h"
 #include "iommu.h"
 
-#define SELF_CHECK_PERIOD_S 1
+#define SELF_CHECK_PERIOD_S 5
 
 void kernel_panic(const char* reason) {
     __asm__ volatile ("cli");

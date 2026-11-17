@@ -62,10 +62,8 @@ int immune_register_self(const uint8_t digest[32]) {
     return 0;
 }
 
-static void dbg_scan(int store);
 void immune_init(void) {
     kernel_digest(kernel_baseline);
-    dbg_scan(1);
     baseline_ready = 1;
     immune_register_self(kernel_baseline);
 
@@ -90,24 +88,11 @@ void immune_init(void) {
     uart_print(" built-in antibodies + NOP-sled rule (>=24). Quarantine is saved to disk when one is present.\n");
 }
 
-static uint32_t dbg_chunk[600];
-static uint32_t dbg_h(const uint8_t* p, size_t n) { uint32_t h = 2166136261u; while (n--) { h ^= *p++; h *= 16777619u; } return h; }
-static void dbg_scan(int store) {
-    size_t i = 0;
-    for (const uint8_t* a = (const uint8_t*)ro_start; a < (const uint8_t*)text_end; a += 4096, i++) {
-        const uint8_t* e = a + 4096; if (e > (const uint8_t*)text_end) e = (const uint8_t*)text_end;
-        uint32_t h = dbg_h(a, (size_t)(e - a));
-        if (store) dbg_chunk[i] = h;
-        else if (dbg_chunk[i] != h) { uart_print("DBGIMM chunk changed at "); uart_print_hex((uint64_t)(uintptr_t)a); uart_print("\n"); }
-    }
-}
 int immune_verify_self(void) {
     if (!baseline_ready) return -1;
     uint8_t now[32];
     kernel_digest(now);
-    int ok = digest_equal(now, kernel_baseline);
-    if (!ok) { dbg_scan(0); uint8_t again[32]; kernel_digest(again); uart_print(digest_equal(again, kernel_baseline) ? "DBGIMM transient\n" : "DBGIMM persistent\n"); for (int i = 0; i < 32; i++) { static const char hx[] = "0123456789abcdef"; char b[3] = { hx[kernel_baseline[i] >> 4], hx[kernel_baseline[i] & 15], 0 }; uart_print(b);} uart_print(" base\n"); }
-    return ok ? 0 : -1;
+    return digest_equal(now, kernel_baseline) ? 0 : -1;
 }
 
 static int find_pattern(const uint8_t* buf, size_t size, const uint8_t* pat, uint32_t plen) {
