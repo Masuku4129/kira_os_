@@ -60,7 +60,7 @@ def _kaslr_boot(tag):
         {"cmd": "kptr", "must": [r"режим отладки: выключен", r"пример: K\+0x[0-9a-f]+"], "forbid": [r"пример: 0x"]},
         {"cmd": "kaslr", "must": [r"включён: образ ядра перемещён в случайную 2-МБ позицию", r"адрес базы скрыт политикой kptr"], "forbid": [r"kernel base 0x"]},
         {"cmd": "kptr debug on", "must": [r"режим отладки: включён", r"пример: 0x[0-9a-f]+"]},
-        {"cmd": "kaslr", "must": [r"\[KIRA KASLR\] kernel base (0x[0-9a-f]+) \(link base 0x100000, slide 0x[0-9a-f]+\)"]},
+        {"cmd": "kaslr", "must": [r"\[KIRA KASLR\] kernel base (0x[0-9A-Fa-f]+) \(link base 0x100000, slide 0x[0-9A-Fa-f]+\)"]},
         {"cmd": "kptr debug off", "must": [r"режим отладки: выключен"]},
         {"sleep": 6},
         {"cmd": "net", "must": [r"канал есть", r"адрес 10\.0\.2\.15"]},
@@ -107,7 +107,7 @@ ALL = [
     ], smp=4),
     sc("kaslr", "KASLR: три загрузки подряд на одном диске - база ядра в журнале разная, сеть (ping), файл на диске и status работают; без режима отладки база не печатается", _kaslr_boot("a") +
        [{"relaunch": []}] + _kaslr_boot("b") + [{"relaunch": []}] + _kaslr_boot("c") + [
-        {"distinct": r"\[KIRA KASLR\] kernel base (0x[0-9a-f]+) \(link base 0x100000, slide 0x[0-9a-f]+\)", "count": 3},
+        {"distinct": r"\[KIRA KASLR\] kernel base (0x[0-9A-Fa-f]+) \(link base 0x100000, slide 0x[0-9A-Fa-f]+\)", "count": 3},
         {"log_forbid": NO_ERR},
     ], smp=4, mem="1G", boot_timeout=120),
     sc("kaslr-off", "параметр ядра kira.nokaslr: образ остаётся на месте (1 МБ), причина в журнале, ранний W^X и остальное работают", BASIC + [
