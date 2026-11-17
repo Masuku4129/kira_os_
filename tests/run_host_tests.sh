@@ -48,7 +48,11 @@ echo "gnu-efi не найден ($EFI_INC/efi.h): сборка загрузчи�
 fi
 echo "UEFI loader sources: compile passed"
 echo "== UEFI: наш загрузчик + GPT/ESP под OVMF (без GRUB) =="
-tests/uefi_boot_test.sh
+if [ "${KIRA_SKIP_UEFI_QEMU:-0}" != 1 ]; then
+    tests/uefi_boot_test.sh
+else
+    echo "UEFI boot under OVMF: запускается отдельно (общий стенд QEMU под блокировкой)"
+fi
 
 echo "== pmm (synthetic Multiboot2 memory map, contiguous blocks) =="
 $CC $FLAGS -o $T/pmm tests/pmm_test.c pmm.c bootinfo_mb2.c bootinfo.c -Wl,--defsym=kernel_start=0x100000 -Wl,--defsym=kernel_end=0x320000
