@@ -36,6 +36,8 @@ def check(measured, policy):
             errors.append(f"{kind}: в выводе нет строки [LAT] {kind}")
             continue
         need = rule.get("min_n", 1)
+        if need == 0 and m["n"] == 0:
+            continue                      # вид, который в норме может не случиться (спин на замке): нет замеров - нет и нарушения
         if m["n"] < need:
             errors.append(f"{kind}: замеров {m['n']}, нужно не меньше {need} (измерение не шло?)")
             continue
