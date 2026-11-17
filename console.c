@@ -24,6 +24,7 @@
 #include "clock.h"
 #define FM_PATH_MAX 128
 #include "fscmd.h"
+#include "trustanchor.h"
 #include "buildcmd.h"
 #include "pci.h"
 #include "blk.h"
@@ -389,6 +390,7 @@ void console_power_prepare(void) {
     uart_print("сохраняю опыт и данные дисков...\n");
     experience_save_now();
     (void)bbsave_now(BB_SAVE_SHUTDOWN);                     /* чёрный ящик - до сброса кэшей дисков: они его запишут вместе с остальным */
+    trustanchor_shutdown();                                 /* эпоха диска - в суперблок и в TPM (якорь) при штатном выключении */
     for (int i = 0; i < 4; i++) vfs_flush(i);
     int bad = blk_flush_all();
     if (bad) { uart_print("[KIRA DISK] write cache not flushed on "); uart_print_dec((uint64_t)bad); uart_print(" disk(s)\n"); }
@@ -680,6 +682,7 @@ static const cmd_t cmds[] = {
     { "rm",        0,   "удалить файл или пустой каталог: rm путь", fscmd_rm },
     { "df",        0,   "место: системный диск и флешки", fscmd_df },
     { "json",      0,   "проверить JSON-файл и показать значение по пути: json файл [a.b[2].c]", fscmd_json },
+    { "fsanchor",  0,   "защита диска от отката: эпоха тома и якорь в TPM; fsanchor [status|sync|accept]", fscmd_anchor },
     { "verify",    0,   "сверить /bin и /etc с печатью системы (SHA-256 каждого файла, корень Меркла)", fscmd_verify },
     { "cp",        0,   "копировать файл: cp откуда куда (флешка /usb0 <-> диск)", fscmd_cp },
     { "umount",    0,   "отключить флешку перед извлечением: umount usb0", fscmd_umount },

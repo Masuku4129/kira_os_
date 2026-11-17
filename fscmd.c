@@ -1,4 +1,5 @@
 #include "fscmd.h"
+#include "trustanchor.h"
 #include "kfs.h"
 #include "blk.h"
 #include "uart.h"
@@ -185,6 +186,7 @@ void fs_init(void) {
     if (!d) return;                              /* без диска ФС нет; сообщение уже дал experience_init */
     int r = kfs_mount(d, KFS_BASE_LBA);
     if (r == 0) {
+        trustanchor_fs_mounted();                /* откат диска: эпоха тома против якоря в TPM; до первой записи, в безопасном режиме том только читается */
         kfs_info_t i; kfs_info(&i);
         uart_print("[KIRA FS] KiraFS mounted: "); uart_print_dec((uint64_t)i.free_blocks * 4); uart_print(" KB free");
         if (i.repaired) { uart_print(", repaired after unclean shutdown: "); uart_print_dec(i.repaired); }
@@ -244,6 +246,8 @@ int fs_verify_seal(int quiet) {
     kfree(leaves); kfree(buf); kfree(m);
     return rc;
 }
+
+void fscmd_anchor(const char* arg) { trustanchor_command(arg); }
 
 void fscmd_verify(const char* arg) {
     (void)arg;

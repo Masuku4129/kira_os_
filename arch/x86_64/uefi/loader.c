@@ -22,6 +22,8 @@
 #include "bootsig.h"
 #include "sha256.h"
 #include "kira_bootkey.h"            /* kira_boot_pubkey[32]: создаёт build_uefi.sh из KIRA_BOOT_PUBKEY */
+#include "tpm2.h"                    /* команды NV-памяти TPM: монотонный счётчик номера выпуска (А3) */
+#include "rollback.h"                /* политика отката: выпуск против счётчика TPM и вшитого порога */
 #ifndef KIRA_MIN_IMAGE_VERSION
 #define KIRA_MIN_IMAGE_VERSION 0u    /* нижний порог номера выпуска (защита от отката); повышается при выпуске, А3 */
 #endif
@@ -427,6 +429,92 @@ static void report_pcr(void)
     }
     line[n] = 0;
     boot_log(line);
+}
+
+/* ---------- Защита от отката образа (А3): монотонный счётчик номера выпуска в TPM ----------
+   Загрузчик только СВЕРЯЕТ выпуск из подписанного манифеста со счётчиком (и создаёт счётчик при первом использовании TPM). Поднимает счётчик
+   ядро - после подтверждённой «хорошей» загрузки (docs/SECURE_BOOT.md): иначе выпуск, который не заработал, уже закрыл бы путь назад к рабочему. */
+static int tcg2_xfer(void *ctx, const uint8_t *cmd, size_t n, uint8_t *rsp, size_t *rl)
+{
+    UINT8 in[TPM2_MAX_CMD];
+    UINTN i;
+    UINT32 size;
+    (VOID)ctx;
+    if (!g_tcg2 || !g_tcg2->submit_command || n > sizeof(in))
+        return -1;
+    for (i = 0; i < n; ++i) in[i] = cmd[i];
+    SetMem(rsp, *rl, 0);
+    if (EFI_ERROR(uefi_call_wrapper(g_tcg2->submit_command, 5, g_tcg2, (UINT32)n, in, (UINT32)*rl, rsp)))
+        return -1;
+    size = (UINT32)rsp[2] << 24 | (UINT32)rsp[3] << 16 | (UINT32)rsp[4] << 8 | rsp[5];
+    if (size < 10 || size > *rl)
+        return -1;
+    *rl = size;
+    return 0;
+}
+
+/* Строка «текст N текст N текст» в журнал загрузки: числа печатаются десятичными (журнал загрузки - только ASCII). */
+static void boot_log_nums(const char *a, uint64_t x, const char *b, uint64_t y, const char *c)
+{
+    char line[200], tmp[24];
+    UINTN n = 0, i, k;
+    for (i = 0; a[i] && n < sizeof(line) - 1; ++i) line[n++] = a[i];
+    if (b) {
+        k = 0; if (!x) tmp[k++] = '0'; while (x) { tmp[k++] = (char)('0' + x % 10); x /= 10; }
+        while (k && n < sizeof(line) - 1) line[n++] = tmp[--k];
+        for (i = 0; b[i] && n < sizeof(line) - 1; ++i) line[n++] = b[i];
+        k = 0; if (!y) tmp[k++] = '0'; while (y) { tmp[k++] = (char)('0' + y % 10); y /= 10; }
+        while (k && n < sizeof(line) - 1) line[n++] = tmp[--k];
+        for (i = 0; c && c[i] && n < sizeof(line) - 1; ++i) line[n++] = c[i];
+    }
+    line[n] = 0;
+    boot_log(line);
+}
+
+/* Сверка выпуска со счётчиком. Возвращает EFI_SUCCESS (загрузка разрешена) или отказ через secure_refuse. */
+static EFI_STATUS release_counter_check(void)
+{
+    rb_release_in_t in;
+    rb_source_t src;
+    uint32_t rc = 0;
+    uint64_t value = 0;
+    int e, r;
+
+    SetMem(&in, sizeof(in), 0);
+    in.static_min = KIRA_MIN_IMAGE_VERSION;
+    in.require_tpm = KIRA_REQUIRE_TPM;
+    if (g_tcg2) {
+        e = tpm2_nv_counter_read(tcg2_xfer, NULL, KIRA_NV_RELEASE_COUNTER, &value, &rc);
+        if (e == TPM2_E_ABSENT) {
+            /* первое использование этого TPM: счётчик создаётся; значение 0 (ни разу не увеличен) - пол, равный нулю */
+            e = tpm2_nv_define(tcg2_xfer, NULL, KIRA_NV_RELEASE_COUNTER, TPM2_NV_ATTR_COUNTER, 8, &rc);
+            if (e == TPM2_OK) {
+                boot_log("rollback: TPM release counter created (first use of this TPM)");
+                e = TPM2_E_EMPTY;
+            }
+        }
+        if (e == TPM2_E_EMPTY) { value = 0; e = TPM2_OK; }
+        if (e == TPM2_OK) {
+            in.tpm_counter_ok = 1;
+            in.counter = value;
+        } else {
+            boot_log_rc("rollback: TPM release counter is not usable: ", tpm2_strerror(e));
+        }
+    }
+    r = rb_release_decide(g_image_version, &in, &src);
+    if (r != RB_OK) {
+        if (r == RB_E_ROLLBACK_TPM)
+            boot_log_nums("rollback: release ", g_image_version, " is older than the TPM counter ", value, " (rollback refused)");
+        return secure_refuse("signed manifest KIRA.SIG", rb_release_strerror(r));
+    }
+    if (src == RB_SRC_TPM_COUNTER) {
+        g_trust_flags |= KBI_TRUST_ROLLBACK_TPM;
+        boot_log_nums("rollback: release ", g_image_version, " is not older than the TPM counter ", value, " (the kernel raises the counter after a confirmed good boot)");
+    } else {
+        boot_log_nums("rollback: no TPM counter: only the embedded minimum release ", KIRA_MIN_IMAGE_VERSION,
+                      " protects from rollback; release ", g_image_version, "");
+    }
+    return EFI_SUCCESS;
 }
 
 /* Манифест KIRA.SIG: чтение, проверка подписи вшитым ключом и порога версии. */
@@ -938,11 +1026,14 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *system_table)
             return secure_refuse("Secure Boot", "Secure Boot is not enabled with enrolled keys: the chain of trust does not start in firmware");
         if (!sb_ok)
             boot_log("WARNING: continuing without firmware Secure Boot (KIRA_REQUIRE_SB=0): the loader itself is not verified");
+        tcg2_locate();
         status = secure_verify_manifest(image);
         if (EFI_ERROR(status))
             return status;
+        status = release_counter_check();       /* откат образа: выпуск против монотонного счётчика TPM (А3) */
+        if (EFI_ERROR(status))
+            return status;
         g_trust_flags |= KBI_TRUST_ENFORCING;
-        tcg2_locate();
 #else
         (VOID)sb_ok;
 #endif

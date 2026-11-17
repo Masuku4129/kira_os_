@@ -39,6 +39,7 @@ int kbi_validate(const void* blob, uint32_t available) {
     if (h->boot_mode != KBI_BOOT_UEFI && (h->trust_flags || h->image_version)) return -4;
     if (h->image_version && !(h->trust_flags & KBI_TRUST_SIG_VERIFIED)) return -4;
     if ((h->trust_flags & KBI_TRUST_SIG_VERIFIED) && !(h->trust_flags & KBI_TRUST_ENFORCING)) return -4;
+    if ((h->trust_flags & KBI_TRUST_ROLLBACK_TPM) && !(h->trust_flags & KBI_TRUST_SIG_VERIFIED)) return -4;   /* счётчик сверяют только с проверенным номером выпуска */
 
     if (h->mmap_count > KIRA_BOOTINFO_MAX_MMAP ||
         (h->mmap_count && h->mmap_entry_size != sizeof(kbi_mmap_entry_t)) ||

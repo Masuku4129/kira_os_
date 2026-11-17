@@ -22,7 +22,8 @@ enum { KBI_TRUST_SB_KNOWN=1u,      /* загрузчик смог прочита
        KBI_TRUST_SIG_VERIFIED=16u, /* подпись манифеста, хэши ядра и initrd проверены (поле image_version достоверно) */
        KBI_TRUST_MEASURED=32u,     /* хэши ядра и initrd внесены в PCR 9 через TCG2 */
        KBI_TRUST_CMDLINE_IGNORED=64u, /* в доверенном режиме командная строка из NVRAM не принимается */
-       KBI_TRUST_ALL=127u };
+       KBI_TRUST_ROLLBACK_TPM=128u, /* номер выпуска сверен с монотонным счётчиком TPM (А3): откат ниже счётчика отклонён загрузчиком */
+       KBI_TRUST_ALL=255u };
 enum { KBI_MEM_USABLE=1, KBI_MEM_RESERVED=2, KBI_MEM_ACPI_RECLAIM=3,
        KBI_MEM_ACPI_NVS=4, KBI_MEM_BAD=5, KBI_MEM_BOOTLOADER=6,
        KBI_MEM_KERNEL=7, KBI_MEM_MODULE=8, KBI_MEM_FRAMEBUFFER=9 };

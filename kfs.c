@@ -71,7 +71,8 @@ typedef struct {
     uint32_t version, block_size, total_blocks, inode_count, inode_start, data_start;
     uint32_t next;                       /* v2: участков таблицы инодов; участок 0 = (inode_start, его иноды) */
     iext_t   ext[NEXT];
-    uint8_t  pad[512 - 32 - 4 - NEXT * 8 - 4];
+    uint32_t epoch_lo, epoch_hi;         /* А3: эпоха тома (растёт при записях, подтверждается якорем в TPM); на томах до А3 - нули */
+    uint8_t  pad[512 - 32 - 4 - NEXT * 8 - 4 - 8];
     uint32_t crc;                        /* по первым 508 байтам */
 } super_t;
 _Static_assert(sizeof(super_t) == 512, "superblock must be one sector");
@@ -85,6 +86,8 @@ static struct {
     uint32_t total_blocks, inode_count, data_start, next;
     iext_t ext[NEXT];
     uint32_t free_blocks, free_inodes, hint, ihint, repaired;
+    uint64_t epoch;                      /* А3: эпоха, записанная в суперблок */
+    int dirty, ro;                       /* dirty: после последней записи суперблока были изменения; ro: безопасный режим (откат диска) */
     uint8_t* used;                       /* карта блоков: total_blocks бит */
     uint8_t* itype;                      /* тип каждого инода: 0, KFS_FILE, KFS_DIR */
     struct { uint32_t n, age; inode_t in; } ic[ICACHE];
@@ -569,6 +572,7 @@ static void super_fill(super_t* sb) {
     sb->magic = MAGIC; sb->version = VERSION; sb->block_size = KFS_BLOCK; sb->total_blocks = fs.total_blocks;
     sb->inode_count = fs.inode_count; sb->inode_start = fs.ext[0].start; sb->data_start = fs.data_start;
     sb->next = fs.next;
+    sb->epoch_lo = (uint32_t)fs.epoch; sb->epoch_hi = (uint32_t)(fs.epoch >> 32);
     for (uint32_t e = 0; e < fs.next; e++) sb->ext[e] = fs.ext[e];
     sb->crc = crc32(sb, sizeof *sb - 4);
 }
@@ -814,6 +818,7 @@ static int kfs_mount_impl(blk_dev_t* dev, uint64_t base) {
     int r = read_super(dev, base, &sb);
     if (r) return r;
     fs.dev = dev; fs.base = base;
+    fs.epoch = (uint64_t)sb.epoch_lo | (uint64_t)sb.epoch_hi << 32; fs.dirty = 0; fs.ro = 0;
     fs.total_blocks = sb.total_blocks; fs.inode_count = sb.inode_count; fs.data_start = sb.data_start;
     fs.next = sb.next;
     for (uint32_t e = 0; e < NEXT; e++) fs.ext[e] = e < sb.next ? sb.ext[e] : (iext_t){ 0, 0 };
@@ -853,6 +858,7 @@ static int kfs_format_impl(blk_dev_t* dev, uint64_t base) {
     fs.mounted = 0;
     release_mem();
     fs.dev = dev; fs.base = base; fs.pc_no = 0;
+    fs.epoch = 0; fs.dirty = 0; fs.ro = 0;
     icache_drop();
     uint32_t itab = (uint32_t)(inodes / IPB);
     super_t sb;
@@ -1232,11 +1238,32 @@ int kfs_mount(blk_dev_t* dev, uint64_t base) { KFS_LOCK(); int r = kfs_mount_imp
 int kfs_format(blk_dev_t* dev, uint64_t base) { KFS_LOCK(); int r = kfs_format_impl(dev, base); KFS_UNLOCK(); return r; }
 int kfs_stat(const char* path, kfs_stat_t* st) { KFS_LOCK(); int r = kfs_stat_impl(path, st); KFS_UNLOCK(); return r; }
 int64_t kfs_read(const char* path, uint64_t off, void* buf, size_t len) { KFS_LOCK(); int64_t r = kfs_read_impl(path, off, buf, len); KFS_UNLOCK(); return r; }
-int kfs_write(const char* path, const void* data, size_t len) { KFS_LOCK(); int r = kfs_write_impl(path, data, len); KFS_UNLOCK(); return r; }
-int kfs_write_packed(const char* path, const void* z, size_t zlen, uint64_t usize) { KFS_LOCK(); int r = kfs_write_packed_impl(path, z, zlen, usize); KFS_UNLOCK(); return r; }
-int kfs_clone(const char* src, const char* dst) { KFS_LOCK(); int r = kfs_clone_impl(src, dst); KFS_UNLOCK(); return r; }
-int kfs_mkdir(const char* path) { KFS_LOCK(); int r = kfs_mkdir_impl(path); KFS_UNLOCK(); return r; }
-int kfs_unlink(const char* path) { KFS_LOCK(); int r = kfs_unlink_impl(path); KFS_UNLOCK(); return r; }
+/* Изменяющие операции: в безопасном режиме (откат диска, А3) отказ, иначе после успеха том помечается изменённым - эпоха вырастет при ближайшей
+   синхронизации (kfs_epoch_sync). Лишней записи на диск на каждую операцию нет: эпоха пишется в суперблок одним сектором при синхронизации. */
+#define KFS_MUTATE(call) do { KFS_LOCK(); int r_ = fs.ro ? KFS_ERR_RO : (call); if (r_ == 0) fs.dirty = 1; KFS_UNLOCK(); return r_; } while (0)
+int kfs_write(const char* path, const void* data, size_t len) { KFS_MUTATE(kfs_write_impl(path, data, len)); }
+int kfs_write_packed(const char* path, const void* z, size_t zlen, uint64_t usize) { KFS_MUTATE(kfs_write_packed_impl(path, z, zlen, usize)); }
+int kfs_clone(const char* src, const char* dst) { KFS_MUTATE(kfs_clone_impl(src, dst)); }
+int kfs_mkdir(const char* path) { KFS_MUTATE(kfs_mkdir_impl(path)); }
+int kfs_unlink(const char* path) { KFS_MUTATE(kfs_unlink_impl(path)); }
+
+/* Эпоха тома (А3). Растёт только при синхронизации и только если были изменения; значение на диске - то, что подтверждает якорь в TPM. */
+uint64_t kfs_epoch(void) { KFS_LOCK(); uint64_t e = fs.mounted ? fs.epoch : 0; KFS_UNLOCK(); return e; }
+int kfs_epoch_dirty(void) { KFS_LOCK(); int d = fs.mounted && fs.dirty; KFS_UNLOCK(); return d; }
+int kfs_epoch_sync(uint64_t* persisted) {
+    KFS_LOCK();
+    int r = fs.mounted ? 0 : KFS_ERR_NOFS;
+    if (!r && fs.dirty && !fs.ro) {
+        fs.epoch++;
+        r = super_write();                       /* сектор суперблока и сброс кэша диска: эпоха на носителе до того, как её закрепят в TPM */
+        if (r) fs.epoch--; else fs.dirty = 0;
+    }
+    if (!r && persisted) *persisted = fs.epoch;
+    KFS_UNLOCK();
+    return r;
+}
+void kfs_set_readonly(int ro) { KFS_LOCK(); fs.ro = ro ? 1 : 0; KFS_UNLOCK(); }
+int kfs_readonly(void) { KFS_LOCK(); int r = fs.ro; KFS_UNLOCK(); return r; }
 int kfs_list(const char* path, kfs_list_cb cb, void* ctx) { KFS_LOCK(); int r = kfs_list_impl(path, cb, ctx); KFS_UNLOCK(); return r; }
 void kfs_info(kfs_info_t* o) { KFS_LOCK(); kfs_info_impl(o); KFS_UNLOCK(); }
 

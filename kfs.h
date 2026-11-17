@@ -42,6 +42,12 @@ int  kfs_mkdir(const char* path);
 int  kfs_unlink(const char* path);                    /* файл или пустой каталог */
 int  kfs_list(const char* path, kfs_list_cb cb, void* ctx);
 void kfs_info(kfs_info_t* out);
+/* Эпоха тома и безопасный режим (А3, защита диска от подмены старой копией; политика - rollback.h, якорь в TPM - trustanchor.h). */
+uint64_t kfs_epoch(void);                    /* эпоха, записанная на диске; 0 - не смонтирован */
+int  kfs_epoch_dirty(void);                  /* 1 - после последней синхронизации были изменения */
+int  kfs_epoch_sync(uint64_t* persisted);    /* если были изменения: эпоха+1, суперблок на диск; *persisted - эпоха на носителе; 0 - успех */
+void kfs_set_readonly(int ro);               /* безопасный режим: изменяющие операции отказывают KFS_ERR_RO */
+int  kfs_readonly(void);
 void kfs_set_run_max(uint32_t blocks);   /* предел сплошного участка в одном запросе к диску (16..256 блоков) */
 const char* kfs_strerror(int err);
 

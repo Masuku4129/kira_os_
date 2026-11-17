@@ -63,7 +63,7 @@ if [[ "${KIRA_SECURE:-0}" == 1 ]]; then
     for flag in "${EFI_CFLAGS[@]}"; do
         [[ "$flag" == -Werror ]] || SHARED_CFLAGS+=("$flag")
     done
-    for src in bootsig pk crypto sha256; do
+    for src in bootsig pk crypto sha256 tpm2 rollback; do
         "$CC" "${SHARED_CFLAGS[@]}" -I"$ROOT" -c "$ROOT/$src.c" -o "$tmp/$src.o"
         SECURE_OBJS+=("$tmp/$src.o")
     done

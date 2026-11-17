@@ -53,6 +53,7 @@
 #include "mbinfo.h"
 #include "bootinfo.h"
 #include "boottrust.h"
+#include "trustanchor.h"
 #include "earlycon.h"
 #include "spinlock.h"
 #include "rtc.h"
@@ -240,6 +241,7 @@ void kernel_main(unsigned long magic, unsigned long addr) {
     console_init();
     proc_init(hw_get()->cpus, hw_get()->ram_kb);
     syscall_init();
+    trustanchor_init();  // TPM: счётчик выпуска образа и якорь эпохи диска (А3); до монтирования тома, которое сверяет эпоху с якорем
     experience_init();   // опыт прошлых жизней: если есть диск, организм вспоминает
     fs_init();           // файловая система на том же диске (после хранилища опыта)
     life_init();         // журнал организма и профили программ в /var
@@ -420,6 +422,7 @@ void kernel_main(unsigned long magic, unsigned long addr) {
                 uart_print("\n");
             }
         }
+        trustanchor_tick();   // подтверждение хорошей загрузки (подъём счётчика выпуска) и периодическое закрепление эпохи диска в TPM
         sched_sleep_ticks(TIMER_PER_10MS);
     }
 }
