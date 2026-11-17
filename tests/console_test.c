@@ -91,6 +91,9 @@ void build_cmd(const char* a) { (void)a; }
 int platform_battery(platform_battery_t* b) { (void)b; return -1; }
 void platform_acpi_cmd(const char* a) { (void)a; }
 int platform_console_cmd(const char* c, const char* a) { (void)c; (void)a; return 0; }
+void kaslr_cmd(const char* a) { (void)a; }
+void kptr_cmd(const char* a) { (void)a; }
+void wx_cmd(const char* a) { (void)a; }
 void platform_poweroff(void) {}
 void platform_reboot(void) {}
 int rng_get(void* o, unsigned long n) { for (unsigned long i = 0; i < n; i++) ((unsigned char*)o)[i] = (unsigned char)i; return 0; }
