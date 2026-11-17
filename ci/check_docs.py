@@ -17,9 +17,9 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MAX_AGE = 45
-REQUIRED = ["README.md", "LICENSE", "docs/PLAN.md", "docs/INDEX.md", "docs/SYSTEMS.md",
+REQUIRED = ["README.md", "LICENSE", "SECURITY.md", "CONTRIBUTING.md", "docs/PLAN.md", "docs/INDEX.md", "docs/SYSTEMS.md",
             "docs/BACKLOG.md", "docs/QEMU_100.md", "docs/INDUSTRIAL_READINESS.md"]
-DATED = ["docs/PLAN.md", "docs/INDEX.md", "docs/SYSTEMS.md", "docs/BACKLOG.md",
+DATED = ["SECURITY.md", "CONTRIBUTING.md", "README.md", "docs/PLAN.md", "docs/INDEX.md", "docs/SYSTEMS.md", "docs/BACKLOG.md",
          "docs/QEMU_100.md", "docs/INDUSTRIAL_READINESS.md"]
 PLAN_FIELDS = ["Зачем", "Альтернативы", "Критерий готовности", "Статус", "Зависит от"]
 PLAN_STATUS = {"сделано", "в работе", "не начато", "частично"}
@@ -101,7 +101,7 @@ if os.path.isfile(os.path.join(ROOT, "docs/INDEX.md")):
     for rel in sorted(all_docs):
         if rel not in idx:
             err(f"docs/{rel}: нет в docs/INDEX.md")
-    for name in ("README.md", "AGENTS.md", "ARCHITECTURE.md", "LIMBO.md", "LIMBO_ARM.md", "LICENSE"):
+    for name in ("README.md", "AGENTS.md", "ARCHITECTURE.md", "LIMBO.md", "LIMBO_ARM.md", "LICENSE", "SECURITY.md", "CONTRIBUTING.md"):
         if os.path.isfile(os.path.join(ROOT, name)) and ("../" + name) not in idx:
             err(f"{name}: нет в docs/INDEX.md")
     for target in re.findall(r"\]\(([^)#]+)\)", idx):
