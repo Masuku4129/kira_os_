@@ -196,7 +196,7 @@ class VM:
         sc_boot_bios = lambda c: c.get("boot") == "bios"
         # По умолчанию - kira.iso (GRUB). KIRA_BOOT=bios: собственный BIOS-загрузчик без GRUB (kira-bios.img на вторичной шине IDE, первая в порядке загрузки).
         if os.environ.get("KIRA_BOOT") == "bios" or sc_boot_bios(self.sc):
-            img = os.environ.get("KIRA_BIOS_IMG", "kira-bios.img")
+            img = self.sc.get("bios_img") or os.environ.get("KIRA_BIOS_IMG", "kira-bios.img")
             return ["-drive", f"file={img},format=raw,if=none,id=bootd,snapshot=on",
                     "-device", "ide-hd,drive=bootd,bus=ide.1,unit=0,bootindex=0"]
         if self.sc.get("boot") == "grub":                       # запасной образ на GRUB
@@ -605,6 +605,13 @@ def run(sc, args):
                     result["checks"].append({"log_forbid": m, "ok": not bad})
                     if bad:
                         raise Fail(f"в журнале «{bad.group(0).decode(errors='replace')}»")
+            elif "distinct" in st:                    # в журнале всех фаз не меньше count совпадений первой группы, и все значения разные (KASLR: база ядра при каждой загрузке своя)
+                vals = [m.group(1).decode(errors="replace") for m in re.finditer(st["distinct"].encode(), bytes(vm.log))]
+                result["checks"].append({"distinct": st["distinct"], "values": vals, "ok": len(vals) >= st.get("count", 2) and len(set(vals)) == len(vals)})
+                if len(vals) < st.get("count", 2):
+                    raise Fail(f"distinct: найдено {len(vals)} значений «{st['distinct']}», нужно {st.get('count', 2)}: {vals}")
+                if len(set(vals)) != len(vals):
+                    raise Fail(f"distinct: значения повторяются: {vals}")
             elif "responsive" in st:                  # система отвечает на команду не дольше заданного
                 t = time.time()
                 vm.command(st["responsive"], st.get("within", 5))

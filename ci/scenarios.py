@@ -52,6 +52,26 @@ OCSP_FWD = (_G % (8444, "--chain " + TLS_CHAIN + " --prefix ed_") + _G % (8445, 
 RESUME_DAEMON = ["openssl", "s_server", "-quiet", "-accept", "18449", "-cert", "{chain}/leaf.pem", "-key", "{chain}/leaf.key",
                  "-cert_chain", "{chain}/inter.pem", "-tls1_3", "-www"]
 
+# KASLR: одна загрузка - проверки (в режиме отладки база ядра печатается командой kaslr, без него скрыта); tag - метка файла этой загрузки
+def _kaslr_boot(tag):
+    return [
+        {"log": BOOT_LOG + [r"\[KIRA KASLR\] on: kernel image moved to a random 2 MB slot \(1 of \d+ free slots, ~\d+ bits\), \d+ words relocated; entropy: ",
+                           r"\[KIRA KASLR\] kernel base hidden by the kptr policy", r"\[KIRA VMM\] W\^X early: ok"]},
+        {"cmd": "kptr", "must": [r"режим отладки: выключен", r"пример: K\+0x[0-9a-f]+"], "forbid": [r"пример: 0x"]},
+        {"cmd": "kaslr", "must": [r"включён: образ ядра перемещён в случайную 2-МБ позицию", r"адрес базы скрыт политикой kptr"], "forbid": [r"kernel base 0x"]},
+        {"cmd": "kptr debug on", "must": [r"режим отладки: включён", r"пример: 0x[0-9a-f]+"]},
+        {"cmd": "kaslr", "must": [r"\[KIRA KASLR\] kernel base (0x[0-9a-f]+) \(link base 0x100000, slide 0x[0-9a-f]+\)"]},
+        {"cmd": "kptr debug off", "must": [r"режим отладки: выключен"]},
+        {"sleep": 6},
+        {"cmd": "net", "must": [r"канал есть", r"адрес 10\.0\.2\.15"]},
+        {"cmd": "ping 10.0.2.2 3", "must": [r"отправлено 3, получено [1-3]"], "timeout": 20},
+        {"cmd": "write /kaslr-%s.txt kaslr-ok-%s" % (tag, tag)},
+        {"cmd": "cat /kaslr-%s.txt" % tag, "must": [r"kaslr-ok-%s" % tag]},
+        {"cmd": "status", "must": [r"."]},
+        {"cmd": "wx", "must": [r"итог: ok"]},
+    ]
+
+
 ALL = [
     sc("boot-grub", "запасной образ kira-grub.iso (GRUB): загрузка и базовые проверки", BASIC + [
         {"log": [r"Processors online: 4"]},
@@ -74,6 +94,29 @@ ALL = [
     sc("boot-ata", "загрузка: IDE (как в Limbo)", BASIC, disk="ata", smp=2),
     sc("boot-sata", "загрузка: AHCI (SATA) на плате q35", BASIC + [{"log": [r"\[KIRA AHCI\] sata0", r"completion by MSI interrupt"]}] + DISK_IRQ, disk="sata", machine="q35"),
     sc("boot-nvme", "загрузка: NVMe", BASIC + [{"log": [r"\[KIRA NVMe\] nvme0n1", r"NVMe .*completion by interrupt"]}] + DISK_IRQ, disk="nvme"),
+    sc("wx-early", "ранний W^X: ранняя карта страниц без W+X (проверка до vmm_enforce_wx), команда wx, запись в .text и .rodata даёт ловушку", BASIC + [
+        {"log": [r"\[KIRA VMM\] W\^X early: ok, no W\+X page since the first instruction with paging on \(text=\d+ KB ro=\d+ KB rw=\d+ KB, checked before vmm_enforce_wx\)",
+                 r"\[KIRA VMM\] W\^X kernel: ok \(text=\d+ KB ro=\d+ KB rw=\d+ KB\)"]},
+        {"log_forbid": [r"W\^X early: the early page map has", r"W\^X violated", r"wrong rights"]},
+        {"cmd": "wx", "must": [r"ранняя карта .*: без страниц W\+X с первой инструкции", r"\[KIRA VMM\] W\^X kernel: ok \(text=\d+ KB ro=\d+ KB rw=\d+ KB\)",
+                              r"запись в \.text: ловушка сработала \(#PF\)", r"запись в \.rodata: ловушка сработала \(#PF\)", r"\[KIRA WX\] итог: ok"],
+         "forbid": [r"ПРОШЛА", r"НАРУШЕНО", r"БЫЛИ страницы"]},
+        {"cmd": "wx", "must": [r"итог: ok"]},                         # ловушка повторяема: система после неё жива
+        {"cmd": "status", "must": [r"."]},
+        {"log_forbid": NO_ERR},
+    ], smp=4),
+    sc("kaslr", "KASLR: три загрузки подряд на одном диске - база ядра в журнале разная, сеть (ping), файл на диске и status работают; без режима отладки база не печатается", _kaslr_boot("a") +
+       [{"relaunch": []}] + _kaslr_boot("b") + [{"relaunch": []}] + _kaslr_boot("c") + [
+        {"distinct": r"\[KIRA KASLR\] kernel base (0x[0-9a-f]+) \(link base 0x100000, slide 0x[0-9a-f]+\)", "count": 3},
+        {"log_forbid": NO_ERR},
+    ], smp=4, mem="1G", boot_timeout=120),
+    sc("kaslr-off", "параметр ядра kira.nokaslr: образ остаётся на месте (1 МБ), причина в журнале, ранний W^X и остальное работают", BASIC + [
+        {"log": [r"\[KIRA KASLR\] off: disabled by kira.nokaslr\.", r"\[KIRA VMM\] W\^X early: ok"]},
+        {"log_forbid": [r"\[KIRA KASLR\] on:"]},
+        {"cmd": "kptr debug on", "must": [r"режим отладки: включён"]},
+        {"cmd": "kaslr", "must": [r"выключен: disabled by kira.nokaslr"]},
+        {"cmd": "wx", "must": [r"итог: ok"]},
+    ], boot="bios", bios_img="kira-bios-nokaslr.img", smp=2),
     sc("boot-1cpu", "одно ядро, 256 МБ", BASIC, smp=1, mem="256M"),
     sc("boot-8cpu", "восемь ядер, 4 ГБ (память выше 1 ГБ)", BASIC + [{"log": [r"Processors online: 8", r"Mapped RAM above 1 GB: [1-9]"]}], smp=8, mem="4G"),
     sc("isolation", "изоляция: адресные пространства, враждебные программы, IPC, потоки, FPU", [

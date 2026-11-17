@@ -22,6 +22,7 @@
 | [architecture/REQUIRED_TECH_PLAN.md](architecture/REQUIRED_TECH_PLAN.md) | План обязательных технологий владельца | справочник |
 | [architecture/FORMATS_AND_LANGUAGES.md](architecture/FORMATS_AND_LANGUAGES.md) | Форматы и языки программирования | справочник |
 | [architecture/KIRA_IR.md](architecture/KIRA_IR.md) | Промежуточное представление компилятора | справочник |
+| [architecture/KASLR_WX.md](architecture/KASLR_WX.md) | KASLR и ранний W^X образа ядра: устройство, альтернативы, незакрытое | справочник |
 | [architecture/PARITY_ARM64.md](architecture/PARITY_ARM64.md) | Паритет возможностей x86 и ARM64 | справочник |
 | [architecture/ADR-0001-ir-mlir-zig-spark.md](architecture/ADR-0001-ir-mlir-zig-spark.md) | Решение: IR, MLIR, Zig, SPARK | справочник |
 | [adr/ADR-0001-kvr-primary-wasm.md](adr/ADR-0001-kvr-primary-wasm.md) | Решение: формат KVR и WASM | справочник |
