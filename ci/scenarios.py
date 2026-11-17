@@ -1527,7 +1527,7 @@ ALL.append(sc("fs-anchor-no-tpm", "без TPM защита диска от от�
 #    сборка в отдельном каталоге; метка kira.testtrust), боевое ядро доверяет только офлайн-ключу издателя. Допуск по подписи включает строка ядра kira.signedapps
 #    (образ kira-bios-signedapps.img) или доверенная загрузка (там подпись обязательна всегда).
 _APPS_PUT = {"/etc/apps.manifest": "{apps_manifest}", "/etc/apps.sig": "{apps_sig_a}"}
-_DEMO_OK = r"demo: address spaces are isolated \(PASS\)"
+_DEMO_OK = r"data page intact after 3 sleeps: address spaces are isolated \(PASS\)"
 _APPS = dict(boot="bios", bios_img="kira-bios-signedapps.img", smp=2, mem="1G", apps=True, needs=["testtrust"], boot_timeout=120)
 
 ALL.append(sc("apps-signed-ok", "манифест приложений с верной подписью издателя: программа запускается и допускается по подписанному манифесту", [
