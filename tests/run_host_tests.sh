@@ -539,6 +539,8 @@ $CC $FLAGS -fsanitize=address,undefined -o $T/elf_fuzz tests/elf_fuzz.c elf.c
 if ls userland/*.elf >/dev/null 2>&1; then ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=halt_on_error=1 $T/elf_fuzz ${KIRA_FUZZ_ITERS:-20000} 1 userland/*.elf; fi
 $CC $FLAGS -fsanitize=address,undefined -o $T/cbor_fuzz tests/cbor_fuzz.c cbor.c
 ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=halt_on_error=1 $T/cbor_fuzz ${KIRA_FUZZ_ITERS:-50000} 1
+$CC $FLAGS -fsanitize=address,undefined -o $T/kdrv_fuzz tests/kdrv_fuzz.c kdrv_fmt.c
+ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=halt_on_error=1 $T/kdrv_fuzz ${KIRA_FUZZ_ITERS:-50000} 1
 echo "== remote console (rcon): key derivation, password check, AUTH parsing =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/rcon tests/rcon_test.c rcon.c sha256.c
 $T/rcon
