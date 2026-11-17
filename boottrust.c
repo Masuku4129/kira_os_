@@ -35,7 +35,7 @@ int boottrust_report(const boottrust_t* t, void (*out)(const char*), void (*out_
     out("\n");
     lines++;
     if (f & KBI_TRUST_SIG_VERIFIED) {
-        out("[KIRA BOOT] Image signature: verified by the loader (kernel and initrd match the signed manifest), release ");
+        out("[KIRA BOOT] Image signature: verified by the loader (boot files match the signed manifest), release ");
         if (out_dec) out_dec(t->image_version);
         out("\n");
     } else {

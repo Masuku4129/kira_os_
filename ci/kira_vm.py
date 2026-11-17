@@ -143,6 +143,15 @@ def env_missing(needs, kvm):
                 socket.getaddrinfo("example.com", 80)
             except OSError:
                 return "у хозяина нет DNS/интернета (example.com не находится)"
+        if n == "secureboot":                           # доверенная загрузка (А2): OVMF с Secure Boot, ключи и образы создаёт ci/sb_fixture.py
+            import sb_fixture
+            if not os.path.exists("kira.bin"):
+                return "нет kira.bin (соберите ядро)"
+            why = sb_fixture.missing()
+            if why:
+                return "доверенная загрузка: " + why
+        if n == "swtpm" and not shutil.which("swtpm"):
+            return "нет swtpm (apt install swtpm swtpm-tools): измеряемая загрузка проверяется на эмулируемом TPM"
         if n == "initrd" and not os.environ.get("KIRA_INITRD"):
             return "образ собран без initrd.img (задайте KIRA_INITRD при сборке и запуске)"
     return None
@@ -173,6 +182,29 @@ class VM:
             chain = os.path.abspath("ci-out/tlschain")
             subprocess.run([sys.executable, "-I", "ci/mkchain.py", chain], check=True, stdout=subprocess.DEVNULL)
             subprocess.run(["tools/kfstool", self.disk, "put", "/etc/ssl/roots.der", os.path.join(chain, "root.der")], check=True, stdout=subprocess.DEVNULL)
+        self.swtpm = None
+        self.fixture_names = {}
+        if sc.get("secureboot"):                    # прошивка с Secure Boot, ключи PK/KEK/db и образ ESP (верный или испорченный) - на лету, в ci-out/secureboot
+            import sb_fixture
+            sbc = sc["secureboot"]
+            fx = sb_fixture.build(os.path.join(os.path.dirname(os.path.abspath(out)), "secureboot"), "kira.bin", ".")
+            self.fixture_names = fx["names"]
+            self.sb_code = fx["code"]
+            self.sb_vars = os.path.join(out, "OVMF_VARS.fd")         # прошивка пишет в VARS: у каждого запуска своя копия
+            shutil.copyfile(fx["vars_" + sbc.get("vars", "secboot")], self.sb_vars)
+            self.sb_esp = os.path.join(out, "esp.img")
+            shutil.copyfile(fx["images"][sbc.get("image", "good")], self.sb_esp)
+            if sbc.get("tpm"):                      # эмулируемый TPM 2.0: swtpm по сокету, QEMU подключает его как tpm-tis
+                self.tpm_dir = os.path.join(out, "tpm")
+                os.makedirs(self.tpm_dir, exist_ok=True)
+                self.tpm_sock = os.path.join(out, "swtpm.sock")
+                self.swtpm = subprocess.Popen(["swtpm", "socket", "--tpm2", "--tpmstate", "dir=" + self.tpm_dir,
+                                               "--ctrl", "type=unixio,path=" + self.tpm_sock,
+                                               "--log", "file=" + os.path.join(out, "swtpm.log") + ",level=5"],
+                                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                end = time.time() + 10
+                while not os.path.exists(self.tpm_sock) and time.time() < end:
+                    time.sleep(0.05)
         self.daemons = []
         for argv in sc.get("daemons", []):          # процессы хозяина на время сценария (постоянный openssl s_server: билеты сессий живут между соединениями)
             chain = os.path.abspath("ci-out/tlschain")
@@ -192,7 +224,21 @@ class VM:
                 os.unlink(p)
 
     # ---------- запуск ----------
+    def sb_boot_args(self):
+        """Загрузка по UEFI с Secure Boot: прошивка OVMF (CODE только для чтения, VARS - копия с ключами), ESP как диск AHCI, TPM по желанию."""
+        a = ["-global", "driver=cfi.pflash01,property=secure,value=on",
+             "-drive", f"if=pflash,format=raw,unit=0,file={self.sb_code},readonly=on",
+             "-drive", f"if=pflash,format=raw,unit=1,file={self.sb_vars}",
+             "-drive", f"if=none,id=esp,format=raw,file={self.sb_esp}",
+             "-device", "ide-hd,drive=esp,bus=ide.0,bootindex=0"]
+        if self.swtpm:
+            a += ["-chardev", f"socket,id=chrtpm,path={self.tpm_sock}", "-tpmdev", "emulator,id=tpm0,chardev=chrtpm",
+                  "-device", "tpm-tis,tpmdev=tpm0"]
+        return a
+
     def boot_args(self):
+        if self.sc.get("secureboot"):
+            return self.sb_boot_args()
         sc_boot_bios = lambda c: c.get("boot") == "bios"
         # По умолчанию - kira.iso (GRUB). KIRA_BOOT=bios: собственный BIOS-загрузчик без GRUB (kira-bios.img на вторичной шине IDE, первая в порядке загрузки).
         if os.environ.get("KIRA_BOOT") == "bios" or sc_boot_bios(self.sc):
@@ -283,7 +329,7 @@ class VM:
         self.start()
 
     def stop(self):
-        for p in getattr(self, "daemons", []):
+        for p in getattr(self, "daemons", []) + ([self.swtpm] if getattr(self, "swtpm", None) else []):
             p.terminate()
         try:
             self.qmp_cmd({"execute": "quit"})
@@ -429,12 +475,16 @@ def run(sc, args):
     t0 = time.time()
     try:
         vm.start()
-        boot = vm.expect(re.escape(PROMPT.decode()), sc.get("boot_timeout", 90), 0)
-        result["boot_seconds"] = round(time.time() - t0, 1)
-        time.sleep(1.0)
+        if sc.get("no_prompt"):                  # машина обязана НЕ загрузить систему (отказ доверенной загрузки): приглашения нет, шаги ждут строки журнала
+            result["boot_seconds"] = None
+            time.sleep(1.0)
+        else:
+            boot = vm.expect(re.escape(PROMPT.decode()), sc.get("boot_timeout", 90), 0)
+            result["boot_seconds"] = round(time.time() - t0, 1)
+            time.sleep(1.0)
         vm.screenshot("00-boot")
         mark = 0
-        names = {}
+        names = dict(vm.fixture_names)
         for i, st in enumerate(sc["steps"]):
             if "capture" not in st:
                 st = subst(st, names)

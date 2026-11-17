@@ -252,7 +252,7 @@ UEFI_DIR=
 if command -v mcopy >/dev/null 2>&1 && [ -s /usr/include/efi/efi.h -o -n "${EFI_INCLUDE:-}" ]; then
     echo "[*] Собственный UEFI-загрузчик (без GRUB): kira-uefi.img"
     _u=$(mktemp -d)
-    if bash ./build_uefi.sh "$_u" >/dev/null 2>"$_u/err"; then
+    if KIRA_SECURE=0 bash ./build_uefi.sh "$_u" >/dev/null 2>"$_u/err"; then   # образ разработки всегда с обычным загрузчиком: доверенный режим - отдельная цель ниже
         if [[ -s "$_u/EFI/KIRA/INITRD.IMG" ]]; then
             python3 tools/mkuefi.py "$_u/EFI/BOOT/BOOTX64.EFI" "$_u/EFI/KIRA/KIRA.ELF" kira-uefi.img 64 "$_u/EFI/KIRA/INITRD.IMG"
         else
@@ -272,6 +272,23 @@ elif [ -s prebuilt/BOOTX64.EFI ] && command -v mcopy >/dev/null 2>&1; then
     else
         echo "[!] prebuilt/BOOTX64.EFI устарел или изменён (исходники загрузчика другие): UEFI-вход в образ не войдёт. Пересоберите на x86-64 (build_uefi.sh) и обновите prebuilt."
     fi
+fi
+
+# Доверенный режим (А2, docs/SECURE_BOOT.md) - ОТДЕЛЬНАЯ цель, ежедневную сборку не меняет: KIRA_SECURE=1 ./build_clang.sh --no-run
+# собирает ещё и kira-secure.img (загрузчик с вшитым ключом выпуска, подпись db, манифест KIRA.SIG). Нужны ключи вне репозитория:
+#   KIRA_BOOT_PUBKEY (32 байта) и KIRA_RELEASE_KEY (PEM Ed25519) - python3 tools/kirasig.py keygen; KIRA_DB_KEY и KIRA_DB_CERT - ключ db прошивки;
+#   KIRA_IMAGE_VERSION - номер выпуска (по умолчанию 1); при желании KIRA_MIN_IMAGE_VERSION, KIRA_REQUIRE_SB=0, KIRA_REQUIRE_TPM=1.
+if [ "${KIRA_SECURE:-0}" = 1 ]; then
+    echo "[*] Доверенный режим: kira-secure.img"
+    for _v in KIRA_BOOT_PUBKEY KIRA_RELEASE_KEY KIRA_DB_KEY KIRA_DB_CERT; do
+        [ -s "${!_v:-/nonexistent}" ] || { echo "[!] KIRA_SECURE=1: не задан или не найден файл $_v (см. docs/SECURE_BOOT.md)"; exit 1; }
+    done
+    _s=$(mktemp -d)
+    KIRA_SECURE=1 bash ./build_uefi.sh "$_s" >/dev/null 2>"$_s/err" || { echo "[!] доверенный загрузчик не собран:"; tail -3 "$_s/err"; exit 1; }
+    _i=(); [ -s "${KIRA_INITRD:-initrd.img}" ] && _i=(--initrd "${KIRA_INITRD:-initrd.img}")
+    tools/sbsign_image.sh --loader "$_s/EFI/BOOT/BOOTX64.EFI" --kernel kira.bin "${_i[@]}" --release-key "$KIRA_RELEASE_KEY" \
+        --version "${KIRA_IMAGE_VERSION:-1}" --db-key "$KIRA_DB_KEY" --db-cert "$KIRA_DB_CERT" --out kira-secure.img || exit 1
+    rm -rf "$_s"
 fi
 
 echo "[*] ISO..."
