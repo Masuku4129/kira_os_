@@ -13,6 +13,7 @@
   tamper-kernel    загрузчик подписан верно, ядро изменено на 1 байт: загрузчик отказывается и пишет причину
   no-manifest      всё подписано, но KIRA.SIG удалён: отказ
   rollback         манифест выпуска 3 при нижнем пороге загрузчика 5: откат отклонён
+  release5         тот же загрузчик (порог 0) и подписанный манифест выпуска 5; good - выпуск 3 (А3: счётчик выпуска в TPM, сценарий secureboot-rollback-tpm)
 Ключи прошивки: vars-secboot.fd (PK/KEK/db заведены, Secure Boot включён), vars-plain.fd (ключей нет, Secure Boot выключен)."""
 import hashlib, os, shutil, struct, subprocess, sys
 
@@ -74,7 +75,7 @@ def build(out, kernel="kira.bin", root="."):
     stamp = hashlib.sha256(kdata + stamp_src.encode() + open(__file__, "rb").read()).hexdigest()
     res = {"code": CODE, "vars_secboot": os.path.join(out, "vars-secboot.fd"), "vars_plain": os.path.join(out, "vars-plain.fd"),
            "images": {}, "names": {}}
-    for n in ("good", "tamper-loader", "unsigned-loader", "tamper-kernel", "no-manifest", "rollback"):
+    for n in ("good", "release5", "tamper-loader", "unsigned-loader", "tamper-kernel", "no-manifest", "rollback"):
         res["images"][n] = os.path.join(out, "esp-%s.img" % n)
     keys = os.path.join(out, "keys")
     # Номер выпуска и ожидаемый PCR 9 (манифест, затем ядро) для сценария измеряемой загрузки
@@ -117,6 +118,9 @@ def build(out, kernel="kira.bin", root="."):
     sh("bash", tool("tools/sbsign_image.sh"), "--loader", ldr, "--kernel", kernel, "--release-key", kp("rel.pem"), "--version", "3",
        "--db-key", kp("db.key"), "--db-cert", kp("db.crt"), "--out", res["images"]["good"])
     sh(sys.executable, tool("tools/kirasig.py"), "sign", "--key", kp("rel.pem"), "--version", "3", "--out", sig_good, kernel)
+    # release5: тот же загрузчик и то же ядро, манифест выпуска 5 (подпись верна): после него выпуск 3 с верной подписью обязан быть отвергнут счётчиком TPM
+    sh("bash", tool("tools/sbsign_image.sh"), "--loader", ldr, "--kernel", kernel, "--release-key", kp("rel.pem"), "--version", "5",
+       "--db-key", kp("db.key"), "--db-cert", kp("db.crt"), "--out", res["images"]["release5"])
 
     def esp(name, efi, kern=kernel, sig=sig_good):
         args = [sys.executable, tool("tools/mkuefi.py")] + (["--sig", sig] if sig else []) + [efi, kern, res["images"][name], "64"]

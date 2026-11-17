@@ -16,6 +16,11 @@ COMMON="-ffreestanding -fno-omit-frame-pointer -fno-pic -fno-pie -fno-stack-prot
 # Ядро собирается БЕЗ SSE/MMX: обработчики прерываний не трогают регистры xmm,
 # поэтому прерванному потоку не нужно сохранять их при входе в прерывание.
 CFLAGS="$COMMON -mno-mmx -mno-sse -mno-sse2 -I. -Iarch/x86_64"
+# Тестовая сборка ядра (KIRA_TEST_TRUST=1): в таблице доверенных ключей издателя тестовые ключи RFC 8032 (закрытые части общеизвестны), чтобы сценарии QEMU
+# могли подписывать манифест приложений (ci/apps_fixture.py). Такое ядро НЕ выпускается: kdrv_trust.h запрещает флаг вне KIRA_TEST_BUILD, рядом кладётся
+# метка kira.testtrust, без неё сценарии с подписями пропускаются.
+rm -f kira.testtrust
+if [ "${KIRA_TEST_TRUST:-0}" = 1 ]; then CFLAGS="$CFLAGS -DKIRA_TEST_BUILD -DKDRV_TEST_TRUST"; : > kira.testtrust; echo "[!] ТЕСТОВАЯ сборка: в доверии тестовые ключи издателя (только для сценариев А3, не для выпуска)"; fi
 
 C_SOURCES="syscall.c percpu.c mem.c sched.c console.c kernel.c pmm.c vmm.c heap.c keyboard.c timer.c mind.c mindnet.c wallpaper.c zstd.c cbor.c json.c cas.c sysseal.c mind_sys.c rtc.c watchdog.c immune.c sha256.c uart.c clock.c klog.c bbring.c bbsave.c gfx2d.c font8x16.c fb.c fbcon.c display.c wm.c input.c acpi.c proc.c caps.c elf.c trust.c life.c progs.c fsrv.c ata.c store.c experience.c gfxsrv.c gfxui.c icons.c brainfx.c apps.c explorer.c fm.c dock.c usbhid.c usb.c usbhub.c usbmsc.c uhci.c xhci.c kfs.c fat.c part.c vfs.c ahci.c nvme.c uaccess.c devhealth.c kpar.c fscmd.c buildcmd.c mind_build_core.c mind_build_grant.c pci.c virtio.c virtio_blk.c virtio_gpu.c virtio_input.c e1000.c virtio_net.c net.c ip6.c ipfrag.c rcon.c irqwait.c kdrv.c kdrv_fmt.c kdrv_blk.c hda.c ac97.c sb16.c audio.c blk.c bootmap.c bootinfo.c bootinfo_mb2.c bootinfo_uefi.c boottrust.c appman.c tpm2.c rollback.c tpmtis.c trustanchor.c mbinfo.c earlycon.c crashdump.c uheap.c userlog.c hwprofile.c ramext.c kmutex.c linebuf.c corefault.c iommu_vtd.c iommu.c iommu_amd.c drivers/iommu/amd_vi.c drivers/iommu/intel_vtd.c drivers/iommu/vtd_domain.c crypto.c pk.c kdrv_sig.c kdrv_state.c rng.c virtio_rng.c scale.c kobj.c fssvc.c ksvc.c gfxctl.c futex.c wx.c framegov.c wire.c usbmsc_fs.c aml.c aml_exec.c acpidev.c kptr.c kaslr.c earlymap.c devpm.c sleep.c"
 # Код, зависящий от процессора x86-64 (вход в ядро, прерывания, APIC, ядра, FPU, системные вызовы): arch/x86_64
@@ -265,6 +270,8 @@ if command -v nasm >/dev/null 2>&1; then
     _ini=()
     if [[ -n "${KIRA_INITRD:-}" ]]; then _ini=("$KIRA_INITRD"); elif [[ -s "$PWD/initrd.img" ]]; then _ini=("$PWD/initrd.img"); fi
     KIRA_CMDLINE=kira.nokaslr python3 tools/mkbios.py bios-stage1.bin bios-stage2.bin kira.bin kira-bios-nokaslr.img "${_ini[@]}"
+    # И с kira.signedapps: допуск приложений только по подписанному манифесту без доверенной загрузки (А3, сценарии apps-*)
+    KIRA_CMDLINE=kira.signedapps python3 tools/mkbios.py bios-stage1.bin bios-stage2.bin kira.bin kira-bios-signedapps.img "${_ini[@]}"
 fi
 
 UEFI_DIR=

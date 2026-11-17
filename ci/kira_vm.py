@@ -150,6 +150,11 @@ def env_missing(needs, kvm):
             why = sb_fixture.missing()
             if why:
                 return "доверенная загрузка: " + why
+        if n == "testtrust":                            # подписанные приложения (А3): ядро с тестовыми ключами издателя (KIRA_TEST_TRUST=1)
+            import apps_fixture
+            why = apps_fixture.missing()
+            if why:
+                return "подписанные приложения: " + why
         if n == "swtpm" and not shutil.which("swtpm"):
             return "нет swtpm (apt install swtpm swtpm-tools): измеряемая загрузка проверяется на эмулируемом TPM"
         if n == "initrd" and not os.environ.get("KIRA_INITRD"):
@@ -176,8 +181,12 @@ class VM:
             import mkfiles
             for dst, src in mkfiles.make(os.path.join(out, "files")).items():
                 subprocess.run(["tools/kfstool", self.disk, "put", dst, src], check=True, stdout=subprocess.DEVNULL)
+        self.apps = {}
+        if sc.get("apps"):                          # подписанный манифест приложений (А3): файлы стенда подставляются в put как {apps_manifest}, {apps_sig_a}, ...
+            import apps_fixture
+            self.apps = apps_fixture.build(os.path.join(os.path.dirname(os.path.abspath(out)), "apps"))
         for dst, src in sc.get("put", {}).items():  # файлы хозяина на диск машины (например, семя опыта Разума)
-            subprocess.run(["tools/kfstool", self.disk, "put", dst, src], check=True, stdout=subprocess.DEVNULL)
+            subprocess.run(["tools/kfstool", self.disk, "put", dst, src.format(**self.apps) if self.apps else src], check=True, stdout=subprocess.DEVNULL)
         if sc.get("tls_chain"):                     # тестовая цепочка: корневой - единственный доверенный на этом диске
             chain = os.path.abspath("ci-out/tlschain")
             subprocess.run([sys.executable, "-I", "ci/mkchain.py", chain], check=True, stdout=subprocess.DEVNULL)
@@ -189,22 +198,22 @@ class VM:
             sbc = sc["secureboot"]
             fx = sb_fixture.build(os.path.join(os.path.dirname(os.path.abspath(out)), "secureboot"), "kira.bin", ".")
             self.fixture_names = fx["names"]
+            self.fx = fx
             self.sb_code = fx["code"]
             self.sb_vars = os.path.join(out, "OVMF_VARS.fd")         # прошивка пишет в VARS: у каждого запуска своя копия
             shutil.copyfile(fx["vars_" + sbc.get("vars", "secboot")], self.sb_vars)
             self.sb_esp = os.path.join(out, "esp.img")
             shutil.copyfile(fx["images"][sbc.get("image", "good")], self.sb_esp)
-            if sbc.get("tpm"):                      # эмулируемый TPM 2.0: swtpm по сокету, QEMU подключает его как tpm-tis
+        if (sc.get("secureboot") or {}).get("tpm") or sc.get("tpm"):    # эмулируемый TPM 2.0: swtpm по сокету, QEMU подключает его как tpm-tis
+            tstate = sc.get("tpm_state") or (sc.get("secureboot") or {}).get("tpm_state")
+            if tstate:                              # состояние TPM в ci-out/ переживает перезапуски машины внутри сценария (как NV-память настоящего TPM); перед сценарием стирается
+                self.tpm_dir = os.path.abspath(os.path.join("ci-out", "tpm-state-" + tstate))
+                shutil.rmtree(self.tpm_dir, ignore_errors=True)
+            else:
                 self.tpm_dir = os.path.join(out, "tpm")
-                os.makedirs(self.tpm_dir, exist_ok=True)
-                self.tpm_sock = os.path.join(out, "swtpm.sock")
-                self.swtpm = subprocess.Popen(["swtpm", "socket", "--tpm2", "--tpmstate", "dir=" + self.tpm_dir,
-                                               "--ctrl", "type=unixio,path=" + self.tpm_sock,
-                                               "--log", "file=" + os.path.join(out, "swtpm.log") + ",level=5"],
-                                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                end = time.time() + 10
-                while not os.path.exists(self.tpm_sock) and time.time() < end:
-                    time.sleep(0.05)
+            os.makedirs(self.tpm_dir, exist_ok=True)
+            self.tpm_sock = os.path.join(out, "swtpm.sock")
+            self.start_swtpm()
         self.daemons = []
         for argv in sc.get("daemons", []):          # процессы хозяина на время сценария (постоянный openssl s_server: билеты сессий живут между соединениями)
             chain = os.path.abspath("ci-out/tlschain")
@@ -223,6 +232,27 @@ class VM:
             if os.path.exists(p):
                 os.unlink(p)
 
+    def start_swtpm(self):
+        if os.path.exists(self.tpm_sock):
+            os.unlink(self.tpm_sock)
+        self.swtpm = subprocess.Popen(["swtpm", "socket", "--tpm2", "--tpmstate", "dir=" + self.tpm_dir,
+                                       "--ctrl", "type=unixio,path=" + self.tpm_sock,
+                                       "--log", "file=" + os.path.join(self.out, "swtpm.log") + ",level=5"],
+                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        end = time.time() + 10
+        while not os.path.exists(self.tpm_sock) and time.time() < end:
+            time.sleep(0.05)
+
+    def restart_swtpm(self):
+        """Машина выключена: TPM поднимается заново на том же каталоге состояния (NV-память сохранилась, регистры PCR сбросились - как после перезагрузки)."""
+        if self.swtpm:
+            self.swtpm.terminate()
+            try:
+                self.swtpm.wait(timeout=10)
+            except Exception:
+                self.swtpm.kill()
+            self.start_swtpm()
+
     # ---------- запуск ----------
     def sb_boot_args(self):
         """Загрузка по UEFI с Secure Boot: прошивка OVMF (CODE только для чтения, VARS - копия с ключами), ESP как диск AHCI, TPM по желанию."""
@@ -231,9 +261,6 @@ class VM:
              "-drive", f"if=pflash,format=raw,unit=1,file={self.sb_vars}",
              "-drive", f"if=none,id=esp,format=raw,file={self.sb_esp}",
              "-device", "ide-hd,drive=esp,bus=ide.0,bootindex=0"]
-        if self.swtpm:
-            a += ["-chardev", f"socket,id=chrtpm,path={self.tpm_sock}", "-tpmdev", "emulator,id=tpm0,chardev=chrtpm",
-                  "-device", "tpm-tis,tpmdev=tpm0"]
         return a
 
     def boot_args(self):
@@ -275,6 +302,9 @@ class VM:
             a += ["-drive", f"file={d},format=raw,if=none,id=kd0", "-device", "ahci,id=ahci0", "-device", "ide-hd,drive=kd0,bus=ahci0.0"]
         elif disk == "nvme":
             a += ["-drive", f"file={d},format=raw,if=none,id=kd0", "-device", "nvme,drive=kd0,serial=KIRA0001"]
+        if self.swtpm:
+            a += ["-chardev", f"socket,id=chrtpm,path={self.tpm_sock}", "-tpmdev", "emulator,id=tpm0,chardev=chrtpm",
+                  "-device", "tpm-tis,tpmdev=tpm0"]
         a += [x.replace("{spare}", self.spare) for x in sc.get("extra", [])]
         if sc.get("flash"):
             fl = os.path.join(self.out, "flash.img")
@@ -326,6 +356,7 @@ class VM:
                 os.unlink(pth)
         self.sc = dict(self.sc, extra=extra)
         self.phase_mark = len(self.log)
+        self.restart_swtpm()
         self.start()
 
     def stop(self):
@@ -587,17 +618,32 @@ def run(sc, args):
                 if not ok:
                     raise Fail(f"числа: {hi} - {lo} = {d}, ожидалось от {dmin} до {dmax}")
             elif "relaunch" in st:                  # выключить машину и поднять её снова на ТОМ ЖЕ диске с другим набором устройств (extra):
-                vm.send("poweroff\r")                  # драйвер, установленный в первой фазе, нужен устройству, которого в первой фазе не было
-                end_t = time.time() + 30 * args.timeout_scale
-                while vm.qemu.poll() is None and time.time() < end_t:
+                if st.get("hard"):                      # "hard": машина не дошла до оболочки (отказ загрузки) - выключать нечем, её гасят (как кнопкой питания)
+                    vm.qemu.kill()
+                    vm.qemu.wait(timeout=10)
                     vm.drain(0.5)
-                if vm.qemu.poll() is None or vm.qemu.returncode != 0:
-                    raise Fail("relaunch: машина не выключилась сама")
-                vm.drain(0.5)
+                else:
+                    vm.send("poweroff\r")              # драйвер, установленный в первой фазе, нужен устройству, которого в первой фазе не было
+                    end_t = time.time() + 30 * args.timeout_scale
+                    while vm.qemu.poll() is None and time.time() < end_t:
+                        vm.drain(0.5)
+                    if vm.qemu.poll() is None or vm.qemu.returncode != 0:
+                        raise Fail("relaunch: машина не выключилась сама")
+                    vm.drain(0.5)
+                if st.get("save_disk"):                 # снимок диска выключенной машины (host: «старая копия», А3: подмена диска старой копией)
+                    shutil.copyfile(vm.disk, os.path.join(vm.out, "disk-" + st["save_disk"] + ".img"))
+                if st.get("restore_disk"):              # вернуть снимок на место диска: то, что делает злоумышленник с носителем
+                    shutil.copyfile(os.path.join(vm.out, "disk-" + st["restore_disk"] + ".img"), vm.disk)
+                if st.get("esp"):                       # другой образ ESP (secureboot): выпуск 3 после выпуска 5 и т. п.
+                    shutil.copyfile(vm.fx["images"][st["esp"]], vm.sb_esp)
                 vm.restart(st["relaunch"])
-                vm.expect(re.escape(PROMPT.decode()), sc.get("boot_timeout", 90), vm.phase_mark)
-                time.sleep(1.0)
-                mark = len(vm.log)
+                if st.get("prompt", True):
+                    vm.expect(re.escape(PROMPT.decode()), sc.get("boot_timeout", 90), vm.phase_mark)
+                    time.sleep(1.0)
+                    mark = vm.phase_mark if st.get("from_start") else len(vm.log)     # from_start: строки самой загрузки (до приглашения) нужны шагам expect/capture
+                else:                                   # загрузка обязана отказать: приглашения нет, шаги ждут строки журнала с начала этой фазы
+                    time.sleep(1.0)
+                    mark = vm.phase_mark
                 result["checks"].append({"relaunch": True, "ok": True})
             elif "crash" in st:                       # обрыв питания: машину убивают без выключения и поднимают снова на ТОМ ЖЕ диске (дополнительные устройства - в st["crash"])
                 vm.qemu.kill()
@@ -688,6 +734,12 @@ def run(sc, args):
                     result["checks"].append({"log": m, "ok": ok})
                     if not ok:
                         raise Fail(f"в журнале нет «{m}»")
+            elif "forbid_since" in st:                # этих строк нет в журнале с начала последней фазы (после relaunch): отказ загрузки не дошёл до ядра
+                for m in st["forbid_since"]:
+                    bad = re.search(m.encode(), bytes(vm.log[mark:]))
+                    result["checks"].append({"forbid_since": m, "ok": not bad})
+                    if bad:
+                        raise Fail(f"в журнале этой фазы «{bad.group(0).decode(errors='replace')}»")
             elif "log_forbid" in st:
                 for m in st["log_forbid"]:
                     bad = re.search(m.encode(), bytes(vm.log))

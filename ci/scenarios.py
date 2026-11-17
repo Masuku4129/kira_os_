@@ -1448,3 +1448,144 @@ ALL.append(sc("secureboot-measured", "доверенная загрузка с �
              r"\[KIRA BOOT\] Trusted boot: YES"]},
     {"log_forbid": NO_ERR + [r"TRUSTED BOOT REFUSED", r"TPM: measurement failed", r"TPM: PCR 9 could not be read back"]},
 ], secureboot={"image": "good", "vars": "secboot", "tpm": True}, boot_timeout=240, **dict(_SB, needs=["secureboot", "swtpm"])))
+
+
+# ---------- А3. Защита от отката и подмены (docs/SECURE_BOOT.md, раздел «Откат»; docs/PLAN.md, А3) ----------
+# 1. Откат образа: монотонный счётчик выпуска в эмулируемом TPM (swtpm). Состояние TPM лежит в ci-out/tpm-state-<имя> и переживает перезапуски машины
+#    внутри сценария (как NV-память настоящего TPM); перед сценарием оно стирается. Загрузчик сверяет выпуск из подписанного манифеста со счётчиком,
+#    ядро поднимает счётчик после подтверждённой «хорошей» загрузки (20 секунд работы).
+ALL.append(sc("secureboot-rollback-tpm", "выпуск 5 грузится и поднимает счётчик TPM, затем выпуск 3 с верной подписью отвергается; счётчик пережил перезапуск; выпуск 5 грузится снова", [
+    {"log": BOOT_LOG},
+    {"log": [r"\[KIRA BOOT\] rollback: TPM release counter created \(first use of this TPM\)",
+             r"\[KIRA BOOT\] rollback: release 5 is not older than the TPM counter 0 \(the kernel raises the counter after a confirmed good boot\)",
+             r"\[KIRA BOOT\] Image signature: verified by the loader \(boot files match the signed manifest\), release 5\r?\n",
+             r"\[KIRA BOOT\] rollback: TPM 2\.0 \(TIS\) found; release 5, TPM counter 0",
+             r"\[KIRA BOOT\] Trusted boot: YES"]},
+    {"expect": r"\[KIRA BOOT\] rollback: good boot confirmed, TPM counter is now 5\r?\n", "timeout": 180},
+    # выпуск 3: подпись манифеста верна (тот же ключ выпуска), но счётчик TPM уже 5
+    {"relaunch": [], "esp": "good", "prompt": False, "from_start": True},
+    {"expect": r"\[KIRA BOOT\] rollback: release 3 is older than the TPM counter 5 \(rollback refused\)", "timeout": 240},
+    {"expect": r"\[KIRA BOOT\] TRUSTED BOOT REFUSED: the kernel is NOT started", "timeout": 30},
+    {"expect": r"\[KIRA BOOT\]   reason: release is older than the TPM rollback counter \(rollback refused\)", "timeout": 30},
+    {"sleep": 8},
+    {"forbid_since": _SB_NO_KERNEL},
+    # счётчик пережил перезапуск, а законный выпуск 5 по-прежнему грузится (равный счётчику допустим)
+    {"relaunch": [], "esp": "release5", "hard": True, "from_start": True},
+    {"expect": r"\[KIRA BOOT\] rollback: release 5 is not older than the TPM counter 5 ", "timeout": 30},
+    {"log_forbid": NO_ERR},
+], secureboot={"image": "release5", "vars": "secboot", "tpm": True, "tpm_state": "rollback"}, boot_timeout=300, **dict(_SB, needs=["secureboot", "swtpm"])))
+
+# Без TPM защита образа - только вшитый порог, и журнал говорит об этом прямо (а не молчит).
+ALL.append(sc("secureboot-rollback-no-tpm", "доверенная загрузка без TPM: прежнее поведение (порог KIRA_MIN_IMAGE_VERSION), в журнале честная строка, что счётчика нет", [
+    {"log": BOOT_LOG},
+    {"log": [r"\[KIRA BOOT\] rollback: no TPM counter: only the embedded minimum release 0 protects from rollback; release 3",
+             r"\[KIRA BOOT\] rollback: no TPM driver device: image rollback is checked only against the embedded minimum release; disk rollback is not detected",
+             r"\[KIRA BOOT\] Trusted boot: YES"]},
+    {"cmd": "fsanchor", "must": [r"fsanchor: TPM absent"]},
+    {"log_forbid": NO_ERR + [r"TRUSTED BOOT REFUSED"]},
+], secureboot={"image": "good", "vars": "secboot"}, boot_timeout=240, **_SB))
+
+# 2. Откат диска: эпоха тома KiraFS и якорь в TPM. Старая копия диска (снимок до последних записей) ставится на место текущего - том открывается только для чтения.
+ALL.append(sc("fs-rollback-tpm", "эпоха диска KiraFS закрепляется в TPM; подмена диска старой копией обнаруживается при монтировании, том только для чтения, оператор подтверждает", [
+    {"log": BOOT_LOG},
+    {"log": [r"\[KIRA BOOT\] rollback: TPM 2\.0 \(TIS\) found; boot is not signed, the release counter is not used",
+             r"\[KIRA FS\] anchor: none in TPM yet, disk epoch \d+ is taken as the starting point"]},
+    {"cmd": "write /old.txt first", "must": [r"."]},
+    {"cmd": "fsanchor sync", "must": [r"\[KIRA FS\] anchor: disk epoch \d+ saved in TPM \(command\)", r"fsanchor: done"]},
+    {"cmd": "fsanchor", "must": [r"TPM present", r"TPM anchor \d+"]},
+    {"relaunch": [], "save_disk": "old", "from_start": True},                        # выключение: эпоха и якорь на носитель; снимок диска = «старая копия»
+    {"expect": r"\[KIRA FS\] anchor: disk epoch (\d+) is not older than the TPM anchor \1: ok", "timeout": 10},
+    {"cmd": "write /new.txt second", "must": [r"."]},
+    {"cmd": "cat /new.txt", "must": [r"second"]},
+    {"relaunch": [], "restore_disk": "old", "from_start": True},                    # выключение закрепило новую эпоху; затем на место диска ставится старая копия
+    {"expect": r"\[KIRA FS\] rollback detected: disk epoch \d+ is older than the TPM anchor \d+: an old copy of the disk was put in place\. The volume is READ-ONLY", "timeout": 10},
+    {"capture": {"ep": r"rollback detected: disk epoch (\d+) is older", "an": r"is older than the TPM anchor (\d+): an old copy"}},
+    {"num": ["an", "ep", 1, 100000]},
+    {"cmd": "cat /old.txt", "must": [r"first"]},                                      # читать можно
+    {"cmd": "cat /new.txt", "forbid": [r"second"]},                                   # в старой копии новых данных нет
+    {"cmd": "write /x.txt blocked", "must": [r"только для чтения"]},                  # писать нельзя: безопасный режим
+    {"cmd": "fsanchor", "must": [r"READ-ONLY \(rollback\)"]},
+    {"cmd": "fsanchor sync", "must": [r"rollback detected"]},
+    {"cmd": "fsanchor accept", "must": [r"operator accepted the disk", r"volume is writable"]},
+    {"cmd": "write /x.txt allowed", "must": [r"."]},
+    {"cmd": "cat /x.txt", "must": [r"allowed"]},
+    {"cmd": "fsanchor sync", "must": [r"fsanchor: done"]},
+    {"cmd": "fsanchor", "must": [r"TPM anchor \d+"], "forbid": [r"READ-ONLY"]},
+    {"log_forbid": NO_ERR},
+], smp=2, mem="1G", tpm=True, tpm_state="fsrollback", needs=["swtpm"], boot_timeout=120))
+
+ALL.append(sc("fs-anchor-no-tpm", "без TPM защита диска от отката недоступна, и ядро говорит об этом строкой в журнале и командой fsanchor", [
+    {"log": BOOT_LOG},
+    {"log": [r"\[KIRA BOOT\] rollback: no TPM driver device: image rollback is checked only against the embedded minimum release; disk rollback is not detected",
+             r"\[KIRA FS\] anchor: no TPM, a rolled-back disk copy would not be detected"]},
+    {"cmd": "fsanchor", "must": [r"fsanchor: TPM absent"]},
+    {"cmd": "write /a.txt works", "must": [r"."]}, {"cmd": "cat /a.txt", "must": [r"works"]},       # без TPM запись работает как раньше
+    {"log_forbid": NO_ERR + [r"rollback detected"]},
+], smp=2, mem="1G"))
+
+# 3. Подпись приложений: манифест /etc/apps.manifest подписан ключом издателя (/etc/apps.sig, домен APPS). Нужно ядро с тестовыми ключами (KIRA_TEST_TRUST=1:
+#    сборка в отдельном каталоге; метка kira.testtrust), боевое ядро доверяет только офлайн-ключу издателя. Допуск по подписи включает строка ядра kira.signedapps
+#    (образ kira-bios-signedapps.img) или доверенная загрузка (там подпись обязательна всегда).
+_APPS_PUT = {"/etc/apps.manifest": "{apps_manifest}", "/etc/apps.sig": "{apps_sig_a}"}
+_DEMO_OK = r"demo: address spaces are isolated \(PASS\)"
+_APPS = dict(boot="bios", bios_img="kira-bios-signedapps.img", smp=2, mem="1G", apps=True, needs=["testtrust"], boot_timeout=120)
+
+ALL.append(sc("apps-signed-ok", "манифест приложений с верной подписью издателя: программа запускается и допускается по подписанному манифесту", [
+    {"log": BOOT_LOG},
+    {"log": [r"\[KIRA APPS\] policy: signed application manifest required \(kira\.signedapps, development boot\)"]},
+    {"cmd": "run demo"}, {"sleep": 6},
+    {"log": [_DEMO_OK]},
+    {"cmd": "progs", "must": [r"demo\s+доверенная"]},
+    {"log_forbid": NO_ERR + [r"launch refused", r"Запуск отклонён"]},
+], put=_APPS_PUT, **_APPS))
+
+ALL.append(sc("apps-signed-tampered", "манифест приложений подменён после подписи: подпись не принимается, программа не запускается", [
+    {"log": BOOT_LOG},
+    {"cmd": "run demo"}, {"sleep": 4},
+    {"log": [r"\[PROG\] /bin/demo: signed application manifest: manifest signature rejected: хеш пакета не совпал с манифестом; launch refused",
+             r"\[IMMUNE\] /bin/demo: подписанный манифест не принят\. Запуск отклонён"]},
+    {"cmd": "progs", "must": [r"demo\s+чужая"]},
+    {"log_forbid": NO_ERR + [_DEMO_OK]},
+], put={"/etc/apps.manifest": "{apps_manifest_bad}", "/etc/apps.sig": "{apps_sig_a}"}, **_APPS))
+
+ALL.append(sc("apps-signed-missing", "в режиме подписи манифеста приложений нет вообще: программы не запускаются (встроенного манифеста для обхода нет)", [
+    {"log": BOOT_LOG},
+    {"cmd": "run demo"}, {"sleep": 4},
+    {"log": [r"\[PROG\] /bin/demo: signed application manifest: signed manifest /etc/apps\.manifest is missing; launch refused"]},
+    {"log_forbid": NO_ERR + [_DEMO_OK]},
+], **_APPS))
+
+ALL.append(sc("apps-signed-revoked", "манифест подписан новым ключом (ротация): запускается; ключ отозван командой drv revoke - отказ; ключ A по-прежнему принимается", [
+    {"log": BOOT_LOG},
+    {"send": "run demo"}, {"expect": _DEMO_OK, "timeout": 30},                               # ключ TEST-ED25519-002 в таблице ядра: принят
+    {"cmd": "drv revoke TEST-ED25519-002", "must": [r"."]},
+    {"cmd": "run demo"}, {"sleep": 4},
+    {"log": [r"\[PROG\] /bin/demo: signed application manifest: manifest signature rejected: издательский ключ отозван; launch refused"]},
+    {"log_forbid": NO_ERR},
+], put={"/etc/apps.manifest": "{apps_manifest}", "/etc/apps.sig": "{apps_sig_b}"}, **_APPS))
+
+ALL.append(sc("apps-dev-mode", "режим разработки (без kira.signedapps и без доверенной загрузки): допуск по встроенному манифесту SHA-256 как раньше, подпись не требуется и подменённый манифест на диске ничего не меняет", [
+    {"log": BOOT_LOG},
+    {"log": [r"\[KIRA APPS\] policy: development mode, programs are admitted by the SHA-256 manifest built into the kernel \(signature not required\)"]},
+    {"cmd": "run demo"}, {"sleep": 6},
+    {"log": [_DEMO_OK]},
+    {"cmd": "progs", "must": [r"demo\s+доверенная"]},
+    {"log_forbid": NO_ERR + [r"launch refused", r"Запуск отклонён"]},
+], put={"/etc/apps.manifest": "{apps_manifest_bad}", "/etc/apps.sig": "{apps_sig_a}"}, smp=2, mem="1G", apps=True, needs=["testtrust"]))
+
+# В доверенной загрузке подпись манифеста приложений обязательна без всякой строки ядра (ядро с тестовыми ключами и ESP из kira.bin этой же сборки).
+ALL.append(sc("secureboot-apps", "доверенная загрузка: программа с верно подписанным манифестом запускается", [
+    {"log": BOOT_LOG},
+    {"log": [r"\[KIRA APPS\] policy: signed application manifest required \(trusted boot\)", r"\[KIRA BOOT\] Trusted boot: YES"]},
+    {"cmd": "run demo"}, {"sleep": 8},
+    {"log": [_DEMO_OK]},
+    {"log_forbid": NO_ERR + [r"launch refused"]},
+], put=_APPS_PUT, apps=True, secureboot={"image": "good", "vars": "secboot"}, boot_timeout=240, **dict(_SB, needs=["secureboot", "testtrust"])))
+
+ALL.append(sc("secureboot-apps-unsigned", "доверенная загрузка без подписанного манифеста: программа не запускается, обхода через встроенный манифест нет", [
+    {"log": BOOT_LOG},
+    {"log": [r"\[KIRA BOOT\] Trusted boot: YES", r"\[KIRA APPS\] policy: signed application manifest required \(trusted boot\)"]},
+    {"cmd": "run demo"}, {"sleep": 6},
+    {"log": [r"\[PROG\] /bin/demo: signed application manifest: signed manifest /etc/apps\.manifest is missing; launch refused"]},
+    {"log_forbid": NO_ERR + [_DEMO_OK]},
+], apps=True, secureboot={"image": "good", "vars": "secboot"}, boot_timeout=240, **dict(_SB, needs=["secureboot", "testtrust"])))
