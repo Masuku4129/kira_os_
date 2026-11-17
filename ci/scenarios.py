@@ -16,8 +16,8 @@ BOOT_LOG = [r"\[KIRA SCHED\] Preemptive scheduler online", r"\[KIRA MIND\] Mind 
             r"\[KIRA FS\] KiraFS mounted"]
 NO_ERR = [r"kernel-mode fault", r"\[KIRA IRET\]", r"\[KIRA GS\]", r"\[KIRA VMM ERROR\]", r"Kernel thread stack overflow", r"bad free|double free", r"\[KIRA SMP\].*did not answer"]
 
-# Пакетов драйверов на диске сборки: abad, eduun, edu, edunc, rsedu, ne2kio + bsdne, bsdpcn, bsdfxp, bsddc (build_clang.sh). Менять вместе со списком пакетов.
-NPKG = 10
+# Пакетов драйверов на диске сборки: abad, eduun, edu, edunc, rsedu, ne2kio, vblk, vblknc + bsdne, bsdpcn, bsdfxp, bsddc (build_clang.sh). Менять вместе со списком пакетов.
+NPKG = 12
 
 BASIC = [
     {"log": BOOT_LOG},
@@ -92,7 +92,7 @@ ALL = [
         {"log": [r"rsdemo: sha256\(abc\) ok", r"rsdemo: sha256\(1e6 x 'a'\) ok", r"rsdemo: ring buffer ok", r"rsdemo: bounds ok", r"rsdemo: all checks passed \(PASS\)"]},
         {"log": [r"address spaces are isolated \(PASS\)", r"kernel GS intact after the attack \(PASS\)",
                  r"kernel pointer passed to write\(\) was rejected \(PASS\)", r"mt: .* - PASS|- PASS",
-                 r"atk-cap: 16 calls without rights refused, harmless calls work \(PASS\)", r"\[KIRA CAPS\] process 'atk-cap' .* denied, no right CAP_GFX",
+                 r"atk-cap: 17 calls without rights refused, harmless calls work \(PASS\)", r"\[KIRA CAPS\] process 'atk-cap' .* denied, no right CAP_GFX",
                  r"ipcx: foreign-domain open of a public shared-memory object refused \(PASS\)",
                  r"ipc client: descriptors passed through messages \(private port and shared memory, both directions\) \(PASS\)",
                  r"ipc server: descriptors received through messages: client's private port and shared memory \(PASS\)",
@@ -807,6 +807,51 @@ ALL.append(sc("drv-edu", "MMIO-only Ring 3: хеш и подтверждение
     {"log_forbid": [r"drvedu: .*\(FAIL\)", r"rsedu: .*\(FAIL\)", r"УТЕЧКА"] + NO_ERR},
     {"responsive": "status", "within": 5},
 ], smp=2, mem="1G", extra=["-device", "edu"]))
+
+
+# Диск virtio-blk в Ring 3 (CAP_BLKDEV, kdrv_blk.h): плата q35 с VT-d; системный диск vda берёт встроенный драйвер, второй virtio-blk (iommu_platform) ядро не берёт -
+# его получает драйвер Ring 3 (пакет vblk), заводит в blk.c как vdb и обслуживает кольца запросов в общей памяти по прерываниям MSI-X (без опроса).
+# Проверка диска - test blk vdb: запись и чтение 300 секторов (три буфера), возврат прежнего содержимого, выход за границы отклоняется (ядро режет до драйвера).
+# Затем: остановка драйвера (диск остаётся в списке, операции - ошибка, ядро живо), перезапуск с враждебными ответами (evil), падение драйвера посреди записи
+# (crash), пакет без права CAP_BLKDEV (vblknc) - регистрация отклонена.
+ALL.append(sc("drv-blk", "Ring 3: диск virtio-blk через CAP_BLKDEV (кольца в общей памяти, VT-d, MSI-X): чтение/запись/границы, остановка, враждебные ответы, падение посреди записи, пакет без права диска", [
+    {"log": BOOT_LOG},
+    {"log": [r"\[KIRA IOMMU\] VT-d translation enabled on [1-9]"]},
+    {"sleep": 8},
+    {"log": [r"\[KIRA DRV\] vblk: устройство .* 1af4:1042 -> драйвер запущен как drv-vblk \(pid \d+\), SHA-256 сверен, права: .*CAP_DMA.*CAP_BLKDEV",
+             r"drvvblk: bad-reg: name=-10 sector=-10 empty=-10 huge=-10 flags=-10 bits=-10 noterm=-10 nullptr=-10 \(refused PASS\)",
+             r"drvvblk: capacity 32768 sectors, queue 32, features 0x[0-9a-f]+, completion by interrupt",
+             r"drvvblk: disk vdb registered, data at 0x[0-9a-f]+, ring slots 8",
+             r"\[KIRA DRV\] vblk: диск vdb заведён в blk\.c: 32768 секторов по 512 Б"]},
+    {"cmd": "disk", "must": [r"vda\s+.*\[системный\]", r"vdb\s+16 МБ\s+Ring 3 drv-vblk\s+\[пустой\]"]},
+    {"cmd": "test blk vdb", "must": [r"запись\+чтение 300 секторов совпали", r"прежнее содержимое возвращено", r"выход за границы отклонён \(5 из 5\)", r"flush ok PASS"], "timeout": 60,
+     "forbid": [r"FAIL"]},
+    {"cmd": "drv", "must": [r"drv-vblk pid \d+.*прерываний [1-9]\d*.*диск vdb: запросов [1-9]\d*, битых ответов 0"]},
+    {"cmd": "drv stop vblk", "must": [r"останавливаю drv-vblk"]}, {"sleep": 2},
+    {"log": [r"\[KIRA DRV\] drv-vblk \(pid \d+\) завершён: устройство .* остановлено",
+             r"\[KIRA DRV\] vblk: возвращено памяти DMA и колец [1-9]\d* из [1-9]\d* стр\..*утечек нет"]},
+    {"cmd": "test blk vdb", "must": [r"vdb: чтение 300 секторов: ошибка 5 .*FAIL"]},              # драйвера нет: ошибка, не авария ядра
+    {"cmd": "disk", "must": [r"vdb\s+16 МБ\s+Ring 3 drv-vblk"]},                                   # диск остаётся в списке
+    {"responsive": "status", "within": 5},
+    {"cmd": "drv start vblk evil", "must": [r"драйвер запущен как drv-vblk"]}, {"sleep": 4},
+    {"log": [r"drvvblk: evil: rsp_head out of ring", r"\[KIRA DRV\] vblk: диск vdb заведён в blk\.c"]},
+    {"cmd": "test blk vdb", "must": [r"запись\+чтение 300 секторов совпали", r"выход за границы отклонён \(5 из 5\)", r"PASS"], "timeout": 60, "forbid": [r"FAIL"]},
+    {"log": [r"drvvblk: evil: response with unknown id"]},
+    {"cmd": "drv", "must": [r"drv-vblk pid \d+.*диск vdb: запросов [1-9]\d*, битых ответов [1-9]\d*"]},      # ядро отбросило и посчитало враждебные ответы
+    {"cmd": "drv stop vblk"}, {"sleep": 2},
+    {"cmd": "drv start vblk crash", "must": [r"драйвер запущен как drv-vblk"]}, {"sleep": 4},
+    {"cmd": "test blk vdb", "must": [r"запись: ошибка 5 FAIL"], "timeout": 60},                  # драйвер падает на первой записи: запрос в полёте завершается ошибкой
+    {"log": [r"drvvblk: crashing on purpose", r"\[KIRA PROC\] pid \d+ killed by CPU exception #14", r"\[KIRA DRV\] drv-vblk \(pid \d+\) завершён"]},
+    {"responsive": "status", "within": 5}, {"sleep": 2},
+    {"cmd": "drv start vblknc", "must": [r"драйвер запущен как drv-vblknc"]}, {"sleep": 4},
+    {"log": [r"drvvblk: CAP_BLKDEV not granted: register denied \(least-privilege PASS\)", r"\[KIRA CAPS\] process 'drv-vblknc' .* denied, no right CAP_BLKDEV"]},
+    {"cmd": "drv start vblk", "must": [r"драйвер запущен как drv-vblk"]}, {"sleep": 4},
+    {"cmd": "test blk vdb", "must": [r"запись\+чтение 300 секторов совпали", r"прежнее содержимое возвращено", r"PASS"], "timeout": 60, "forbid": [r"FAIL"]},
+    {"log_forbid": [r"drvvblk: .*\(FAIL\)", r"УТЕЧКА", r"\[KIRA IOMMU\] DMA fault", r"драйвер не ответил"] + NO_ERR},
+    {"responsive": "status", "within": 5},
+], smp=2, mem="1G", machine="q35", spare_mb=16,
+   extra=["-device", "intel-iommu,aw-bits=48", "-drive", "file={spare},format=raw,if=none,id=kd1",
+          "-device", "virtio-blk-pci,drive=kd1,disable-legacy=on,iommu_platform=on"]))
 
 
 # Порты ввода-вывода Ring 3 (KDRV_SYS_IO): драйвер читает MAC из PROM настоящей карты ne2k_pci через порты её I/O BAR и проверяет отказы ядра.

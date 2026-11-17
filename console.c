@@ -553,6 +553,7 @@ static void cmd_ai(const char* arg) {
 
 // Проверки системы - отдельной таблицей под командой test: в основном списке остаются рабочие команды.
 // Тесты, которые останавливают систему (panic-*, starve), выполняются только полным именем и со словом yes.
+static void cmd_blktest(const char* a) { blk_selftest(a); }
 typedef struct { const char* name; const char* help; void (*fn)(const char* arg); int halts; } test_t;
 static const test_t tests[] = {
     { "smp",        "потоки на всех ядрах: расчёт, замок, вытеснение", cmd_smptest, 0 },
@@ -567,6 +568,7 @@ static const test_t tests[] = {
     { "caps",       "программа без прав вызывает защищённые вызовы: каждый обязан быть отказан", cmd_caps, 0 },
     { "atk",        "четыре враждебные программы: каждую останавливают, ядро живо", cmd_atk, 0 },
     { "mem",        "самопроверка кучи, PMM и страницы NULL", cmd_mem, 0 },
+    { "blk",        "диск (и диск драйвера Ring 3): test blk ИМЯ - запись, чтение, возврат данных, выход за границы", cmd_blktest, 0 },
     { "keys",       "сырые байты клавиатуры с прошлого вызова (проверка двойных нажатий)", cmd_keys, 0 },
     { "immune",     "иммунная система на образцах", cmd_immune, 0 },
     { "starve",     "realtime-поток морит ядро -> watchdog (система остановится)", cmd_starve, 1 },

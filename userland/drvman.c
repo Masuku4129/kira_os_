@@ -251,7 +251,7 @@ static void dev_line(const kdrv_pcient_t *e, char *b, int cap) {
 }
 
 static void caps_str(u32 c, char *b, int cap) {
-    static const struct { u32 bit; const char *n; } t[] = { { CAP_MMIO, "MMIO" }, { CAP_IRQ, "IRQ" }, { CAP_DMA, "DMA" }, { CAP_PCIDEV, "PCIDEV" }, { CAP_NETDEV, "NETDEV" } };
+    static const struct { u32 bit; const char *n; } t[] = { { CAP_MMIO, "MMIO" }, { CAP_IRQ, "IRQ" }, { CAP_DMA, "DMA" }, { CAP_PCIDEV, "PCIDEV" }, { CAP_NETDEV, "NETDEV" }, { CAP_BLKDEV, "BLKDEV" } };
     int at = 0;
     b[0] = 0;
     for (unsigned i = 0; i < sizeof t / sizeof *t; i++) if (c & t[i].bit) at += snprintf(b + at, (size_t)(cap - at), "%s%s", at ? " " : "", t[i].n);

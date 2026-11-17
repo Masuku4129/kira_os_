@@ -28,6 +28,7 @@ static virtio_dev_t vdev;
 static virtq_t vq;
 static blk_dev_t disk;
 static int present, dead;
+static const pci_dev_t* claimed;           /* устройство, которое ядро пыталось взять (первое найденное); остальные virtio-blk ядру не нужны и уступаются драйверам Ring 3 */
 static uint32_t chunk_sectors;
 static req_hdr_t* hdr; static uint64_t hdr_phys;
 static volatile uint8_t* status_byte; static uint64_t status_phys;
@@ -107,12 +108,14 @@ static int canary_check(const pci_dev_t* pd) {
     return intact ? 1 : 0;                             /* состояние ответа не важно: эмулятор отвечает «успех» и при отказе IOMMU, главное - метка цела */
 }
 #endif
+const pci_dev_t* virtio_blk_pci(void) { return claimed; }
 
 blk_dev_t* virtio_blk_probe(void) {
-    present = 0; dead = 0;
+    present = 0; dead = 0; claimed = 0;
     const pci_dev_t* pd = pci_find(VIRTIO_VENDOR, 0x1042);     /* virtio-blk, современный */
     if (!pd) pd = pci_find(VIRTIO_VENDOR, 0x1001);              /* «переходный»: тот же прибор, но с capabilities 1.0 */
     if (!pd) return 0;
+    claimed = pd;
     int isolated = 0;
 #ifndef KIRA_HOST_TEST
     int canary_pending = 0;

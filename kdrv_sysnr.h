@@ -10,5 +10,6 @@ enum { KDRV_SYS_INFO = 48,         /* (буфер kdrv_info_t, ёмкость) -
        KDRV_SYS_IRQ_WAIT = 53,     /* (срок в 10 мс или ~0) -> маска KDRV_EV_* или KE_TIMEOUT; CAP_IRQ */
        KDRV_SYS_NETDEV = 54,       /* (операция KDRV_NET_*, аргумент, флаги) ; CAP_NETDEV */
        KDRV_SYS_PCILIST = 55,      /* (буфер kdrv_pcient_t[], число записей, номер первой) -> записано; ТОЛЬКО ЧТЕНИЕ, право CAP_PCILIST (любая программа, не драйвер) */
-       KDRV_SYS_IO = 57 };         /* (упаковка kdrv_io_pack, смещение в BAR, значение или буфер) -> значение/0; CAP_MMIO; порты ТОЛЬКО своего I/O BAR, x86 */
+       KDRV_SYS_IO = 57,         /* (упаковка kdrv_io_pack, смещение в BAR, значение или буфер) -> значение/0; CAP_MMIO; порты ТОЛЬКО своего I/O BAR, x86 */
+       KDRV_SYS_BLKDEV = 58 };     /* (операция KDRV_BLK_*, kdrv_blkreg_t* или 0) ; CAP_BLKDEV; диск драйвера для blk.c (kdrv_blk.h) */
 #endif
