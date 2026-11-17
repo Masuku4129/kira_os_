@@ -15,16 +15,17 @@ extern char kernel_start[];
 volatile int lat_irqoff_on;                 /* флаг замера секций с выключенными прерываниями */
 static lat_set_t g;
 static int ready;
+static uint64_t khz;                        /* частота счётчика времени, кГц */
 static uint64_t mul_tsc;                    /* такты TSC -> нс (lat_mul_for_khz) */
 static volatile uint32_t ioff_gen;          /* поколение включения флага: секции, начатые до включения, не считаются */
 
-typedef struct { uint64_t t0, site; uint32_t gen; } __attribute__((aligned(64))) ioff_t;
+typedef struct { uint64_t t0, site; uint32_t gen, inj_n; } __attribute__((aligned(64))) ioff_t;
 static ioff_t* ioff;
 static lat_set_t* ioff_set = &g;            /* куда пишутся секции (на время bench - в запасной набор) */
 
 /* Пороги записи в чёрный ящик по умолчанию - только «явно неисправно» (границы-требования лежат в политике ci/latency_policy.json и ставятся
    командой latency limit). normal порога не имеет: ждать своей очереди в круговом разделении времени ему положено. */
-static const uint64_t default_limit_ns[LAT_KINDS] = { 10000000ULL, 10000000ULL, 10000000ULL, 0, 50000000ULL, 50000000ULL };
+static const uint64_t default_limit_ns[LAT_KINDS] = { 10000000ULL, 10000000ULL, 10000000ULL, 10000000ULL, 0, 50000000ULL, 50000000ULL, 0 };
 
 static bb_gate_t gate[LAT_KINDS];
 
@@ -36,6 +37,7 @@ void lat_init(unsigned cpus, uint64_t tsc_khz) {
     lat_set_init(&g, mem, cpus);
     for (unsigned c = 0; c < cpus; c++) { ioff[c].t0 = 0; ioff[c].site = 0; ioff[c].gen = 0; }
     for (unsigned k = 0; k < LAT_KINDS; k++) lat_set_limit(&g, k, default_limit_ns[k]);
+    khz = tsc_khz;
     mul_tsc = lat_mul_for_khz(tsc_khz);
     __atomic_store_n(&ready, 1, __ATOMIC_RELEASE);
     uart_print("[KIRA LAT] latency histograms online: "); uart_print_dec(cpus);
@@ -57,12 +59,13 @@ static inline void note(unsigned kind, uint64_t ns, uint64_t site) {
 void lat_irq_entry(uint64_t rip) {
     if (!__atomic_load_n(&ready, __ATOMIC_ACQUIRE)) return;
     uint64_t e, per;
-    if (!lat_arch_timer_elapsed_ns(&e, &per) || !per) return;
+    int kind = lat_arch_timer_elapsed_ns(&e, &per);
+    if (!kind || !per) return;
     percpu_t* me = this_cpu();
     uint64_t now = lat_cycles_to_ns(rdtsc(), mul_tsc);
     uint64_t fire = now > e ? now - e : 0;                  /* последний срок */
     uint64_t prev = me->lat_fire_ns, d = e;
-    if (prev && fire > prev) {
+    if (kind == 1 && prev && fire > prev) {
         uint64_t n = (fire - prev + per / 2) / per;         /* сроков прошло с прошлого принятого (обычно 1) */
         if (n > 1) d = e + (n - 1) * per;                   /* первый непринятый срок - prev + per */
     }
@@ -76,6 +79,19 @@ void lat_isr_note(uint64_t t0, uint64_t vector) {
     if (!__atomic_load_n(&ready, __ATOMIC_ACQUIRE)) return;
     uint64_t t1 = rdtsc();
     note(LAT_ISR, lat_cycles_to_ns(t1 > t0 ? t1 - t0 : 0, mul_tsc), vector);
+}
+
+void lat_part(unsigned part, uint64_t t0) {
+    if (!__atomic_load_n(&ready, __ATOMIC_ACQUIRE)) return;
+    uint64_t t1 = rdtsc();
+    note(LAT_TICK, lat_cycles_to_ns(t1 > t0 ? t1 - t0 : 0, mul_tsc), part);
+}
+
+/* Ожидание замка: ядро крутилось от t0 до сейчас. site: замок (адрес) или (1 << 32 | номер замка планировщика). */
+void lat_spin_note(uint64_t t0, uint64_t site) {
+    if (!__atomic_load_n(&ready, __ATOMIC_ACQUIRE)) return;
+    uint64_t t1 = rdtsc();
+    note(LAT_SPIN, lat_cycles_to_ns(t1 > t0 ? t1 - t0 : 0, mul_tsc), site);
 }
 
 void lat_sched_note(unsigned prio, uint64_t ready_tsc, uint32_t tid) {
@@ -118,6 +134,21 @@ void lat_irqoff_cut(void) {
     if (c < g.ncpu) irqoff_close(c);
 }
 
+/* ---- проверка границ мутацией ---- */
+
+/* Каждый 64-й тик на каждом ядре обработчик таймера занят ещё inj_isr_ns наносекунд: это имитирует тяжёлый обработчик. Проверка границ
+   (сценарий latency-mutation) обязана упасть. По умолчанию выключено; как bb pause - команда для проверки, а не режим работы. */
+static volatile uint64_t inj_isr_ns;
+#define LAT_INJECT_MAX_NS 50000000ULL
+void lat_inject(void) {
+    uint64_t n = __atomic_load_n(&inj_isr_ns, __ATOMIC_RELAXED);
+    if (!n || !__atomic_load_n(&ready, __ATOMIC_ACQUIRE)) return;
+    unsigned c = my_cpu();
+    if (c >= g.ncpu || (++ioff[c].inj_n & 63u)) return;
+    uint64_t t_end = rdtsc() + n * khz / 1000000ULL;                              /* нс -> такты */
+    while (rdtsc() < t_end) cpu_relax();
+}
+
 /* ---- чёрный ящик ---- */
 
 void lat_flush(void) {
@@ -154,6 +185,14 @@ static void pk(const char* label, uint64_t v) { uart_print(" "); uart_print(labe
 
 static void print_site(unsigned kind, uint64_t site) {
     if (kind == LAT_IRQOFF || kind == LAT_IRQ) { kptr_print(site); }
+    else if (kind == LAT_SPIN) {
+        if (site >> 32 == 1) { uart_print("замок планировщика №"); uart_print_dec(site & 0xFFFFFFFFu); }
+        else { uart_print("замок "); kptr_print(site); }
+    }
+    else if (kind == LAT_TICK) {
+        static const char* const n[LAT_PART_N] = { "?", "часы и счёт тиков", "UART (хвост строки)", "кольцо чёрного ящика (lat_flush)", "сторож", "планировщик (sched_tick)" };
+        uart_print(site < LAT_PART_N ? n[site] : "?");
+    }
     else if (kind == LAT_ISR) { uart_print("вектор "); uart_print_dec(site); }
     else { uart_print("поток #"); uart_print_dec(site); }
 }
@@ -205,6 +244,7 @@ static void print_kind(unsigned k, int hist) {
     uart_print("\n");
 }
 
+#ifdef __x86_64__
 /* Цена пары irq_save/irq_restore: прежний вариант (без проверки) против нового при опущенном и поднятом флаге. */
 #define BENCH_N 2000000u
 static inline uint64_t raw_save(void) { uint64_t f; __asm__ volatile ("pushfq\n\tcli\n\tpopq %0" : "=r"(f) : : "memory"); return f; }
@@ -247,6 +287,9 @@ static void bench(void) {
     uart_print("."); uart_print_dec((r2 % BENCH_N) * 100 / BENCH_N);
     uart_print(" (замер на ядре "); uart_print_dec(me); uart_print(", пар "); uart_print_dec(BENCH_N); uart_print(")\n");
 }
+#else
+static void bench(void) { uart_print("[LAT] bench: замер секций с выключенными прерываниями на этой архитектуре не поддержан (docs/architecture/PARITY_ARM64.md)\n"); }
+#endif
 
 void lat_command(const char* arg) {
     while (arg && *arg == ' ') arg++;
@@ -258,6 +301,17 @@ void lat_command(const char* arg) {
         return;
     }
     if (same(arg, "bench")) { bench(); return; }
+    if (starts(arg, "inject")) {
+        const char* v = arg + 6; while (*v == ' ') v++;
+        if (starts(v, "isr")) {
+            int ok = 0; uint64_t ns = parse_num(v + 3, &ok);
+            if (!ok || ns > LAT_INJECT_MAX_NS) { uart_print("latency inject isr нс (0..50000000): проверка границ - каждый 64-й тик обработчик таймера занят ещё столько нс; 0 - выключить\n"); return; }
+            __atomic_store_n(&inj_isr_ns, ns, __ATOMIC_RELAXED);
+            uart_print("[LAT] проверочная задержка обработчика таймера: "); uart_print_dec(ns); uart_print(" нс на каждом 64-м тике каждого ядра\n");
+            return;
+        }
+        uart_print("latency inject isr нс\n"); return;
+    }
     if (starts(arg, "irqoff")) {
         const char* v = arg + 6; while (*v == ' ') v++;
 #ifndef __x86_64__
@@ -290,7 +344,7 @@ void lat_command(const char* arg) {
         return;
     }
     if (*arg && !same(arg, "hist") && !same(arg, "short")) {
-        uart_print("latency [short|hist] | reset | limit [ИМЯ нс] | irqoff on|off | bench\n"); return;
+        uart_print("latency [short|hist] | reset | limit [ИМЯ нс] | irqoff on|off | bench | inject isr нс\n"); return;
     }
     int hist = !same(arg, "short");
     uart_print("[LAT] время реакции с последнего сброса (ядер "); uart_print_dec(g.ncpu);

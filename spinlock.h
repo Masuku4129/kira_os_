@@ -42,11 +42,24 @@ static inline void spin_relax(void) {
 #endif
 }
 
+#ifndef KIRA_HOST_TEST
+/* А8: ожидание билета (латентность: ядро с выключенными прерываниями ничего не делает). Занятый замок - редкий путь, цена одного rdtsc на него. */
+void lat_spin_note(uint64_t tsc_start, uint64_t site);
+#endif
+
 static inline uint64_t spin_lock_irqsave(spinlock_t* l) {
     uint64_t f = irq_save();
     if (spin_bust) return f;
     uint32_t t = __atomic_fetch_add(&l->next, 1, __ATOMIC_RELAXED);
+#ifndef KIRA_HOST_TEST
+    if (__atomic_load_n(&l->owner, __ATOMIC_ACQUIRE) != t) {
+        uint64_t s0 = rdtsc();
+        while (__atomic_load_n(&l->owner, __ATOMIC_ACQUIRE) != t) spin_relax();
+        lat_spin_note(s0, (uint64_t)(uintptr_t)l);
+    }
+#else
     while (__atomic_load_n(&l->owner, __ATOMIC_ACQUIRE) != t) spin_relax();
+#endif
     SPIN_HELD_INC();
     return f;
 }

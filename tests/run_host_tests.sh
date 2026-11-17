@@ -350,6 +350,12 @@ ASAN_OPTIONS=detect_leaks=0 $T/bbring
 $CC $FLAGS -O2 -fsanitize=thread -o $T/bbring_tsan tests/bbring_test.c bbring.c -lpthread
 $T/bbring_tsan --threads
 
+echo "== latency (время реакции: корзины, границы, квантили, пороги, сброс по эпохе, слияние по ядрам, места, перевод тактов; потоки + ThreadSanitizer) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/latency tests/latency_test.c latency.c
+$T/latency
+$CC $FLAGS -O2 -fsanitize=thread -o $T/latency_tsan tests/latency_test.c latency.c -lpthread
+$T/latency_tsan --threads
+
 echo "== framegov (frame pacing: decided by the compositor, not by Mind) =="
 $CC $FLAGS -Werror -o $T/framegov tests/framegov_test.c framegov.c
 $T/framegov

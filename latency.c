@@ -1,5 +1,9 @@
 #include "latency.h"
 
+/* Писатель один (своё ядро): чтение и запись релаксированные, читатель с другого ядра видит целые слова. */
+#define LD(p) __atomic_load_n(&(p), __ATOMIC_RELAXED)
+#define ST(p, v) __atomic_store_n(&(p), (v), __ATOMIC_RELAXED)
+
 /* Корзины: 0 - до 16 нс; дальше по 4 корзины на степень двойки: v в [2^o, 2^(o+1)), o >= 4, корзина 1 + (o-4)*4 + (v >> (o-2) & 3). */
 unsigned lat_bin(uint64_t ns) {
     if (ns < 16) return 0;
@@ -21,13 +25,9 @@ uint64_t lat_bin_hi(unsigned b) {
 }
 
 void lat_hist_clear(lat_hist_t* h) {
-    h->count = h->sum_ns = h->max_ns = h->max_site = h->over = 0;
-    for (unsigned i = 0; i < LAT_BINS; i++) h->bin[i] = 0;
+    ST(h->count, 0); ST(h->sum_ns, 0); ST(h->max_ns, 0); ST(h->max_site, 0); ST(h->over, 0);
+    for (unsigned i = 0; i < LAT_BINS; i++) ST(h->bin[i], 0);
 }
-
-/* Писатель один (своё ядро): чтение и запись релаксированные, читатель с другого ядра видит целые слова. */
-#define LD(p) __atomic_load_n(&(p), __ATOMIC_RELAXED)
-#define ST(p, v) __atomic_store_n(&(p), (v), __ATOMIC_RELAXED)
 
 int lat_hist_add(lat_hist_t* h, uint64_t ns, uint64_t site, uint64_t limit_ns) {
     unsigned b = lat_bin(ns);
@@ -76,7 +76,7 @@ uint64_t lat_cycles_to_ns(uint64_t cycles, uint64_t mul) {
     return (uint64_t)(((unsigned __int128)cycles * mul) >> 32);
 }
 
-static const char* const kind_names[LAT_KINDS] = { "irq", "isr", "irqoff", "sched-normal", "sched-critical", "sched-realtime" };
+static const char* const kind_names[LAT_KINDS] = { "irq", "isr", "irqoff", "spin", "sched-normal", "sched-critical", "sched-realtime", "tick-part" };
 const char* lat_kind_name(unsigned k) { return k < LAT_KINDS ? kind_names[k] : "?"; }
 int lat_kind_from_name(const char* n) {
     if (!n) return -1;
@@ -123,7 +123,7 @@ static void sync_epoch(const lat_set_t* s, lat_cpu_t* c) {
     if (LD(c->epoch) == e) return;
     for (unsigned k = 0; k < LAT_KINDS; k++) {
         lat_hist_clear(&c->h[k]); c->pend_ns[k] = c->pend_site[k] = 0; c->pend_n[k] = 0;
-        for (unsigned i = 0; i < LAT_SITES; i++) c->sites[k][i].site = c->sites[k][i].count = c->sites[k][i].sum_ns = c->sites[k][i].max_ns = 0;
+        for (unsigned i = 0; i < LAT_SITES; i++) { ST(c->sites[k][i].count, 0); ST(c->sites[k][i].site, 0); ST(c->sites[k][i].sum_ns, 0); ST(c->sites[k][i].max_ns, 0); }
     }
     ST(c->epoch, e);
 }

@@ -701,6 +701,17 @@ def run(sc, args):
                     raise Fail(f"distinct: найдено {len(vals)} значений «{st['distinct']}», нужно {st.get('count', 2)}: {vals}")
                 if len(set(vals)) != len(vals):
                     raise Fail(f"distinct: значения повторяются: {vals}")
+            elif "latency_policy" in st:              # время реакции (А8): вывод `latency` сверяется с границами файла политики; expect_fail - проверка мутацией
+                import latency_check
+                pol = latency_check.load_policy(os.path.join(os.path.dirname(os.path.abspath(__file__)), st["latency_policy"]))
+                outp = vm.command("latency", st.get("timeout", 90))
+                errs = latency_check.check(latency_check.parse(outp), pol)
+                result["checks"].append({"latency_policy": st["latency_policy"], "violations": errs, "expect_fail": bool(st.get("expect_fail")), "ok": bool(errs) == bool(st.get("expect_fail"))})
+                if st.get("expect_fail"):
+                    if not errs:
+                        raise Fail("мутация (искусственная задержка) не заметна: границы времени реакции соблюдены, а должны нарушиться")
+                elif errs:
+                    raise Fail("время реакции вне границ (%s):\n  " % st["latency_policy"] + "\n  ".join(errs))
             elif "responsive" in st:                  # система отвечает на команду не дольше заданного
                 t = time.time()
                 vm.command(st["responsive"], st.get("within", 5))

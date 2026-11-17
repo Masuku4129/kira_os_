@@ -407,9 +407,10 @@ ALL = [
         *[{"cmd": "write /lat%d.txt kira-latency-load-%d" % (i, i), "timeout": 30} for i in range(12)],
         *[{"cmd": "cat /lat%d.txt" % i, "must": [r"kira-latency-load-%d" % i], "timeout": 30} for i in range(0, 12, 3)],
         {"send": "burnall"}, {"sleep": 4},
+        {"cmd": "ai", "timeout": 30},
         {"cmd": "latency", "must": [r"\[LAT\] irq: n=[1-9]", r"\[LAT\] isr: n=[1-9]", r"\[LAT\] sched-critical:"], "timeout": 30},
         {"log_forbid": NO_ERR},
-    ], smp=2, mem="512M"),
+    ], smp=2, mem="512M", extra=["-icount", "shift=0,sleep=off"]),
     sc("blackbox", "чёрный ящик: событие записывается (проверочная пауза 1,3 с), кольцо сбрасывается на диск само, переживает обрыв питания и выключение; прежний запуск читается как bb old, два файла по очереди", [
         {"log": BOOT_LOG + [r"\[KIRA BLACKBOX\] flight recorder online"]},
         {"sleep": 3},

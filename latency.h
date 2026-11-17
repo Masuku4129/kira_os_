@@ -11,20 +11,23 @@
    «живой», но не рваной. Сброс не ходит по чужим ядрам: он поднимает общую эпоху, а каждое ядро при следующей записи обнуляет себя
    само (читатель пропускает ядра прежней эпохи). */
 
-#define LAT_BINS 96     /* 4 корзины на степень двойки с 16 нс: корзина 0 - до 16 нс, последняя - от ~134 мс и дольше (максимум хранится точно) */
+#define LAT_BINS 96     /* 4 корзины на степень двойки с 16 нс: корзина 0 - до 16 нс, последняя - от ~201 мс и дольше (максимум хранится точно) */
 
 typedef enum {
     LAT_IRQ = 0,        /* задержка прерывания: от срока срабатывания таймера LAPIC до входа в обработчик */
     LAT_ISR,            /* длительность обработчика аппаратного прерывания (вход - до EOI) */
     LAT_IRQOFF,         /* время с выключенными прерываниями в критической секции (irq_save/irq_restore, спинлоки с irq); под флагом */
+    LAT_SPIN,           /* ожидание замка (билетный спинлок с irq, замки планировщика): сколько ядро крутится, ничего не делая; место = замок */
     LAT_SCHED_NORMAL,   /* от «поток стал готовым» (пробуждение) до запуска на процессоре: класс normal */
     LAT_SCHED_CRIT,     /* то же, класс critical (системные потоки и интерактивные: вытесняют обычные сразу) */
     LAT_SCHED_RT,       /* то же, класс realtime */
+    LAT_TICK,           /* части обработчика тика таймера (место = LAT_PART_*): из чего складывается время обработчика */
     LAT_KINDS
 } lat_kind_t;
 
 /* Места самых долгих замеров: «кто виноват». Небольшая таблица на ядро и вид; в неё попадают только замеры не короче LAT_SITE_MIN_NS. */
 #define LAT_SITES 8
+enum { LAT_PART_CLOCK = 1, LAT_PART_UART, LAT_PART_FLUSH, LAT_PART_WATCHDOG, LAT_PART_SCHED, LAT_PART_N };   /* части обработчика тика (LAT_TICK) */
 #define LAT_SITE_MIN_NS 100000ULL
 typedef struct { uint64_t site, count, sum_ns, max_ns; } lat_site_t;
 
@@ -98,6 +101,9 @@ static inline void lat_irq_entry(uint64_t rip) { (void)rip; }
 static inline void lat_isr_note(uint64_t t, uint64_t v) { (void)t; (void)v; }
 static inline void lat_sched_note(unsigned p, uint64_t t, uint32_t id) { (void)p; (void)t; (void)id; }
 static inline void lat_flush(void) {}
+static inline void lat_inject(void) {}
+static inline void lat_spin_note(uint64_t t, uint64_t s) { (void)t; (void)s; }
+static inline void lat_part(unsigned p, uint64_t t) { (void)p; (void)t; }
 static inline void lat_timer_restart(void) {}
 #else
 extern volatile int lat_irqoff_on;     /* флаг замера критических секций: ноль - стоимость в irq_save/irq_restore одна проверка (объявлено и в cpu.h) */
@@ -109,11 +115,15 @@ void lat_init(unsigned cpus, uint64_t tsc_khz);     /* после калибро
 void lat_irq_entry(uint64_t interrupted_rip);       /* первая строка обработчика прерывания таймера: сколько прошло с его срока */
 void lat_isr_note(uint64_t tsc_start, uint64_t vector);   /* после обработчика аппаратного прерывания */
 void lat_sched_note(unsigned prio, uint64_t ready_tsc, uint32_t tid);  /* поток, ставший готовым в ready_tsc, получил процессор */
+void lat_part(unsigned part, uint64_t tsc_start);       /* часть обработчика тика закончилась: сколько она длилась */
+void lat_spin_note(uint64_t tsc_start, uint64_t site);   /* ядро ждало замок с tsc_start */
+void lat_inject(void);                              /* проверка границ: искусственная задержка в обработчике тика (latency inject), по умолчанию выключена */
 void lat_flush(void);                               /* из тика: накопленные превышения порогов - в чёрный ящик */
 void lat_command(const char* arg);                  /* консоль: latency [short|hist | reset | limit ИМЯ нс | irqoff on|off | bench] */
 
-/* Архитектура: сколько наносекунд прошло с срока срабатывания таймера до сейчас (по счётчику самого таймера). 0 - не поддержано или таймер
-   сейчас не в периодическом режиме. x86-64: счётчик таймера LAPIC (irqmode.c); ARM64: сравнение CNTV с его сроком. */
+/* Архитектура: сколько наносекунд прошло с последнего срока срабатывания таймера до сейчас (по счётчику самого таймера) и каков период.
+   Возврат: 0 - не поддержано; 1 - периодический таймер, сроки на сетке (x86-64, LAPIC: слипшиеся сроки ядро считает само по запомненному последнему);
+   2 - каждый срок известен точно (ARM64: CNTV_CVAL хранит сработавший срок, сетки нет). */
 int lat_arch_timer_elapsed_ns(uint64_t* elapsed_ns, uint64_t* period_ns);
 void lat_timer_restart(void);          /* таймер этого ядра остановлен или перезапущен: сетка сроков началась заново */
 #endif

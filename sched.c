@@ -108,6 +108,7 @@ static void slk_wait(slk_t* l, unsigned lid, slk_stat_t* s) {
         if (__atomic_compare_exchange_n(&l->held, &z, 1, 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) break;
     }
 out:;
+    lat_spin_note(t0, (1ULL << 32) | lid);                 /* А8: сколько ядро простояло в ожидании замка (после этого - hold) */
     uint64_t w = rdtsc() - t0;
     __atomic_store_n(&s->wait_since, 0, __ATOMIC_RELEASE);
     s->wait += w;
