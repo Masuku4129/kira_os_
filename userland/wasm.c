@@ -6,9 +6,13 @@
    расширение знака (0xC0-0xC4), memory.copy/fill.
    Импорт модуля "kira": write(ptr,len), sleep(ticks), ticks()->i64, exit(code), gfx_create(w,h)->i32,
    gfx_present(ptr) (пиксели 0x00RRGGBB из памяти модуля), gfx_event(ptr)->i32 (16 байт: type,a,b,c).
-   Импорт модуля "wasi_snapshot_preview1" (подмножество WASI 0.1, чтобы модули из C/Rust/Zig для wasm32-wasi запускались без своего ABI):
-   fd_write (fd 1, 2 - консоль), fd_close/fd_seek/fd_fdstat_get (только fd 0-2), proc_exit, clock_time_get (только монотонные часы),
-   args и environ (пусты). Остальное WASI (файлы, сокеты, random_get) не поддержано: такой импорт отвергается при загрузке.
+   Импорт модуля "kira" для интерпретаторов и сборщиков мусора внутри модуля (в режиме JIT не поддерживается: модуль с ними идёт в интерпретаторе):
+   setjmp(buf)->i32 и longjmp(buf, v): нелокальный переход по снимку состояния ИНТЕРПРЕТАТОРА (не памяти модуля): таблица снимков хранится у интерпретатора,
+   в buf (8 байт) лежит только номер и счётчик поколения, поэтому испорченный buf не может увести выполнение за пределы кадра; снимок годен, пока жив его
+   кадр (иначе ловушка). spill(buf, n)->i32: записывает в память модуля значения всех живых локальных и операндов (по два слова на значение), чтобы сборщик
+   мусора модуля видел указатели, живущие только в локальных переменных WASM (в линейной памяти их нет); возвращает число слов или -1, если не влезло.
+   Импорт модуля "wasi_snapshot_preview1": WASI 0.1 целиком (wasi_host.h) - аргументы, стандартный ввод, файлы в песочнице /data/wasm, часы,
+   случайные байты, ожидание по часам; что не поддержано, отвечает ENOSYS/ENOTSUP, а не ложным успехом (границы описаны в wasi_host.h).
    Запуск: wasm /путь/к/модулю.wasm (или двойной щелчок по .wasm в Проводнике). */
 #include "kira.h"
 KIRA_ENTRY()
@@ -66,12 +70,13 @@ static int to_int(double x, int bits, int sgn, u64* out) {
 static double u64_to_d(u64 v) { if (!(v >> 63)) return (double)(i64)v; double h = (double)(i64)((v >> 1) | (v & 1)); return h + h; }
 static float u64_to_f(u64 v) { if (!(v >> 63)) return (float)(i64)v; float h = (float)(i64)((v >> 1) | (v & 1)); return h + h; }
 
-#define MAXF 1024
+#define MAXF 4096
 #define MAXT 128
 #define MAXG 64
-#define VSTK (64 * 1024)
-#define DEPTH 400
-#define MAXMEM (2u << 20)                     /* память модуля - до 2 МБ (32 страницы WASM) */
+#define VSTK (524288)
+#define DEPTH 4000
+#define MAXMEM (32u << 20)                    /* память модуля - до 32 МБ (512 страниц WASM): столько модуль может объявить как максимум */
+#define DEFMEM (2u << 20)                     /* модуль без объявленного максимума получает 2 МБ */
 
 static void say(const char* s) { k_write(s, k_strlen(s)); }
 static void say_u(u64 v) { char t[21]; int i = 20; t[i] = 0; do { t[--i] = (char)('0' + v % 10); v /= 10; } while (v); say(t + i); }
@@ -108,12 +113,9 @@ static u64 globals[MAXG]; static u32 nglobals;
 static u32 entry = ~0u;
 static const u8* mod; static u32 modlen;
 
-enum { IMP_WRITE, IMP_SLEEP, IMP_TICKS, IMP_EXIT, IMP_GFX_CREATE, IMP_GFX_PRESENT, IMP_GFX_EVENT,
-       IMP_WASI_FIRST,                                                        /* с этого номера - модуль wasi_snapshot_preview1 */
-       IMP_W_FD_WRITE = IMP_WASI_FIRST, IMP_W_PROC_EXIT, IMP_W_CLOCK_TIME_GET, IMP_W_ARGS_SIZES_GET, IMP_W_ARGS_GET,
-       IMP_W_ENVIRON_SIZES_GET, IMP_W_ENVIRON_GET, IMP_W_FD_CLOSE, IMP_W_FD_SEEK, IMP_W_FD_FDSTAT_GET, IMP_N };
-static const char* const imp_names[IMP_N] = { "write", "sleep", "ticks", "exit", "gfx_create", "gfx_present", "gfx_event",
-    "fd_write", "proc_exit", "clock_time_get", "args_sizes_get", "args_get", "environ_sizes_get", "environ_get", "fd_close", "fd_seek", "fd_fdstat_get" };
+enum { IMP_WRITE, IMP_SLEEP, IMP_TICKS, IMP_EXIT, IMP_GFX_CREATE, IMP_GFX_PRESENT, IMP_GFX_EVENT, IMP_SETJMP, IMP_LONGJMP, IMP_SPILL,
+       IMP_WASI_FIRST };                                                      /* с этого номера - wasi_snapshot_preview1: IMP_WASI_FIRST + IW_* (wasi_host.h) */
+static const char* const imp_names[IMP_WASI_FIRST] = { "write", "sleep", "ticks", "exit", "gfx_create", "gfx_present", "gfx_event", "setjmp", "longjmp", "spill" };
 
 static u32 leb_u(const u8** p, const u8* end) {
     u32 r = 0;
@@ -150,8 +152,12 @@ static i64 leb_s(const u8** p, const u8* end, int bits) {
     }
     trap("unterminated signed LEB128"); return 0;
 }
+#define WASI_PART 1
+#include "wasi_host.h"
+#undef WASI_PART
 static int import_signature_valid(u32 id, const ftype_t* t) {
     static const u8 i32t = 0x7F, i64t = 0x7E;
+    if (id >= IMP_WASI_FIRST) return wasi_sig_ok(id - IMP_WASI_FIRST, t);
     switch (id) {
     case IMP_WRITE: return t->np == 2 && t->nr == 1 && t->p[0] == i32t && t->p[1] == i32t;
     case IMP_SLEEP: return t->np == 1 && t->nr == 0 && (t->p[0] == i32t || t->p[0] == i64t);     /* kw_sleep(int): модули собраны с i32 */
@@ -160,13 +166,9 @@ static int import_signature_valid(u32 id, const ftype_t* t) {
     case IMP_GFX_CREATE: return t->np == 2 && t->nr == 1 && t->p[0] == i32t && t->p[1] == i32t;
     case IMP_GFX_PRESENT: return t->np == 1 && t->nr <= 1 && t->p[0] == i32t;                 /* kw_gfx_present возвращает int (0) */
     case IMP_GFX_EVENT: return t->np == 1 && t->nr == 1 && t->p[0] == i32t;
-    case IMP_W_FD_WRITE: return t->np == 4 && t->nr == 1 && t->p[0] == i32t && t->p[1] == i32t && t->p[2] == i32t && t->p[3] == i32t;
-    case IMP_W_PROC_EXIT: return t->np == 1 && t->nr == 0 && t->p[0] == i32t;
-    case IMP_W_CLOCK_TIME_GET: return t->np == 3 && t->nr == 1 && t->p[0] == i32t && t->p[1] == i64t && t->p[2] == i32t;
-    case IMP_W_ARGS_SIZES_GET: case IMP_W_ARGS_GET: case IMP_W_ENVIRON_SIZES_GET: case IMP_W_ENVIRON_GET: case IMP_W_FD_FDSTAT_GET:
-        return t->np == 2 && t->nr == 1 && t->p[0] == i32t && t->p[1] == i32t;
-    case IMP_W_FD_CLOSE: return t->np == 1 && t->nr == 1 && t->p[0] == i32t;
-    case IMP_W_FD_SEEK: return t->np == 4 && t->nr == 1 && t->p[0] == i32t && t->p[1] == i64t && t->p[2] == i32t && t->p[3] == i32t;
+    case IMP_SETJMP: return t->np == 1 && t->nr == 1 && t->p[0] == i32t;                      /* int setjmp(jmp_buf) */
+    case IMP_LONGJMP: return t->np == 2 && t->nr == 0 && t->p[0] == i32t && t->p[1] == i32t;   /* void longjmp(jmp_buf, int) */
+    case IMP_SPILL: return t->np == 2 && t->nr == 1 && t->p[0] == i32t && t->p[1] == i32t;     /* int spill(void* buf, int cap_words) */
     default: return 0;
     }
 }
@@ -623,11 +625,12 @@ static int load(void) {
                 if (kind == 0) {
                     u32 ti = leb_u(&s, se);
                     int found = -1;
-                    for (int k = 0; k < IMP_N; k++) {
-                        int mod_ok = k < IMP_WASI_FIRST ? (name_is(mn, ml, "kira") || name_is(mn, ml, "env")) : name_is(mn, ml, "wasi_snapshot_preview1");
-                        if (mod_ok && name_is(nn, nl, imp_names[k])) found = k;
+                    if (name_is(mn, ml, "kira") || name_is(mn, ml, "env")) {
+                        for (int k = 0; k < (int)IMP_WASI_FIRST; k++) if (name_is(nn, nl, imp_names[k])) found = k;
+                    } else if (name_is(mn, ml, "wasi_snapshot_preview1")) {
+                        for (int k = 0; k < IW_COUNT; k++) if (name_is(nn, nl, wasi_names[k])) found = (int)IMP_WASI_FIRST + k;
                     }
-                    if (found < 0) { trap("unknown import (module kira: write, sleep, ticks, exit, gfx_create, gfx_present, gfx_event; wasi_snapshot_preview1: fd_write, proc_exit, clock_time_get, args_*, environ_*, fd_close, fd_seek, fd_fdstat_get)"); return -1; }
+                    if (found < 0) { trap("unknown import (module kira: write, sleep, ticks, exit, gfx_create, gfx_present, gfx_event; wasi_snapshot_preview1: the WASI 0.1 function list)"); return -1; }
                     if (ti >= ntypes) { trap("import function type index out of range"); return -1; }
                     if (!import_signature_valid((u32)found, &types[ti])) { trap("import has an incompatible KIRA host ABI signature"); return -1; }
                     if (nfuncs == MAXF) { trap("too many functions"); return -1; }
@@ -647,7 +650,7 @@ static int load(void) {
                      table = (u32*)alloc(4ull * (ntable + 1)); for (u32 i = 0; i < ntable; i++) table[i] = ~0u; }
         } else if (id == 5) {                                     /* память */
             u32 n = leb_u(&s, se);
-            if (n) { u8 fl = *s++; mem_pages = leb_u(&s, se); mem_max = (fl & 1) ? leb_u(&s, se) : MAXMEM / 65536; }
+            if (n) { u8 fl = *s++; mem_pages = leb_u(&s, se); mem_max = (fl & 1) ? leb_u(&s, se) : DEFMEM / 65536; }
         } else if (id == 6) {                                     /* глобальные */
             u32 n = leb_u(&s, se);
             for (u32 i = 0; i < n && !trapped; i++) { s++; s++; if (nglobals == MAXG) { trap("too many globals"); return -1; } globals[nglobals++] = const_expr(&s, se); }
@@ -671,7 +674,7 @@ static int load(void) {
         } else if (id == 10) {                                    /* код */
             u32 n = leb_u(&s, se);
             if (n != nfuncdecl) { trap("function and code counts differ"); return -1; }
-            if (mem_max == 0) mem_max = MAXMEM / 65536;
+            if (mem_max == 0) mem_max = DEFMEM / 65536;
             ccap = 2 * sz + 8 * n + 16;                           /* не больше двух слов на байт кода + запас на функцию */
             code = (u32*)alloc(4ull * ccap);
             if (!code) { trap("no memory for compiled code"); return -1; }
@@ -690,7 +693,7 @@ static int load(void) {
         } else if (id == 11) {                                    /* данные - после выделения памяти */
             if (!mem) {
                 if (mem_max * 65536ull > MAXMEM) mem_max = MAXMEM / 65536;
-                if (mem_pages > mem_max) { trap("module needs more memory than 2 MB"); return -1; }
+                if (mem_pages > mem_max) { trap("module needs more memory than 32 MB"); return -1; }
                 mem = (u8*)alloc((u64)mem_max * 65536);
                 if (!mem) { trap("no memory for the module"); return -1; }
             }
@@ -709,7 +712,7 @@ static int load(void) {
     }
     if (!trapped && !mem) {
         if (mem_max * 65536ull > MAXMEM) mem_max = MAXMEM / 65536;
-        if (mem_pages > mem_max) { trap("module needs more memory than 2 MB"); return -1; }
+        if (mem_pages > mem_max) { trap("module needs more memory than 32 MB"); return -1; }
         mem = (u8*)alloc((u64)(mem_max ? mem_max : 1) * 65536);
     }
     if (!trapped && entry == ~0u) trap("no exported main/_start");
@@ -722,6 +725,11 @@ static int load(void) {
 /* ---------- выполнение ---------- */
 static u64* vs; static u32 sp;                   /* стек значений (sp - индекс вершины между вызовами execute) */
 static int exit_req, exit_code;
+/* Снимки для setjmp: уровень кадра (0 - корень), fp, функция, высота стека значений и позиция кода после вызова. Стек снимков: при новом setjmp
+   снимки кадров ниже по стеку вызовов, чем текущий (они уже вернулись), отбрасываются, как и снимки той же буферной ячейки. */
+#define NJMP 2048
+typedef struct { u32 level, fp_idx, fn, s_idx, pc_idx, gen, buf; } jmp_t;
+static jmp_t jmps[NJMP]; static u32 njmp, jmp_gen;
 static u32* fb; static u32 fbw, fbh;
 static struct { const u32* pc; u64* fp; const func_t* f; } cs[DEPTH + 2];
 
@@ -738,58 +746,14 @@ static u64 clz64(u64 x) { u64 n = 0; if (!x) return 64; while (!(x >> 63)) { x <
 static u64 ctz64(u64 x) { u64 n = 0; if (!x) return 64; while (!(x & 1)) { x >>= 1; n++; } return n; }
 static u64 pop64(u64 x) { u64 n = 0; while (x) { n += x & 1; x >>= 1; } return n; }
 
-/* WASI 0.1, подмножество. Коды ошибок WASI: BADF 8, INVAL 28, NOSYS 52, SPIPE 70, FAULT 21. Результат - i32 errno (0 - успех). */
-enum { W_OK = 0, W_BADF = 8, W_FAULT = 21, W_INVAL = 28, W_NOSYS = 52, W_SPIPE = 70 };
-static int wasi_put32(u32 p, u32 v, u64 lim) { if ((u64)p + 4 > lim) return 0; st32(mem + p, v); return 1; }
-static u64 wasi_call(u32 id, const u64* a, u64 lim) {
-    switch (id) {
-    case IMP_W_FD_WRITE: {
-        u32 fd = (u32)a[0], iov = (u32)a[1], n = (u32)a[2], out = (u32)a[3];
-        if (fd != 1 && fd != 2) return W_BADF;
-        if (n > 1024 || (u64)iov + (u64)n * 8 > lim || (u64)out + 4 > lim) return W_FAULT;
-        u64 total = 0;
-        for (u32 i = 0; i < n; i++) {                               /* сначала проверить все записи: частичный вывод при ошибке не допускается */
-            u32 bp = ld32(mem + iov + 8 * i), bl = ld32(mem + iov + 8 * i + 4);
-            if ((u64)bp + bl > lim) return W_FAULT;
-            total += bl;
-        }
-        if (total > 0xFFFFFFFFull) return W_INVAL;
-        for (u32 i = 0; i < n; i++) {
-            u32 bp = ld32(mem + iov + 8 * i), bl = ld32(mem + iov + 8 * i + 4);
-            if (bl) k_write((const char*)mem + bp, bl);
-        }
-        st32(mem + out, (u32)total);
-        return W_OK;
-    }
-    case IMP_W_PROC_EXIT: exit_req = 1; exit_code = (int)a[0]; return 0;
-    case IMP_W_CLOCK_TIME_GET: {
-        if ((u32)a[0] != 1) return W_NOSYS;                         /* CLOCK_MONOTONIC; настенные часы модулю не отдаём */
-        if ((u64)(u32)a[2] + 8 > lim) return W_FAULT;
-        st64(mem + (u32)a[2], k_clock_ns());
-        return W_OK;
-    }
-    case IMP_W_ARGS_SIZES_GET: case IMP_W_ENVIRON_SIZES_GET:
-        return (wasi_put32((u32)a[0], 0, lim) && wasi_put32((u32)a[1], 0, lim)) ? W_OK : W_FAULT;
-    case IMP_W_ARGS_GET: case IMP_W_ENVIRON_GET: return W_OK;       /* списки пусты: писать нечего */
-    case IMP_W_FD_CLOSE: return (u32)a[0] <= 2 ? W_OK : W_BADF;
-    case IMP_W_FD_SEEK: return (u32)a[0] <= 2 ? W_SPIPE : W_BADF;
-    case IMP_W_FD_FDSTAT_GET: {
-        u32 fd = (u32)a[0], p = (u32)a[1];
-        if (fd > 2) return W_BADF;
-        if ((u64)p + 24 > lim) return W_FAULT;
-        for (u32 i = 0; i < 24; i++) mem[p + i] = 0;
-        mem[p] = 2;                                                 /* filetype: символьное устройство */
-        st64(mem + p + 8, fd == 0 ? (1ull << 1) : (1ull << 6));     /* права: fd_read для 0, fd_write для 1 и 2 */
-        return W_OK;
-    }
-    default: return W_NOSYS;
-    }
-}
+#define WASI_PART 2
+#include "wasi_host.h"
+#undef WASI_PART
 
 /* Импорт модуля "kira": аргументы снимаются со стека s, результат кладётся; возвращает новую вершину. */
 static u64* host_call(u32 id, const ftype_t* t, u64* s) {
-    u64 a[4] = { 0, 0, 0, 0 };
-    for (int i = t->np - 1; i >= 0; i--) { u64 v = *--s; if (i < 4) a[i] = v; }
+    u64 a[10] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+    for (int i = t->np - 1; i >= 0; i--) { u64 v = *--s; if (i < 10) a[i] = v; }
     u64 r = 0, lim = (u64)mem_pages * 65536;
     if (id == IMP_WRITE) {
         u32 p = (u32)a[0], n = (u32)a[1];
@@ -818,8 +782,8 @@ static u64* host_call(u32 id, const ftype_t* t, u64* s) {
         if (got > 0) { st32(mem + p, e.type); st32(mem + p + 4, e.a); st32(mem + p + 8, e.b); st32(mem + p + 12, e.c); }
         r = (u64)(i64)got;
     }
-    else if (id >= IMP_WASI_FIRST) r = wasi_call(id, a, lim);
-    if (id == IMP_W_PROC_EXIT && exit_req) return s;
+    else if (id >= IMP_WASI_FIRST) r = wasi_call(id - IMP_WASI_FIRST, a, lim);
+    if (id == IMP_WASI_FIRST + IW_proc_exit && exit_req) return s;
     if (t->nr) *s++ = r;
     return s;
 }
@@ -1005,6 +969,49 @@ static void execute(u32 fi0) {
         case OP_CALL: fi = w >> 16;
         do_call: {
             const func_t* c = &funcs[fi]; const ftype_t* t = &types[c->type];
+            if (c->import && c->imp_id == IMP_SETJMP) {
+                u32 bp = (u32)s[-1];
+                if ((u64)bp + 8 > ml) { trap("memory access out of bounds"); return; }
+                u32 fidx = (u32)(cur - funcs);
+                u32 fpi = (u32)(fp - vs);
+                u32 k = 0;                                           /* снимки вернувшихся кадров и этой же ячейки - прочь (порядок по уровню сохраняется) */
+                for (u32 i = 0; i < njmp; i++)
+                    if ((int)jmps[i].level < depth || (jmps[i].level == (u32)depth && jmps[i].fn == fidx && jmps[i].fp_idx == fpi && jmps[i].buf != bp)) jmps[k++] = jmps[i];
+                njmp = k;
+                if (njmp == NJMP) { trap("setjmp: too many live snapshots"); return; }
+                jmp_t* j = &jmps[njmp++];
+                j->level = (u32)depth; j->fp_idx = fpi; j->fn = fidx; j->s_idx = (u32)(s - 1 - vs); j->pc_idx = (u32)(pc - cb); j->buf = bp; j->gen = ++jmp_gen;
+                st32(m + bp, njmp - 1); st32(m + bp + 4, j->gen);
+                s[-1] = 0;                                           /* первый возврат: 0 */
+                continue;
+            }
+            if (c->import && c->imp_id == IMP_LONGJMP) {
+                u32 bp = (u32)s[-2], val = (u32)s[-1];
+                if ((u64)bp + 8 > ml) { trap("memory access out of bounds"); return; }
+                u32 idx = ld32(m + bp), gen = ld32(m + bp + 4);
+                if (idx >= njmp || jmps[idx].gen != gen || jmps[idx].buf != bp) { trap("longjmp: buffer was not set by setjmp or its frame is gone"); return; }
+                const jmp_t j = jmps[idx];
+                if ((int)j.level > depth) { trap("longjmp: target frame is gone"); return; }
+                const func_t* tf; u64* tfp;
+                if ((int)j.level == depth) { tf = cur; tfp = fp; } else { tf = cs[j.level].f; tfp = cs[j.level].fp; }
+                if ((u32)(tf - funcs) != j.fn || (u32)(tfp - vs) != j.fp_idx) { trap("longjmp: target frame is gone"); return; }
+                depth = (int)j.level; cur = tf; fp = tfp;
+                s = vs + j.s_idx; *s++ = val ? val : 1;              /* setjmp вернулся ещё раз: v, но не 0 */
+                pc = cb + j.pc_idx;
+                njmp = idx + 1;                                      /* глубже лежащие снимки принадлежат ушедшим кадрам */
+                ml = (u64)mem_pages * 65536; IBUD;
+                continue;
+            }
+            if (c->import && c->imp_id == IMP_SPILL) {
+                u32 bp = (u32)s[-2], cap = (u32)s[-1];
+                u64 live = (u64)(s - 2 - vs);                          /* значения всех кадров: локальные и операнды */
+                if ((u64)bp + 4ull * cap > ml) { trap("memory access out of bounds"); return; }
+                u64 need = live * 2;
+                s -= 1;
+                if (need > cap) s[-1] = 0xFFFFFFFFu;
+                else { for (u64 i = 0; i < live; i++) { st32(m + bp + 8 * i, (u32)vs[i]); st32(m + bp + 8 * i + 4, (u32)(vs[i] >> 32)); } s[-1] = (u32)need; }
+                continue;
+            }
             if (c->import) {
                 s = host_call(c->imp_id, t, s);
                 if (trapped || exit_req) { sp = (u32)(s - vs); return; }
@@ -1121,6 +1128,7 @@ int umain(void) {
     u64 got = 0;
     while (got < (u64)sz) { i64 r = k_grant_read(buf + got, (u64)sz - got > 65536 ? 65536 : (u64)sz - got, got); if (r <= 0) break; got += (u64)r; }
     mod = buf; modlen = (u32)got;
+    wasi_args_init(path);                                       /* argv[0] - путь модуля, дальше слова строки запуска */
     if (load() == 0) {
         say("wasm: "); say(path); say(" - "); say_u(nfuncs - nimports); say(" functions, "); say_u(nimports); say(" imports, memory ");
         say_u(mem_pages * 64); say(" KB\n");

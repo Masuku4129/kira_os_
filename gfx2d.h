@@ -29,6 +29,9 @@ void gfx_blit(surface_t* dst, int dx, int dy, const surface_t* src, int sx, int 
 // Наложение с альфой: пиксель источника ARGB (старший байт - непрозрачность 0..255).
 void gfx_blit_alpha(surface_t* dst, int dx, int dy, const surface_t* src, int sx, int sy, int w, int h);
 
+// Смешивание цвета с отрезком строки, t = 0..256 (то же, что ui_mix по каналам); границы проверяет вызывающий.
+void gfx_span_blend(uint32_t* p, int n, uint32_t color, unsigned t256);
+
 // Один символ 8x16 по коду Unicode. bg < 0 - прозрачный фон (иначе цвет 0x00RRGGBB).
 void gfx_glyph(surface_t* s, int x, int y, uint32_t codepoint, uint32_t fg, int64_t bg);
 // Строка UTF-8; '\n' переводит строку. Возвращает ширину самой длинной строки в пикселях.

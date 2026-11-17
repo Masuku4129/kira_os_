@@ -61,8 +61,14 @@ void input_push_scancode(uint8_t byte);        /* из IRQ */
 unsigned input_raw_take(uint8_t* out, unsigned max);   /* сырые байты клавиатуры с прошлого вызова (диагностика) */
 int  input_pop(input_event_t* ev);             /* 1 - событие получено */
 uint32_t input_dropped(void);
+uint32_t input_mouse_dropped(void);   // движений мыши потеряно: очередь полна
+uint32_t input_mouse_pushed(void);    // движений мыши принято
 /* Горячие клавиши оболочки (F10, F11) не попадают в очередь событий: их забирает поток дисплея,
    поэтому они работают, даже если приложение не читает клавиатуру. Возвращает KEY_F10/KEY_F11 или 0. */
 int input_take_hotkey(void);                  /* сколько событий потеряно при переполнении */
+
+/* Счётчик внешних событий (клавиатура, ввод с UART) для основного цикла: считает note, take отдаёт накопленное и сбрасывает. */
+void input_note_event(void);
+uint32_t input_take_events(void);
 
 #endif

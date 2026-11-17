@@ -1,6 +1,5 @@
 #include "proc.h"
 #include "proc_pid.h"
-#include "net.h"
 #include "audio.h"
 #include "syscall.h"
 #include "sched.h"
@@ -10,9 +9,7 @@
 #include "cpu.h"
 #include "spinlock.h"
 #include "uart.h"
-#include "gfxsrv.h"
 #include "elf.h"
-#include "life.h"
 #include "uheap.h"
 #include "scale.h"
 #include "heap.h"
@@ -21,7 +18,6 @@
 #include "futex.h"
 #include "caps.h"
 #include "smp.h"
-#include "kdrv.h"
 
 /* Адреса программы (пользовательская половина):
      0x80_0000_0000 .. 0x80_4000_0000  сегменты ELF (1 ГБ; сколько страниц - по ОЗУ машины)
@@ -59,6 +55,7 @@ typedef struct {
     volatile uint32_t nthreads;
     volatile uint32_t dying;
     int exit_code;
+    uint32_t domain;                   /* домен (caps.h): потолок прав, квота процессов, доступ к общим объектам */
     uint32_t caps;                     /* права (caps.h): задаются при запуске, дальше не меняются */
     volatile uint32_t cap_denied;      /* отказов по правам: журнал - только первый */
     uint32_t drv;                      /* драйвер Ring 3: номер привязки к устройству + 1 (kdrv.c); 0 - обычная программа */
@@ -152,12 +149,22 @@ static int spawn(const char* name, const void* image, size_t len, const char* gr
         return -1;
     }
 
+    uint32_t dom = drv ? DOM_DRIVER : own_caps ? DOM_UNTRUSTED : domain_for_program(name);
     uint64_t f = spin_lock_irqsave(&proc_lock);
     proc_t* p = 0;
-    for (unsigned i = 0; i < max_procs; i++) if (!procs[i].used) { p = &procs[i]; break; }
-    if (!p) { spin_unlock_irqrestore(&proc_lock, f); return -1; }
+    unsigned in_dom = 0;
+    for (unsigned i = 0; i < max_procs; i++) {
+        if (!procs[i].used) { if (!p) p = &procs[i]; }
+        else if (procs[i].domain == dom) in_dom++;
+    }
+    if (!p || in_dom >= domain_proc_max(dom)) {      /* нет места или домен выбрал свою квоту */
+        spin_unlock_irqrestore(&proc_lock, f);
+        if (p) { uart_print("[KIRA PROC] '"); uart_print(name); uart_print("' refused: domain "); uart_print(domain_name(dom)); uart_print(" is at its process limit.\n"); }
+        return -1;
+    }
     p->used = 1;                       /* занят до конца настройки */
-    p->caps = own_caps ? caps : caps_for_program(name);
+    p->domain = dom;
+    p->caps = (own_caps ? caps : caps_for_program(name)) & domain_caps_max(dom);   /* права программы не выше потолка её домена */
     p->drv = drv;
     p->cap_denied = 0;
     {   /* право на чтение файла - до первого потока: программа видит его с первой команды */
@@ -253,7 +260,7 @@ static int64_t heap_grow_locked(proc_t* p, uint64_t pages) {
     if (heap_restrict >= 2) free_kb /= 2;     /* запас ядра проверяется против половины свободной памяти */
     int rc = uheap_check(p->heap_pages, pages, free_kb, pmm_get_total_memory_kb());
     if (rc != UHEAP_OK) {
-        if (rc == UHEAP_E_QUOTA || rc == UHEAP_E_MEM) life_note("deny-hp", p->name, (int)pages);
+        if (rc == UHEAP_E_QUOTA || rc == UHEAP_E_MEM) proc_note("deny-hp", p->name, (int)pages);
         return rc;
     }
     uint64_t start = UHEAP_VA + (uint64_t)p->heap_pages * 4096ULL;
@@ -319,6 +326,7 @@ int64_t proc_jit(uint64_t op, uint64_t a, uint64_t b) {
 
 int proc_in_user_thread(void) { return current_proc() != 0; }
 uint32_t proc_current_drv(void) { proc_t* p = current_proc(); return p ? p->drv : 0; }
+uint32_t proc_current_domain(void) { proc_t* p = current_proc(); return p ? p->domain : DOM_UNTRUSTED; }
 uint32_t proc_current_caps(void) { proc_t* p = current_proc(); return p ? p->caps : 0; }
 int proc_cap_denied(uint32_t cap, uint64_t nr) {
     proc_t* p = current_proc();
@@ -371,6 +379,21 @@ unsigned proc_stats(proc_stat_t* out, unsigned max) {
     return n;
 }
 
+/* Кто такой процесс с этим номером (служба на портах определяет отправителя по номеру, который проставило ядро, а не по словам сообщения).
+   Номера не переиспользуются. 1 - найден и жив. */
+int proc_info(uint32_t pid, char name[16], uint32_t* caps, uint32_t* domain) {
+    for (unsigned i = 0; i < max_procs; i++) {
+        proc_t* p = &procs[i];
+        if (!__atomic_load_n(&p->used, __ATOMIC_ACQUIRE) || p->pid != pid || __atomic_load_n(&p->dying, __ATOMIC_ACQUIRE)) continue;
+        for (unsigned k = 0; k < 16; k++) name[k] = p->name[k];
+        name[15] = 0;
+        if (caps) *caps = p->caps;
+        if (domain) *domain = p->domain;
+        return 1;
+    }
+    return 0;
+}
+
 /* Завершить процесс по номеру (Разум: исчерпание памяти). Потоки уходят сами на выходе из ядра;
    тот, что крутится без системных вызовов, - по ближайшему прерыванию таймера. */
 int proc_kill(uint32_t pid) {
@@ -403,15 +426,28 @@ void proc_dump(void) {
     uart_print("\n");
 }
 
+#define GONE_HOOKS_MAX 4
+static proc_gone_fn gone_hooks[2][GONE_HOOKS_MAX];
+static proc_note_fn note_hook;
+int proc_add_gone_hook(proc_gone_fn fn, int late) {
+    unsigned s = late ? 1 : 0;
+    for (unsigned i = 0; i < GONE_HOOKS_MAX; i++) if (!gone_hooks[s][i]) { gone_hooks[s][i] = fn; return 0; }
+    return -1;
+}
+void proc_set_note_hook(proc_note_fn fn) { note_hook = fn; }
+void proc_note(const char* kind, const char* name, int code) { proc_note_fn f = note_hook; if (f) f(kind, name, code); }
+static void run_gone_hooks(unsigned stage, uint32_t pid, uint32_t drv) {
+    for (unsigned i = 0; i < GONE_HOOKS_MAX; i++) if (gone_hooks[stage][i]) gone_hooks[stage][i](pid, drv);
+}
+
 /* Последний поток ушёл: всё, что принадлежало процессу, возвращается. Прерывания выключены, ядро уже в своём
    адресном пространстве, других потоков процесса нет ни на одном ядре. */
 static void teardown(proc_t* p) {
     uint32_t pid = p->pid;
-    gfx_proc_gone(pid);                    /* окно приложения снимет поток дисплея */
-    net_proc_gone(pid);                    /* соединения TCP программы закрываются */
+    run_gone_hooks(0, pid, p->drv);        /* окно приложения снимет поток дисплея, соединения TCP программы закроются */
     audio_proc_gone(pid);                  /* и её поток звука */
     syscall_proc_gone(pid);                /* его незаконченная строка журнала */
-    if (p->drv) kdrv_proc_gone(p->drv - 1, pid);   /* драйвер: устройство останавливается, DMA и кольца возвращаются позже */
+    run_gone_hooks(1, pid, p->drv);        /* драйвер: устройство останавливается, DMA и кольца возвращаются позже */
     for (uint32_t h = 1; h <= htab_cap(&p->handles); h++) kobj_release(htab_take(&p->handles, (int)h));
     htab_free(&p->handles);
     for (uint32_t i = 0; i < p->nmaps; i++) if (p->maps[i].shm) { kobj_release(p->maps[i].shm); p->maps[i].shm = 0; }
@@ -426,7 +462,7 @@ static void teardown(proc_t* p) {
     uart_print(", address space destroyed (");
     uart_print_dec(freed); uart_print(" pages returned to PMM).\n");
     if (code < 0) __atomic_add_fetch(&faults_total, 1, __ATOMIC_RELAXED);
-    life_note(code >= 0 ? "exit" : "killed", p->name, code);
+    proc_note(code >= 0 ? "exit" : "killed", p->name, code);
     __atomic_store_n(&p->used, 0, __ATOMIC_RELEASE);
 }
 

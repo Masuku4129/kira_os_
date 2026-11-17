@@ -1,6 +1,5 @@
 #include "hwprofile.h"
 #include "cpu.h"
-#include "uheap.h"
 
 static hw_profile_t profile;
 
@@ -93,6 +92,9 @@ static void lu(line_t* l, uint64_t v) {
 }
 static void flush(line_t* l, void (*out)(const char*)) { l->b[l->n++] = '\n'; l->b[l->n] = 0; out(l->b); l->n = 0; }
 
+static void (*extra_describe)(const hw_profile_t*, void (*)(const char*));
+void hw_set_describe_extra(void (*fn)(const hw_profile_t*, void (*out)(const char*))) { extra_describe = fn; }
+
 void hw_describe(const hw_profile_t* p, void (*out)(const char*)) {
     line_t l = { {0}, 0 };
     ls(&l, "[KIRA HW] CPU "); ls(&l, p->vendor); ls(&l, " family "); lu(&l, p->family); ls(&l, " model "); lu(&l, p->model);
@@ -126,6 +128,5 @@ void hw_describe(const hw_profile_t* p, void (*out)(const char*)) {
     if (p->tsc_khz_leaf) { ls(&l, ", CPU reports "); lu(&l, p->tsc_khz_leaf / 1000); ls(&l, " MHz"); }
     flush(&l, out);
 
-    ls(&l, "[KIRA HW] limits for this machine: program heap up to "); lu(&l, uheap_quota_pages(p->ram_kb) * 4 / 1024);
-    ls(&l, " MB per program, kernel keeps "); lu(&l, uheap_reserve_kb(p->ram_kb) / 1024); ls(&l, " MB free"); flush(&l, out);
+    if (extra_describe) extra_describe(p, out);       /* пределы машины: их считает ядро (wire.c), профиль железа политик не знает */
 }

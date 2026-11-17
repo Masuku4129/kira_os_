@@ -26,7 +26,7 @@ static uint32_t caps_of(const char* s) {
     char buf[128]; snprintf(buf, sizeof buf, "%s", s);
     for (char* t = strtok(buf, ","); t; t = strtok(0, ",")) {
         if (!strcmp(t, "mmio")) c |= CAP_MMIO; else if (!strcmp(t, "irq")) c |= CAP_IRQ; else if (!strcmp(t, "dma")) c |= CAP_DMA;
-        else if (!strcmp(t, "pcidev")) c |= CAP_PCIDEV; else if (!strcmp(t, "netdev")) c |= CAP_NETDEV;
+        else if (!strcmp(t, "pcidev")) c |= CAP_PCIDEV; else if (!strcmp(t, "netdev")) c |= CAP_NETDEV; else if (!strcmp(t, "blkdev")) c |= CAP_BLKDEV;
         else { fprintf(stderr, "kdrvpack: неизвестное право '%s'\n", t); exit(2); }
     }
     return c;

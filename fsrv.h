@@ -50,6 +50,7 @@ int  fsrv_drv_name(const char* file, char stem[16], int* kind);     /* .kdrv=0, 
 int  fsrv_sandbox(const char* prog);    /* создаёт /data/<prog>; 0 - готово */
 void fsrv_execute(fsrv_req_t* r);       /* выполняет запрос на KiraFS, результат в r->result */
 
+void fsrv_exec_locked(fsrv_req_t* r);  /* то же под мьютексом службы (для порта kira.fs, fssvc.c) */
 int64_t fsrv_syscall(uint64_t user_req_ptr);   /* контекст системного вызова процесса */
 
 #endif

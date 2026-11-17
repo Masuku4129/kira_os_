@@ -28,3 +28,7 @@ unsigned klog_read(uint64_t* cursor, char* out, unsigned max, unsigned* lost) {
     spin_unlock_irqrestore(&klog_lock, f);
     return n;
 }
+
+static void (*panic_flush_fn)(void);
+void klog_set_panic_flush(void (*fn)(void)) { panic_flush_fn = fn; }
+void klog_panic_flush(void) { void (*f)(void) = panic_flush_fn; if (f) f(); }

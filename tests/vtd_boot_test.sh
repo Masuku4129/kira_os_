@@ -19,7 +19,7 @@ if [ -z "$KERNEL" ]; then
     CC="clang --target=x86_64-unknown-none-elf"
     CFLAGS="-ffreestanding -fno-omit-frame-pointer -fno-pic -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone -O2 -Wall -Wextra -Werror -mno-mmx -mno-sse -mno-sse2"
     mkdir -p $T/inc
-    $HOSTCC -O1 -DKFS_NO_THREADS -I. -Iarch/x86_64 -o $T/kfstool tools/kfstool.c kfs.c store.c sha256.c || exit 1
+    $HOSTCC -O1 -DKFS_NO_THREADS -I. -Iarch/x86_64 -o $T/kfstool tools/kfstool.c kfs.c zstd.c store.c sha256.c sysseal.c cbor.c cas.c || exit 1
     echo vtd-probe > $T/vtd-probe.elf
     $T/kfstool manifest $T/vtd-probe.elf > $T/inc/manifest.h || exit 1     # progs.c требует манифест; программы в этом образе не нужны
     S=$(sed -n '/^C_SOURCES=/p;/^ARCH_SOURCES=/p' build_clang.sh | sed 's/^[A-Z_]*="//;s/"$//' | tr ' ' '\n' | grep -v '^$' | sed 's|\$ARCH|arch/x86_64|')
@@ -33,7 +33,7 @@ if [ -z "$KERNEL" ]; then
     ld.lld -T arch/x86_64/linker.ld -nostdlib -z max-page-size=0x1000 $T/boot.o $OBJ $T/interrupts.o $T/context.o $T/ap_tramp.o $T/uaccess.o -o $T/kira.bin || exit 1
     KERNEL=$T/kira.bin
 fi
-$HOSTCC -O1 -DKFS_NO_THREADS -I. -Iarch/x86_64 -o $T/kfstool tools/kfstool.c kfs.c store.c sha256.c || exit 1
+$HOSTCC -O1 -DKFS_NO_THREADS -I. -Iarch/x86_64 -o $T/kfstool tools/kfstool.c kfs.c zstd.c store.c sha256.c sysseal.c cbor.c cas.c || exit 1
 nasm -f bin arch/x86_64/bios/stage1.asm -o $T/s1.bin && nasm -f bin arch/x86_64/bios/stage2.asm -o $T/s2.bin \
     && python3 tools/mkbios.py $T/s1.bin $T/s2.bin "$KERNEL" $T/k.img >/dev/null || exit 1
 dd if=/dev/zero of=$T/kira.disk bs=1M count=8 2>/dev/null
@@ -73,7 +73,7 @@ has iommu "passthrough: unrestricted DMA, NOT isolated" "остальные ус
 has iommu "virtio-blk isolated: own translation domain\|\.[0-9] isolated: own translation domain" "virtio-blk получил свой домен"
 has iommu "DMA fault: device .* blocked\|DMA fault: device" "нарушение DMA записано в журнал"
 has iommu "enforcement check passed" "проверка принуждения: обращение к невыданной памяти остановлено"
-has iommu "Disk virtio-blk.*DMA isolated by VT-d" "диск поднят через отображение"
+has iommu "Disk virtio-blk.*DMA isolated by IOMMU" "диск поднят через отображение"
 has iommu "Command line ready" "система дошла до консоли с диском за IOMMU"
 hasnot iommu "KERNEL PANIC" "без паники"
 hasnot iommu "blk request timeout" "запросы к диску не зависли"
@@ -95,7 +95,7 @@ run noplat -device intel-iommu,aw-bits=48 -device virtio-blk-pci,drive=kd0,disab
 has noplat "VT-d translation enabled on 1 unit" "VT-d включён и без iommu_platform"
 has noplat "does not negotiate ACCESS_PLATFORM" "честная пометка: DMA устройства мимо IOMMU"
 has noplat "DMA not isolated" "диск поднят с пометкой 'не изолирован'"
-hasnot noplat "DMA isolated by VT-d" "изоляция не заявлена"
+hasnot noplat "DMA isolated by IOMMU" "изоляция не заявлена"
 has noplat "Command line ready" "диск работает"
 
 # --- 3. без IOMMU поведение прежнее ---

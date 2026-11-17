@@ -4,7 +4,6 @@
 #include "rtc.h"
 #include "crypto.h"
 #include "syscall.h"
-#include "net.h"
 #include "audio.h"
 #include "uart.h"
 #include "vmm.h"
@@ -12,8 +11,6 @@
 #include "sched.h"
 #include "timer.h"
 #include "cpu.h"
-#include "gfxsrv.h"
-#include "fsrv.h"
 #include "spinlock.h"
 #include "userlog.h"
 #include "kobj.h"
@@ -22,8 +19,11 @@
 #include "heap.h"
 #include "uaccess.h"
 #include "caps.h"
-#include "kdrv.h"
-#include "kdrv_format.h"
+#include "kdrv_sysnr.h"
+
+/* Службы верхних уровней (графика, ФС, сеть, драйверы Ring 3) подключает корень сборки (wire.c): ядро не включает их заголовки. */
+static syscall_services_t svc;
+void syscall_set_services(const syscall_services_t* s) { svc = *s; }
 
 static spinlock_t ulog_lock = SPINLOCK_INIT;
 static userlog_t ulog;
@@ -45,7 +45,9 @@ static userlog_t ulog;
 #define SYS_FUTEX_WAIT    15 // (адрес слова, ожидаемое, срок в 10 мс или ~0) -> 0 / KE_AGAIN / KE_TIMEOUT / KE_INTR
 #define SYS_FUTEX_WAKE    16 // (адрес слова, сколько) -> разбужено
 #define SYS_PORT_OPEN     17 // (имя, длина, флаги KOPEN_*) -> дескриптор
-#define SYS_PORT_SEND     18 // (дескриптор, данные, длина до PORT_MSG_MAX) -> 0 / KE_FULL
+#define SYS_PORT_SEND     18 // (дескриптор | вложение << 32, данные, длина до PORT_MSG_MAX) -> 0 / KE_FULL; вложение - дескриптор порта или памяти (0 - нет)
+#define SYS_PORT_RECVA    59 // (дескриптор, указатель на kport_recv_t) -> длина сообщения; у получателя появляется дескриптор вложения (att, 0 - нет)
+#define SYS_PORT_WAIT     60 // (указатель на массив int32 дескрипторов портов, число 1..8, срок_10мс) -> индекс первого порта с сообщением (сообщение остаётся в очереди)
 #define SYS_PORT_RECV     19 // (дескриптор, буфер, ёмкость | срок_10мс << 32; срок 0xFFFFFFFF - без срока) -> длина | pid отправителя << 32
 #define SYS_SHM_OPEN      20 // (имя, длина, страниц | флаги << 32) -> дескриптор
 #define SYS_SHM_MAP       21 // (дескриптор) -> адрес
@@ -75,6 +77,7 @@ static userlog_t ulog;
 #define SYS_NET_PEER      47 // (h, адрес сокета) -> семейство собеседника соединения
 #define SYS_TIME          37 // -> секунды UTC от 1970 (часы реального времени) или -1, если часов нет
 #define SYS_JIT           56 // (операция JIT_ALLOC/JIT_SEAL, a, b) -> адрес окна кода / 0 или отрицательный код; право CAP_JIT
+#define SYS_STDIN         58 // (буфер, ёмкость <= 4096) -> байт строки консоли (с \n); 0 - конец ввода; < 0 - ошибка, -4 прервано, -16 ввод у другой программы; право CAP_STDIN
 #define SYS_RANDOM        36 // (буф, байт <= 256) -> 1 аппаратный источник, 0 - только время событий
 
 #define SYS_MAX_WRITE 4096
@@ -131,16 +134,18 @@ static uint32_t cap_needed(uint64_t nr) {
     case SYS_UDP_OPEN: case SYS_UDP_SEND: case SYS_UDP_RECV: case SYS_UDP_CLOSE: case SYS_UDP_SENDTO: case SYS_UDP_RECVFROM: return CAP_UDP;
     case SYS_SND_OPEN: case SYS_SND_WRITE: case SYS_SND_CLOSE: case SYS_SND_VOLUME: return CAP_SND;
     case SYS_SND_RECORD: return CAP_REC;
-    case SYS_PORT_OPEN: case SYS_PORT_SEND: case SYS_PORT_RECV: case SYS_SHM_OPEN: case SYS_SHM_MAP: return CAP_IPC;
+    case SYS_PORT_OPEN: case SYS_PORT_SEND: case SYS_PORT_RECV: case SYS_PORT_RECVA: case SYS_PORT_WAIT: case SYS_SHM_OPEN: case SYS_SHM_MAP: return CAP_IPC;
     case SYS_THREAD_CREATE: return CAP_THREAD;
     case SYS_JIT: return CAP_JIT;
+    case SYS_STDIN: return CAP_STDIN;
     /* Драйверы Ring 3 (kdrv.c): права выдаёт только менеджер драйверов, процессу обычной программы они недоступны; устройство - привязка процесса. */
     case KDRV_SYS_INFO: return CAP_DRIVER_;                         /* свои устройство и права: любое из прав драйвера */
     case KDRV_SYS_CFG_READ: case KDRV_SYS_CFG_WRITE: return CAP_PCIDEV;
     case KDRV_SYS_MMIO_MAP: case KDRV_SYS_IO: return CAP_MMIO;
     case KDRV_SYS_DMA_ALLOC: return CAP_DMA;
-    case KDRV_SYS_IRQ_WAIT: return CAP_IRQ | CAP_NETDEV;          /* ждать звонка: прерывание устройства или кольцо передачи карты */
+    case KDRV_SYS_IRQ_WAIT: return CAP_IRQ | CAP_NETDEV | CAP_BLKDEV;   /* ждать звонка: прерывание устройства, кольцо передачи карты или запросов диска */
     case KDRV_SYS_NETDEV: return CAP_NETDEV;
+    case KDRV_SYS_BLKDEV: return CAP_BLKDEV;
     case KDRV_SYS_PCILIST: return CAP_PCILIST;                    /* окно «Драйверы»: список PCI только для чтения */
     default: return 0;                  /* SYS_FS проверяется по операции в fsrv_syscall */
     }
@@ -182,20 +187,20 @@ static uint64_t dispatch(uint64_t nr, uint64_t a1, uint64_t a2, uint64_t a3) {
         return proc_current_pid();
     case SYS_GFX_CREATE: {
         proc_space_lock();                   /* отображение окна меняет адресное пространство, как и рост кучи */
-        int64_t r = gfx_sys_create(proc_current_pid(), proc_current_name(), (uint32_t)a1, (uint32_t)a2);
+        int64_t r = svc.gfx_create(proc_current_pid(), proc_current_name(), (uint32_t)a1, (uint32_t)a2);
         proc_space_unlock();
         return (uint64_t)r;
     }
     case SYS_GFX_PRESENT:
-        return (uint64_t)gfx_sys_present(proc_current_pid());
+        return (uint64_t)svc.gfx_present(proc_current_pid());
     case SYS_GFX_EVENT:
-        return (uint64_t)gfx_sys_event(proc_current_pid(), a1);
+        return (uint64_t)svc.gfx_event(proc_current_pid(), a1);
     case SYS_HEAP:
         return (uint64_t)proc_heap_grow(a1);
     case SYS_JIT:
         return (uint64_t)proc_jit(a1, a2, a3);
     case SYS_FS:
-        return (uint64_t)fsrv_syscall(a1);
+        return (uint64_t)svc.fs(a1);
     case SYS_THREAD_CREATE:
         return (uint64_t)proc_thread_create(a1, a2, a3);
     case SYS_THREAD_EXIT:
@@ -217,26 +222,83 @@ static uint64_t dispatch(uint64_t nr, uint64_t a1, uint64_t a2, uint64_t a3) {
         char name[KNAME_MAX + 1];
         if (!copy_name(a1, a2, name)) return (uint64_t)(int64_t)KE_ARG;
         kobj_t* o = 0;
-        int rc = port_open_as(name, (int)(a3 & 7), proc_current_pid(), &o);
+        int rc = port_open_in(name, (int)(a3 & 7), proc_current_pid(), proc_current_domain(), &o);
         if (rc) return (uint64_t)(int64_t)rc;
         return (uint64_t)proc_handle_add(o);
     }
     case SYS_PORT_SEND: {
-        int handle;
-        if (!syscall_handle(a1, &handle)) return (uint64_t)(int64_t)KE_BADH;
+        int handle, ah = 0;
+        if (!syscall_handle(a1 & 0xFFFFFFFFULL, &handle)) return (uint64_t)(int64_t)KE_BADH;
+        if (a1 >> 32 && !syscall_handle(a1 >> 32, &ah)) return (uint64_t)(int64_t)KE_BADH;
         if (a3 > PORT_MSG_MAX) return (uint64_t)(int64_t)KE_ARG;
         kobj_t* o = proc_handle_get(handle, KOBJ_PORT);
         if (!o) return (uint64_t)(int64_t)KE_BADH;
+        kobj_t* att = 0;
+        if (ah) {                                                    /* вложение: порт или память из таблицы отправителя (+1 ссылка) */
+            att = proc_handle_get(ah, 0);
+            if (!att) { kobj_release(o); return (uint64_t)(int64_t)KE_BADH; }
+        }
         uint8_t* buf = (uint8_t*)kmalloc(a3 ? a3 : 1);              /* копия: программа не изменит данные во время отправки */
-        if (!buf) { kobj_release(o); return (uint64_t)(int64_t)KE_NOMEM; }
+        if (!buf) { kobj_release(att); kobj_release(o); return (uint64_t)(int64_t)KE_NOMEM; }
         if (a3 && copy_from_user(buf, a2, a3) != 0) {
-            kfree(buf); kobj_release(o);
+            kfree(buf); kobj_release(att); kobj_release(o);
             return (uint64_t)(int64_t)KE_ARG;
         }
-        int rc = port_send(o, proc_current_pid(), buf, (uint32_t)a3);
+        int rc = port_send_att(o, proc_current_pid(), buf, (uint32_t)a3, att);
+        if (rc && att) kobj_release(att);                          /* при успехе ссылку забрала очередь */
         kfree(buf);
         kobj_release(o);
         return (uint64_t)(int64_t)rc;
+    }
+    case SYS_PORT_RECVA: {
+        int handle;
+        kport_recv_t rq;
+        if (!syscall_handle(a1, &handle)) return (uint64_t)(int64_t)KE_BADH;
+        if (copy_from_user(&rq, a2, sizeof rq) != 0) return (uint64_t)(int64_t)KE_ARG;
+        uint32_t cap = rq.cap;
+        if (cap > PORT_MSG_MAX) cap = PORT_MSG_MAX;
+        kobj_t* o = proc_handle_get(handle, KOBJ_PORT);
+        if (!o) return (uint64_t)(int64_t)KE_BADH;
+        if (cap && !user_range(rq.buf, cap, 1)) { kobj_release(o); return (uint64_t)(int64_t)KE_ARG; }
+        uint8_t* kb = (uint8_t*)kmalloc(cap ? cap : 1);
+        if (!kb) { kobj_release(o); return (uint64_t)(int64_t)KE_NOMEM; }
+        uint32_t from = 0; kobj_t* att = 0;
+        int64_t n = port_recv_att(o, kb, cap, ticks_from_10ms(rq.timeout), &from, proc_dying, &att);
+        kobj_release(o);
+        rq.from = from; rq.att = 0;
+        if (n >= 0) {
+            uint32_t c = (uint64_t)n < cap ? (uint32_t)n : cap;
+            if (att && att->owner_pid != proc_current_pid() && !domain_may_reach(proc_current_domain(), att->owner_dom)) {
+                kobj_release(att); att = 0; n = KE_PERM;             /* получатель из домена, до которого вложение не дотягивается: сообщение потеряно */
+            }
+            else if (c && copy_to_user(rq.buf, kb, c) != 0) { kobj_release(att); att = 0; n = KE_ARG; }
+            else if (att) {
+                int64_t h = proc_handle_add(att);                    /* забирает ссылку */
+                att = 0;
+                if (h < 0) n = h; else rq.att = (int32_t)h;
+            }
+        }
+        if (att) kobj_release(att);
+        if (n >= 0 && copy_to_user(a2, &rq, sizeof rq) != 0) n = KE_ARG;   /* и здесь вложение уже у получателя: закроет при выходе процесса */
+        kfree(kb);
+        return (uint64_t)n;
+    }
+    case SYS_PORT_WAIT: {
+        int32_t hs[PORT_WAIT_MAX];
+        kobj_t* os[PORT_WAIT_MAX];
+        if (a2 == 0 || a2 > PORT_WAIT_MAX) return (uint64_t)(int64_t)KE_ARG;
+        if (copy_from_user(hs, a1, a2 * sizeof hs[0]) != 0) return (uint64_t)(int64_t)KE_ARG;
+        unsigned n = 0;
+        int64_t rc = 0;
+        for (; n < a2; n++) {
+            int handle;
+            if (!syscall_handle((uint64_t)(int64_t)hs[n], &handle)) { rc = KE_BADH; break; }
+            os[n] = proc_handle_get(handle, KOBJ_PORT);
+            if (!os[n]) { rc = KE_BADH; break; }
+        }
+        if (!rc) rc = port_wait(os, n, ticks_from_10ms(a3), proc_dying);
+        for (unsigned i = 0; i < n; i++) kobj_release(os[i]);
+        return (uint64_t)rc;
     }
     case SYS_PORT_RECV: {
         int handle;
@@ -264,7 +326,7 @@ static uint64_t dispatch(uint64_t nr, uint64_t a1, uint64_t a2, uint64_t a3) {
         char name[KNAME_MAX + 1];
         if (!copy_name(a1, a2, name)) return (uint64_t)(int64_t)KE_ARG;
         kobj_t* o = 0;
-        int rc = shm_open_as(name, (uint32_t)a3, (int)((a3 >> 32) & 7), proc_current_pid(), &o);
+        int rc = shm_open_in(name, (uint32_t)a3, (int)((a3 >> 32) & 7), proc_current_pid(), proc_current_domain(), &o);
         if (rc) return (uint64_t)(int64_t)rc;
         return (uint64_t)proc_handle_add(o);
     }
@@ -284,7 +346,7 @@ static uint64_t dispatch(uint64_t nr, uint64_t a1, uint64_t a2, uint64_t a3) {
         return clock_ns();
     case SYS_NET_DNS: case SYS_NET_CONNECT: case SYS_NET_SEND: case SYS_NET_RECV: case SYS_NET_CLOSE:
     case SYS_NET_LISTEN: case SYS_NET_ACCEPT:
-        return (uint64_t)net_sys((unsigned)(nr - SYS_NET_DNS), a1, a2, a3);
+        return (uint64_t)svc.net((unsigned)(nr - SYS_NET_DNS), a1, a2, a3);
     case SYS_SND_OPEN: case SYS_SND_WRITE: case SYS_SND_CLOSE:
         return (uint64_t)audio_sys((unsigned)(nr - SYS_SND_OPEN), a1, a2, a3);
     case SYS_SND_VOLUME:
@@ -292,13 +354,13 @@ static uint64_t dispatch(uint64_t nr, uint64_t a1, uint64_t a2, uint64_t a3) {
     case SYS_SND_RECORD:
         return (uint64_t)audio_record_sys(a1, a2, a3);
     case SYS_UDP_OPEN: case SYS_UDP_SEND: case SYS_UDP_RECV: case SYS_UDP_CLOSE:
-        return (uint64_t)net_udp_sys((unsigned)(nr - SYS_UDP_OPEN), a1, a2, a3);
+        return (uint64_t)svc.udp((unsigned)(nr - SYS_UDP_OPEN), a1, a2, a3);
     case SYS_NET_CONNECT_SA:
-        return (uint64_t)net_sys(NET_SYS_CONNECT_SA, a1, a2, a3);
+        return (uint64_t)svc.net(SVC_NET_CONNECT_SA, a1, a2, a3);
     case SYS_NET_PEER:
-        return (uint64_t)net_sys(NET_SYS_PEER, a1, a2, a3);
+        return (uint64_t)svc.net(SVC_NET_PEER, a1, a2, a3);
     case SYS_UDP_SENDTO: case SYS_UDP_RECVFROM:
-        return (uint64_t)net_udp_sys(nr == SYS_UDP_SENDTO ? NET_UDP_SENDTO : NET_UDP_RECVFROM, a1, a2, a3);
+        return (uint64_t)svc.udp(nr == SYS_UDP_SENDTO ? SVC_UDP_SENDTO : SVC_UDP_RECVFROM, a1, a2, a3);
     case SYS_TIME: {
         rtc_time_t tm;
         return rtc_now(0, &tm) == 0 ? (uint64_t)rtc_to_epoch(&tm) : (uint64_t)-1;
@@ -311,6 +373,18 @@ static uint64_t dispatch(uint64_t nr, uint64_t a1, uint64_t a2, uint64_t a3) {
         crypto_wipe(rb, sizeof rb);
         return bad ? (uint64_t)-10 : (uint64_t)q;
     }
+    case SYS_STDIN: {
+        if (!a2 || a2 > 4096) return (uint64_t)-2;
+        char kb[512]; uint64_t cap = a2 < sizeof kb ? a2 : sizeof kb;
+        uint32_t pid = (uint32_t)proc_current_pid();
+        if (svc.stdin_begin(pid) < 0) return (uint64_t)-16;
+        for (;;) {
+            int64_t r = svc.stdin_poll(pid, kb, cap);
+            if (r != -11) return r > 0 && copy_to_user(a1, kb, (uint64_t)r) != 0 ? (uint64_t)-10 : (uint64_t)r;
+            if (proc_dying()) return (uint64_t)-4;
+            sched_sleep_ticks(TIMER_PER_10MS);                    // строки ещё нет: ждать, не занимая ядро
+        }
+    }
     case SYS_ARGS: {
         const char* s = proc_current_args();
         uint64_t len = 0; while (s[len]) len++;
@@ -318,8 +392,8 @@ static uint64_t dispatch(uint64_t nr, uint64_t a1, uint64_t a2, uint64_t a3) {
         return copy_to_user(a1, s, len + 1) ? (uint64_t)-10 : len;
     }
     case KDRV_SYS_INFO: case KDRV_SYS_CFG_READ: case KDRV_SYS_CFG_WRITE: case KDRV_SYS_MMIO_MAP: case KDRV_SYS_DMA_ALLOC:
-    case KDRV_SYS_IRQ_WAIT: case KDRV_SYS_NETDEV: case KDRV_SYS_PCILIST: case KDRV_SYS_IO:
-        return (uint64_t)kdrv_sys((unsigned)nr, a1, a2, a3);
+    case KDRV_SYS_IRQ_WAIT: case KDRV_SYS_NETDEV: case KDRV_SYS_PCILIST: case KDRV_SYS_IO: case KDRV_SYS_BLKDEV:
+        return (uint64_t)svc.kdrv((unsigned)nr, a1, a2, a3);
     default:
         return (uint64_t)-1;
     }

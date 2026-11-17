@@ -1,12 +1,15 @@
 #include "kobj.h"
+#include "caps.h"
 #include "heap.h"
 #include "pmm.h"
 #include "sched.h"
 #include "spinlock.h"
 #include "timer.h"
 
-typedef struct waiter { thread_t* t; struct waiter* next; int queued; } waiter_t;
-typedef struct { uint32_t pid, len; uint8_t* data; } msg_t;
+/* Набор ожидания (port_wait): один поток ждёт сразу несколько портов. Порядок замков: замок порта -> замок набора. */
+typedef struct wset { spinlock_t lk; thread_t* t; int fired; } wset_t;
+typedef struct waiter { thread_t* t; struct waiter* next; int queued; wset_t* set; } waiter_t;
+typedef struct { uint32_t pid, len; uint8_t* data; kobj_t* att; } msg_t;   /* att - вложенный объект (ссылка принадлежит очереди) */
 
 typedef struct {
     kobj_t hdr;
@@ -14,6 +17,8 @@ typedef struct {
     msg_t q[PORT_QUEUE];
     uint32_t qh, qt;
     waiter_t* waiters;
+    uint32_t att_count;          // вложений в очереди этого порта
+    uint32_t in_flight;          // этот порт сам лежит вложением в чьей-то очереди
 } port_t;
 
 typedef struct {
@@ -29,6 +34,8 @@ typedef struct shm_reservation { char name[KNAME_MAX + 1]; struct shm_reservatio
 static shm_reservation_t* shm_creating;
 static volatile uint64_t msgs_total;
 #define KOBJ_F_PUBLIC 1u
+#define KOBJ_F_SERVICE 2u         // служба ядра: порт открывается из любого домена; создаётся только ядром (port_open_service)
+#define KOPEN_SERVICE_INT 8       // внутренний признак publish, из системных вызовов недопустим (open_flags_valid)
 #define KOPEN_FLAGS (KOPEN_CREATE | KOPEN_EXCL | KOPEN_PUBLIC)
 
 uint64_t kobj_messages_total(void) { return __atomic_load_n(&msgs_total, __ATOMIC_RELAXED); }
@@ -92,10 +99,24 @@ static kobj_t* find_locked(uint32_t type, const char* name) {
     return 0;
 }
 
+/* Вложенный порт перестаёт быть «в пути» (счётчик нужен, чтобы вложения не вкладывались друг в друга: цепочки не растут). */
+static void att_unflight(kobj_t* a) {
+    if (a->type != KOBJ_PORT) return;
+    port_t* x = (port_t*)a;
+    uint64_t f = spin_lock_irqsave(&x->lk);
+    if (x->in_flight) x->in_flight--;
+    spin_unlock_irqrestore(&x->lk, f);
+}
+
 static void destroy(kobj_t* o) {
     if (o->type == KOBJ_PORT) {
         port_t* p = (port_t*)o;
-        while (p->qt != p->qh) { kfree(p->q[p->qt % PORT_QUEUE].data); p->qt++; }
+        while (p->qt != p->qh) {
+            msg_t* m = &p->q[p->qt % PORT_QUEUE];
+            kfree(m->data);
+            if (m->att) { att_unflight(m->att); kobj_release(m->att); }     /* глубина не больше 1: порт с вложениями сам не вкладывается */
+            p->qt++;
+        }
     } else if (o->type == KOBJ_SHM) {
         shm_t* s = (shm_t*)o;
         for (uint32_t i = 0; i < s->pages; i++) if (s->frames[i]) pmm_free_page(s->frames[i]);
@@ -137,7 +158,7 @@ unsigned kobj_count(void) {
 
 // Найти или создать (создание - вне замка: страницы разделяемой памяти обнуляются долго). made - заготовка
 // нового объекта или 0; если объект за это время создал кто-то другой, заготовка уничтожается.
-static int publish(uint32_t type, const char* name, int flags, uint32_t owner_pid, kobj_t* made, kobj_t** out) {
+static int publish(uint32_t type, const char* name, int flags, uint32_t owner_pid, uint32_t dom, kobj_t* made, kobj_t** out) {
     uint64_t f = spin_lock_irqsave(&reg_lock);
     while (made && reg_n >= reg_cap) {                    // реестр полон: вырастить вне замка и повторить
         if (reg_cap > UINT32_MAX / 2) {
@@ -159,7 +180,7 @@ static int publish(uint32_t type, const char* name, int flags, uint32_t owner_pi
     kobj_t* o = find_locked(type, name);
     int rc = 0;
     if (o) {
-        if (o->owner_pid != owner_pid && !(o->flags & KOBJ_F_PUBLIC)) rc = KE_PERM;
+        if (o->owner_pid != owner_pid && (!(o->flags & KOBJ_F_PUBLIC) || !((o->flags & KOBJ_F_SERVICE) || domain_may_reach(dom, o->owner_dom)))) rc = KE_PERM;   /* чужой объект: только общий и только если домен дотягивается до домена создателя */
         else if ((flags & KOPEN_CREATE) && (flags & KOPEN_EXCL)) rc = KE_EXIST;
         else if (o->refs == UINT32_MAX) rc = KE_LIMIT;
         else { o->refs++; *out = o; }
@@ -167,7 +188,8 @@ static int publish(uint32_t type, const char* name, int flags, uint32_t owner_pi
         rc = KE_NOENT;
     } else {
         made->owner_pid = owner_pid;
-        made->flags = (flags & KOPEN_PUBLIC) ? KOBJ_F_PUBLIC : 0;
+        made->owner_dom = dom;
+        made->flags = ((flags & KOPEN_PUBLIC) ? KOBJ_F_PUBLIC : 0) | ((flags & KOPEN_SERVICE_INT) ? KOBJ_F_SERVICE : 0);
         made->refs = 1;
         reg[reg_n++] = made;
         *out = made;
@@ -246,7 +268,8 @@ static void set_name(kobj_t* o, uint32_t type, const char* name) {
 }
 
 // ---- порты ----
-int port_open_as(const char* name, int flags, uint32_t owner_pid, kobj_t** out) {
+int port_open_as(const char* name, int flags, uint32_t owner_pid, kobj_t** out) { return port_open_in(name, flags, owner_pid, DOM_SYSTEM, out); }
+int port_open_in(const char* name, int flags, uint32_t owner_pid, uint32_t dom, kobj_t** out) {
     if (!kname_ok(name) || !out || !open_flags_valid(flags)) return KE_ARG;
     port_t* p = 0;
     if ((flags & KOPEN_CREATE) && !exists(KOBJ_PORT, name)) {
@@ -255,40 +278,84 @@ int port_open_as(const char* name, int flags, uint32_t owner_pid, kobj_t** out) 
         __builtin_memset(p, 0, sizeof *p);
         set_name(&p->hdr, KOBJ_PORT, name);
     }
-    return publish(KOBJ_PORT, name, flags, owner_pid, p ? &p->hdr : 0, out);
+    return publish(KOBJ_PORT, name, flags, owner_pid, dom, p ? &p->hdr : 0, out);
+}
+
+int port_open_service(const char* name, kobj_t** out) {
+    if (!kname_ok(name) || !out) return KE_ARG;
+    port_t* p = 0;
+    if (!exists(KOBJ_PORT, name)) {
+        p = (port_t*)kmalloc(sizeof(port_t));
+        if (!p) return KE_NOMEM;
+        __builtin_memset(p, 0, sizeof *p);
+        set_name(&p->hdr, KOBJ_PORT, name);
+    }
+    return publish(KOBJ_PORT, name, KOPEN_CREATE | KOPEN_EXCL | KOPEN_PUBLIC | KOPEN_SERVICE_INT, 0, DOM_SYSTEM, p ? &p->hdr : 0, out);
 }
 
 int port_open(const char* name, int flags, kobj_t** out) {
     return port_open_as(name, flags, 0, out);
 }
 
-int port_send(kobj_t* o, uint32_t from_pid, const void* data, uint32_t len) {
+/* Отправка с вложением. att - объект с ВЗЯТОЙ ссылкой: при успехе ссылка переходит очереди, при ошибке остаётся у вызывающего.
+   Правила: вкладывать можно разделяемую память и порты; порт с вложениями в очереди сам вкладываться не может, а порт, уже лежащий
+   вложением, не принимает вложений (так цепочки и циклы не растут); получатель-порт должен дотягиваться до домена владельца вложения. */
+int port_send_att(kobj_t* o, uint32_t from_pid, const void* data, uint32_t len, kobj_t* att) {
     if (!o || o->type != KOBJ_PORT || len > PORT_MSG_MAX || (len && !data)) return KE_ARG;
     port_t* p = (port_t*)o;
+    if (att) {
+        if (att->type != KOBJ_PORT && att->type != KOBJ_SHM) return KE_ARG;
+        if (att == o) return KE_ARG;
+        if (att->owner_pid != o->owner_pid && !domain_may_reach(o->owner_dom, att->owner_dom)) return KE_PERM;
+    }
     uint8_t* copy = 0;
     if (len) {
         copy = (uint8_t*)kmalloc(len);
         if (!copy) return KE_NOMEM;
         __builtin_memcpy(copy, data, len);
     }
-    uint64_t f = spin_lock_irqsave(&p->lk);
-    if (p->qh - p->qt >= PORT_QUEUE) {
-        spin_unlock_irqrestore(&p->lk, f);
-        kfree(copy);
-        return KE_FULL;
+    port_t* x = att && att->type == KOBJ_PORT ? (port_t*)att : 0;
+    if (x) {                                                      // шаг 1: вкладываемый порт не должен сам нести вложения
+        uint64_t f = spin_lock_irqsave(&x->lk);
+        int bad = x->att_count != 0;
+        if (!bad) x->in_flight++;
+        spin_unlock_irqrestore(&x->lk, f);
+        if (bad) { kfree(copy); return KE_PERM; }
     }
-    p->q[p->qh % PORT_QUEUE] = (msg_t){ from_pid, len, copy };
+    uint64_t f = spin_lock_irqsave(&p->lk);
+    int rc = 0;
+    if (att && p->in_flight) rc = KE_PERM;                       // шаг 2: порт-получатель сам лежит вложением - вложения ему нельзя
+    else if (p->qh - p->qt >= PORT_QUEUE) rc = KE_FULL;
+    if (rc) {
+        spin_unlock_irqrestore(&p->lk, f);
+        if (x) att_unflight(att);
+        kfree(copy);
+        return rc;
+    }
+    p->q[p->qh % PORT_QUEUE] = (msg_t){ from_pid, len, copy, att };
+    if (att) p->att_count++;
     p->qh++;
     __atomic_add_fetch(&msgs_total, 1, __ATOMIC_RELAXED);
-    waiter_t* w = p->waiters;                     // будим одного ждущего: сообщение одно
-    if (w) {
-        p->waiters = w->next;
+    // Будим всех, кто лишь смотрит на порт (набор ожидания), и одного, кто заберёт сообщение: сообщение одно.
+    for (waiter_t** pp = &p->waiters; *pp; ) {
+        waiter_t* w = *pp;
+        *pp = w->next;
         w->queued = 0;
+        if (w->set) {
+            uint64_t sf = spin_lock_irqsave(&w->set->lk);
+            w->set->fired = 1;
+            sched_wake_waiter(w->set->t);
+            spin_unlock_irqrestore(&w->set->lk, sf);
+            continue;
+        }
         sched_wake_waiter(w->t);
+        break;
     }
     spin_unlock_irqrestore(&p->lk, f);
     return 0;
 }
+
+int port_send(kobj_t* o, uint32_t from_pid, const void* data, uint32_t len) { return port_send_att(o, from_pid, data, len, 0); }
 
 unsigned port_queued(kobj_t* o) {
     if (!o || o->type != KOBJ_PORT) return 0;
@@ -299,7 +366,18 @@ unsigned port_queued(kobj_t* o) {
     return n;
 }
 
-int64_t port_recv(kobj_t* o, void* kbuf, uint32_t cap, uint64_t timeout, uint32_t* from_pid, int (*stop)(void)) {
+unsigned port_waiters(kobj_t* o) {
+    if (!o || o->type != KOBJ_PORT) return 0;
+    port_t* p = (port_t*)o;
+    unsigned n = 0;
+    uint64_t f = spin_lock_irqsave(&p->lk);
+    for (waiter_t* w = p->waiters; w; w = w->next) n++;
+    spin_unlock_irqrestore(&p->lk, f);
+    return n;
+}
+
+int64_t port_recv_att(kobj_t* o, void* kbuf, uint32_t cap, uint64_t timeout, uint32_t* from_pid, int (*stop)(void), kobj_t** att_out) {
+    if (att_out) *att_out = 0;
     if (!o || o->type != KOBJ_PORT || (cap && !kbuf)) return KE_ARG;
     port_t* p = (port_t*)o;
     uint64_t start = timer_get_ticks();
@@ -308,11 +386,17 @@ int64_t port_recv(kobj_t* o, void* kbuf, uint32_t cap, uint64_t timeout, uint32_
         if (p->qh != p->qt) {
             msg_t m = p->q[p->qt % PORT_QUEUE];
             p->qt++;
+            if (m.att) p->att_count--;
             spin_unlock_irqrestore(&p->lk, f);
             uint32_t n = m.len < cap ? m.len : cap;
             if (n) __builtin_memcpy(kbuf, m.data, n);
             kfree(m.data);
             if (from_pid) *from_pid = m.pid;
+            if (m.att) {
+                att_unflight(m.att);
+                if (att_out) *att_out = m.att;                 // ссылка уходит получателю
+                else kobj_release(m.att);                      // вложение не просили: отпускаем
+            }
             return (int64_t)m.len;
         }
         uint64_t waited = timer_get_ticks() - start;
@@ -322,7 +406,7 @@ int64_t port_recv(kobj_t* o, void* kbuf, uint32_t cap, uint64_t timeout, uint32_
         else if (timeout != ~0ULL && waited >= timeout) rc = KE_TIMEOUT;
         if (rc) { spin_unlock_irqrestore(&p->lk, f); return rc; }
 
-        waiter_t w = { (thread_t*)sched_current(), 0, 1 };
+        waiter_t w = { (thread_t*)sched_current(), 0, 1, 0 };
         waiter_t** pp = &p->waiters;
         while (*pp) pp = &(*pp)->next;
         *pp = &w;
@@ -334,6 +418,61 @@ int64_t port_recv(kobj_t* o, void* kbuf, uint32_t cap, uint64_t timeout, uint32_
         }
         spin_unlock_irqrestore(&p->lk, f);
     }
+}
+
+// Ждать, пока в одном из портов появится сообщение (не забирая его): индекс первого готового порта, KE_TIMEOUT, KE_AGAIN (срок 0, ничего нет), KE_INTR.
+int64_t port_wait(kobj_t** ports, unsigned n, uint64_t timeout, int (*stop)(void)) {
+    if (!ports || n == 0 || n > PORT_WAIT_MAX) return KE_ARG;
+    for (unsigned i = 0; i < n; i++) if (!ports[i] || ports[i]->type != KOBJ_PORT) return KE_ARG;
+    for (unsigned i = 0; i < n; i++) for (unsigned j = i + 1; j < n; j++) if (ports[i] == ports[j]) return KE_ARG;
+    uint64_t start = timer_get_ticks();
+    for (;;) {
+        wset_t set = { SPINLOCK_INIT, (thread_t*)sched_current(), 0 };
+        waiter_t w[PORT_WAIT_MAX];
+        unsigned reg_n2 = 0;
+        int64_t ready = -1;
+        for (unsigned i = 0; i < n && ready < 0; i++) {
+            port_t* p = (port_t*)ports[i];
+            uint64_t f = spin_lock_irqsave(&p->lk);
+            if (p->qh != p->qt) ready = i;
+            else if (timeout != 0) {
+                w[i] = (waiter_t){ set.t, 0, 1, &set };
+                waiter_t** pp = &p->waiters;
+                while (*pp) pp = &(*pp)->next;
+                *pp = &w[i];
+                reg_n2 = i + 1;
+            }
+            spin_unlock_irqrestore(&p->lk, f);
+        }
+        int64_t rc = ready;
+        int slept_once = 0;
+        if (rc < 0) {
+            uint64_t waited = timer_get_ticks() - start;
+            if (timeout == 0) rc = KE_AGAIN;
+            else if (stop && stop()) rc = KE_INTR;
+            else if (timeout != ~0ULL && waited >= timeout) rc = KE_TIMEOUT;
+            else {
+                uint64_t f = spin_lock_irqsave(&set.lk);
+                if (set.fired) spin_unlock_irqrestore(&set.lk, f);           // сообщение пришло, пока мы вставали в очереди: не спим
+                else {
+                    sched_wait_and_unlock(&set.lk, timeout == ~0ULL ? ~0ULL : timeout - waited);
+                    irq_restore(f);
+                }
+                slept_once = 1;
+            }
+        }
+        for (unsigned i = 0; i < reg_n2; i++) {          // уходим из очередей, где остались (замок порта синхронизирует с отправителем, который нас уже снял)
+            port_t* p = (port_t*)ports[i];
+            uint64_t f = spin_lock_irqsave(&p->lk);
+            if (w[i].queued) for (waiter_t** pp = &p->waiters; *pp; pp = &(*pp)->next) if (*pp == &w[i]) { *pp = w[i].next; break; }
+            spin_unlock_irqrestore(&p->lk, f);
+        }
+        if (!slept_once) return rc;                      // готов порт или ошибка; после сна проверяем всё заново
+    }
+}
+
+int64_t port_recv(kobj_t* o, void* kbuf, uint32_t cap, uint64_t timeout, uint32_t* from_pid, int (*stop)(void)) {
+    return port_recv_att(o, kbuf, cap, timeout, from_pid, stop, 0);
 }
 
 // ---- разделяемая память ----
@@ -366,13 +505,14 @@ static void shm_budget_release(uint64_t kb) {
     spin_unlock_irqrestore(&shm_budget_lock, f);
 }
 
-int shm_open_as(const char* name, uint32_t pages, int flags, uint32_t owner_pid, kobj_t** out) {
+int shm_open_as(const char* name, uint32_t pages, int flags, uint32_t owner_pid, kobj_t** out) { return shm_open_in(name, pages, flags, owner_pid, DOM_SYSTEM, out); }
+int shm_open_in(const char* name, uint32_t pages, int flags, uint32_t owner_pid, uint32_t dom, kobj_t** out) {
     if (!kname_ok(name) || !out || !open_flags_valid(flags)) return KE_ARG;
     shm_t* s = 0;
     shm_reservation_t* reservation = 0;
     if (flags & KOPEN_CREATE) {
         int rr = shm_reserve(name, &reservation);
-        if (rr == 1) return publish(KOBJ_SHM, name, flags, owner_pid, 0, out);
+        if (rr == 1) return publish(KOBJ_SHM, name, flags, owner_pid, dom, 0, out);
         if (rr) return rr;
         if (pages == 0) { shm_unreserve(reservation); return KE_ARG; }
         uint64_t budget_kb = (uint64_t)pages * 4;
@@ -405,7 +545,7 @@ int shm_open_as(const char* name, uint32_t pages, int flags, uint32_t owner_pid,
             __builtin_memset((void*)(uintptr_t)pa, 0, 4096);
         }
     }
-    int rc = publish(KOBJ_SHM, name, flags, owner_pid, s ? &s->hdr : 0, out);
+    int rc = publish(KOBJ_SHM, name, flags, owner_pid, dom, s ? &s->hdr : 0, out);
     if (reservation) shm_budget_release((uint64_t)pages * 4);
     shm_unreserve(reservation);
     return rc;

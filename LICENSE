@@ -1,0 +1,20 @@
+Kira OS — Copyright (c) 2026 Пастушенко Константин Олегович (Pastushenko Konstantin Olegovich). Все права защищены.
+Kira OS — Copyright (c) 2026 Пастушенко Константин Олегович (Pastushenko Konstantin Olegovich). All rights reserved.
+
+Это действующее уведомление: лицензия закрытая, все права защищены.
+This is the current notice: proprietary license, all rights reserved.
+
+Исходный код и документация проекта являются объектом авторских прав.
+Без отдельного письменного разрешения правообладателя запрещено
+использовать, копировать, изменять, распространять и встраивать их в
+свои продукты и комплексы. Просмотр кода в репозитории не даёт прав на
+его использование.
+Without separate written permission from the copyright holder, you may
+not use, copy, modify, distribute or embed this code or documentation.
+Viewing the code in the repository grants no rights to use it.
+
+Сторонние компоненты (например, MicroPython, wasi-libc, BSD-драйверы)
+сохраняют свои собственные лицензии; это уведомление на них не
+распространяется.
+Third-party components (for example MicroPython, wasi-libc, BSD drivers)
+keep their own licenses; this notice does not cover them.

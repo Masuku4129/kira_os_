@@ -26,7 +26,7 @@ enum {
 };
 
 typedef struct { uint32_t type; uint64_t size; uint32_t ino; } kfs_stat_t;
-typedef struct { uint32_t total_blocks, free_blocks, inodes, free_inodes, repaired; } kfs_info_t;   /* блоки по 4 КБ */
+typedef struct { uint32_t total_blocks, free_blocks, inodes, free_inodes, repaired, shared; } kfs_info_t;   /* блоки по 4 КБ */
 typedef int (*kfs_list_cb)(void* ctx, const char* name, const kfs_stat_t* st);   /* ненулевой результат прерывает обход; внутри нельзя вызывать другие функции kfs_* (общие рабочие буферы) */
 
 int  kfs_detect(blk_dev_t* dev, uint64_t base_lba);   /* 0 - на диске корректная KiraFS (только чтение, без монтирования) */
@@ -36,6 +36,8 @@ int  kfs_mounted(void);
 int  kfs_stat(const char* path, kfs_stat_t* st);
 int64_t kfs_read(const char* path, uint64_t off, void* buf, size_t len);   /* прочитано байт или ошибка */
 int  kfs_write(const char* path, const void* data, size_t len);            /* создаёт или целиком и атомарно заменяет файл */
+int  kfs_write_packed(const char* path, const void* z, size_t zlen, uint64_t usize);   /* файл хранится сжатым кадром Zstd (до 8 МБ), читается и виден (размер) как распакованный; кадр проверяется до записи */
+int  kfs_clone(const char* src, const char* dst);   /* COW-копия файла: данные не копируются, блоки общие до замены любого из файлов */
 int  kfs_mkdir(const char* path);
 int  kfs_unlink(const char* path);                    /* файл или пустой каталог */
 int  kfs_list(const char* path, kfs_list_cb cb, void* ctx);

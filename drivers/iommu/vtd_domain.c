@@ -122,8 +122,9 @@ static int vtd_context_slot(struct kira_vtd_unit *unit, uint8_t bus,
 {
     uint64_t *root_entries = vtd_page(unit->root_table);
 
-    if (root_entries[bus] & VTD_ENTRY_PRESENT) {
-        *context_physical = root_entries[bus] & VTD_ENTRY_ADDRESS;
+    /* Корневая запись - 128 бит (два qword, старший зарезервирован): запись шины bus лежит в qword 2*bus. */
+    if (root_entries[2u * bus] & VTD_ENTRY_PRESENT) {
+        *context_physical = root_entries[2u * bus] & VTD_ENTRY_ADDRESS;
         *context = vtd_table_virt(p, *context_physical);
         if (!*context)
             return KIRA_VTD_MEMORY_FAILED;
@@ -146,7 +147,7 @@ static void vtd_context_publish(struct kira_vtd_unit *unit, uint8_t bus,
     if (p->clean_cache)
         p->clean_cache(p->context, context, KIRA_VTD_PAGE_SIZE);
     if (is_new) {
-        vtd_page(unit->root_table)[bus] = (context_physical & VTD_ENTRY_ADDRESS) |
+        vtd_page(unit->root_table)[2u * bus] = (context_physical & VTD_ENTRY_ADDRESS) |
                                           VTD_ENTRY_PRESENT;
         if (p->clean_cache)
             p->clean_cache(p->context, unit->root_table, KIRA_VTD_PAGE_SIZE);

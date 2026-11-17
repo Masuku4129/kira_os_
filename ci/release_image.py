@@ -11,6 +11,8 @@ TEST_FIXTURES = {
     "/drv/eduun.kdrv", "/drv/eduun.rec",
     "/drv/edu.kdrv", "/drv/edu.rec",
     "/drv/edunc.kdrv", "/drv/edunc.rec",
+    "/drv/vblk.kdrv", "/drv/vblk.rec",
+    "/drv/vblknc.kdrv", "/drv/vblknc.rec",
 }
 
 

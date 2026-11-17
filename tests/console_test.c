@@ -6,17 +6,20 @@
 #include <stdint.h>
 #include "console.h"
 #include "hwprofile.h"
+#include "uheap.h"
 #include "input.h"
 #include "proc.h"
 #include "progs.h"
 #include "life.h"
 #include "mind_sys.h"
+#include "bbsave.h"
 #include "heap.h"
 #include "immune.h"
 #include "sched.h"
 #include "fscmd.h"
 #include "pci.h"
 #include "blk.h"
+#include "platform.h"
 void smp_describe(void (*out)(const char*)) { out("smp stub\n"); }
 int smp_selftest_start(void) { return -1; }
 char kernel_start[4096];
@@ -39,7 +42,7 @@ void blk_print(void) { emit("[DISKS]\n"); }
 static char fsarg[96]; static const char* fscall;
 #define fsclr() (fsarg[0] = 0)
 #define FSSTUB(n) void n(const char* a) { fscall = #n; fsarg[0] = 0; strncpy(fsarg, a, sizeof fsarg - 1); }
-FSSTUB(fscmd_ls) FSSTUB(fscmd_cat) FSSTUB(fscmd_write) FSSTUB(fscmd_rm) FSSTUB(fscmd_mkdir) FSSTUB(fscmd_df) FSSTUB(fscmd_format) FSSTUB(fscmd_cp) FSSTUB(fscmd_umount) FSSTUB(fscmd_remount)
+FSSTUB(fscmd_ls) FSSTUB(fscmd_cat) FSSTUB(fscmd_write) FSSTUB(fscmd_rm) FSSTUB(fscmd_mkdir) FSSTUB(fscmd_df) FSSTUB(fscmd_verify) FSSTUB(fscmd_json) FSSTUB(fscmd_format) FSSTUB(fscmd_cp) FSSTUB(fscmd_umount) FSSTUB(fscmd_remount)
 void uart_print(const char* s) { emit(s); }
 void uart_putchar(char c) { char b[2] = { c, 0 }; emit(b); }
 void uart_print_serial(const char* s) { size_t n = strlen(s); memcpy(serial + sern, s, n); sern += n; }
@@ -49,6 +52,7 @@ int uart_getchar(void) { if (flood) { flood++; return 0xFF; } return script && s
 static input_event_t evq[16]; static int evh, evt;
 int input_pop(input_event_t* ev) { if (evt == evh) return 0; *ev = evq[evt++ % 16]; return 1; }
 unsigned input_raw_take(uint8_t* out, unsigned max) { (void)out; (void)max; return 0; }
+void input_note_event(void) { }
 static void key(int k, int ch) { evq[evh++ % 16] = (input_event_t){ INPUT_KEY_DOWN, (uint16_t)k, (uint16_t)ch, 0 }; }
 int gfx_focus_pid(void) { return 0; }
 const char* spawned_name;
@@ -64,12 +68,16 @@ int prog_run_args(const char* n, const char* a) {
     if (!strcmp(n, "kcc")) { snprintf(cc_args, sizeof cc_args, "%s", a); return 5; }
     return prog_run(n);
 }
+static char py_grant[64], py_args[64];
+int prog_run_file_args(const char* n, const char* g, const char* a) { (void)n; snprintf(py_grant, sizeof py_grant, "%s", g); snprintf(py_args, sizeof py_args, "%s", a ? a : ""); return 7; }
 int prog_run_local(const char* f) { snprintf(local_file, sizeof local_file, "%s", f); return 6; }
 void kdrv_cmd(const char* a) { (void)a; }
 void prog_list(void) {}
 void platform_status(void (*out)(const char*)) { out("IRQ stub\n"); }
 void platform_hw(void (*out)(const char*)) { hw_describe(hw_get(), out); }
 void build_cmd(const char* a) { (void)a; }
+int platform_battery(platform_battery_t* b) { (void)b; return -1; }
+void platform_acpi_cmd(const char* a) { (void)a; }
 int platform_console_cmd(const char* c, const char* a) { (void)c; (void)a; return 0; }
 void platform_poweroff(void) {}
 void platform_reboot(void) {}
@@ -88,6 +96,7 @@ static char rf_l[160], rf_r[160]; static int rf_n;
 void display_request_files(const char* l, const char* r) { snprintf(rf_l, sizeof rf_l, "%s", l); snprintf(rf_r, sizeof rf_r, "%s", r); rf_n++; }
 static int kbd_owner;                                   /* 1 - клавиатуру читает Проводник */
 int display_kbd_owner(void) { return kbd_owner; }
+static const console_shell_t test_shell = { display_print_info, display_request_files, display_kbd_owner };   /* как wire_init в ядре */
 int experience_save_now(void) { saved++; return 0; }
 void experience_print(void) { emit("[EXP]\n"); }
 void sched_dump(void) { emit("[PS]\n"); }
@@ -98,6 +107,9 @@ void mind_sys_print(const char* w) { snprintf(mind_req, sizeof mind_req, "print:
 void mind_sys_request_mode(int m) { snprintf(mind_req, sizeof mind_req, "mode:%d", m); }
 void mind_sys_request_cap(int p) { snprintf(mind_req, sizeof mind_req, "cap:%d", p); }
 unsigned mind_sys_core_cap(void) { return 50; }
+static char bb_req[32]; static int bb_shutdown_saves;
+void bbsave_command(const char* a) { snprintf(bb_req, sizeof bb_req, "bb:%s", a ? a : ""); }
+int bbsave_now(unsigned reason) { if (reason == BB_SAVE_SHUTDOWN) bb_shutdown_saves++; return 0; }
 void mind_sys_request_fx(int f) { snprintf(mind_req, sizeof mind_req, "fx:%d", f); }
 void mind_sys_view(mind_view_t* v) { memset(v, 0, sizeof *v); v->health = 91; strcpy(v->mood, "спокойна"); v->mode = 1; v->quantum_ms = 30; }
 uint64_t timer_get_ticks(void) { return 0; }
@@ -128,6 +140,8 @@ static int has(const char* s) { return strstr(out, s) != 0; }
 static void reset(void) { outn = 0; out[0] = 0; sern = 0; serial[0] = 0; }
 
 int main(void) {
+    console_set_shell(&test_shell);
+    hw_set_describe_extra(uheap_describe_limits);   /* как wire_init в ядре */
     feed("");                                           /* первый вызов показывает приглашение */
     CHECK(has("кира> "));
     /* hw: профиль железа печатается командой, без запуска программ */
@@ -161,6 +175,11 @@ int main(void) {
     CHECK(!cc_args[0] && has("использование: cc исходник результат"));
     reset(); feed("cc a b c\n");
     CHECK(!cc_args[0] && has("использование: cc"));
+    /* python: модуль /wasm/python.wasm выдаётся программе wasm правом чтения, остаток строки - её аргументы */
+    reset(); feed("python -c print(1+1)\n");
+    CHECK(!strcmp(py_grant, "/wasm/python.wasm") && !strcmp(py_args, "-c print(1+1)"));
+    py_args[0] = 'x'; reset(); feed("python\n");
+    CHECK(!py_args[0] && has("интерактивный режим"));
     reset(); feed("runlocal hello\n");
     CHECK(!strcmp(local_file, "hello"));
     local_file[0] = 0; reset(); feed("runlocal\n");
@@ -199,6 +218,9 @@ int main(void) {
     /* CR LF - одна команда, а не две */
     reset(); feed("save\r\n");
     CHECK(saved == 1);
+    reset(); feed("reboot\n"); CHECK(bb_shutdown_saves == 1);                 /* перед перезагрузкой чёрный ящик сбрасывается на диск */
+    reset(); feed("poweroff\n"); CHECK(bb_shutdown_saves == 2);
+    reset(); feed("save\r\n");
     size_t prompts = 0; for (const char* p = out; (p = strstr(p, "кира> ")); p += 8) prompts++;
     CHECK(prompts == 1);
     /* telemetry on/off */
@@ -209,6 +231,11 @@ int main(void) {
     flood = 1; console_poll(); CHECK(flood > 1 && flood < 2000); flood = 0;
     /* Разум */
     reset(); feed("ai why\n"); CHECK(!strcmp(mind_req, "print:why"));
+    reset(); feed("ai cost\n"); CHECK(!strcmp(mind_req, "print:cost"));
+    reset(); feed("bb\n"); CHECK(!strcmp(bb_req, "bb:"));                           /* чёрный ящик: команда доходит до bbsave_command с аргументом */
+    reset(); feed("bb save\n"); CHECK(!strcmp(bb_req, "bb:save"));
+    reset(); feed("bb clear\n"); CHECK(!strcmp(bb_req, "bb:clear"));
+    reset(); feed("bb old\n"); CHECK(!strcmp(bb_req, "bb:old"));
     reset(); feed("ai forecast\n"); CHECK(!strcmp(mind_req, "print:forecast"));
     reset(); feed("ai observe\n"); CHECK(!strcmp(mind_req, "mode:0"));
     reset(); feed("ai act\n"); CHECK(!strcmp(mind_req, "mode:1"));

@@ -3,7 +3,7 @@
    будит поток «net» (без него - опрос каждый тик, как у e1000). */
 #include "virtio_net.h"
 #include "virtio.h"
-#include "net.h"
+#include "netdev.h"
 #include "msi.h"
 #include "uart.h"
 #include "spinlock.h"
@@ -76,7 +76,10 @@ int virtio_net_probe(void) {
     const pci_dev_t* p = pci_find(VIRTIO_VENDOR, 0x1041);
     if (!p) p = pci_find(VIRTIO_VENDOR, 0x1000);                  /* переходный с capabilities 1.0 */
     if (!p) return -1;
-    if (virtio_attach(&v.dev, p) || !v.dev.devcfg || virtio_begin(&v.dev, F_MAC | (1ull << 16))) {
+    int isolated = virtio_iso_open(p);                            /* свой домен VT-d без отображений - до включения bus mastering */
+    if (virtio_attach(&v.dev, p) != 0 || !v.dev.devcfg) { uart_print("[KIRA NET] virtio-net: no virtio 1.0 interface.\n"); return -2; }
+    if (isolated) isolated = virtio_iso_confirm(&v.dev, "virtio-net", 1, 0);   /* приём без кадра молчит: проверка по очереди передачи */
+    if (virtio_begin(&v.dev, F_MAC | (1ull << 16) | VIRTIO_F_ACCESS_PLATFORM)   /* устройство с iommu_platform требует признак всегда; без изоляции домен сквозной */) {
         uart_print("[KIRA NET] virtio-net: no virtio 1.0 interface.\n");
         return -2;
     }
@@ -86,6 +89,7 @@ int virtio_net_probe(void) {
     v.rxb = (uint8_t*)virtio_dma_alloc(NRX * BUF, &v.rxb_p);
     v.txb = (uint8_t*)virtio_dma_alloc(NTX * BUF, &v.txb_p);
     if (!v.rxb || !v.txb) { virtio_fail(&v.dev); return -4; }
+    if (isolated && (virtio_dma_grant(&v.dev, v.rxb_p, NRX * BUF) || virtio_dma_grant(&v.dev, v.txb_p, NTX * BUF))) { virtio_fail(&v.dev); return -5; }   /* буферы кадров - устройству */
     unsigned nrx = v.rx.size < NRX ? v.rx.size : NRX;
     for (unsigned i = 0; i < nrx; i++) virtq_post(&v.rx, (uint16_t)i, v.rxb_p + i * BUF, BUF, 1);
     virtio_driver_ok(&v.dev);
@@ -101,6 +105,7 @@ int virtio_net_probe(void) {
     for (int i = 0; i < 6; i++) { m[3 * i] = hx[v.nd.mac[i] >> 4]; m[3 * i + 1] = hx[v.nd.mac[i] & 15]; m[3 * i + 2] = i < 5 ? ':' : 0; }
     uart_print("[KIRA NET] virtio-net: MAC "); uart_print(m);
     uart_print(has_irq ? ", receive wakes the network thread by MSI-X\n" : ", polled\n");
-    net_register(&v.nd);
     return 0;
 }
+
+netdev_t* virtio_net_netdev(void) { return &v.nd; }

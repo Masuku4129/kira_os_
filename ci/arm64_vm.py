@@ -15,7 +15,8 @@ SC = [
     dict(name="arm64-gicv3", m="virt,gic-version=3", cpu="cortex-a72", smp=4, mem="1G", disk="virtio-blk-pci",
          must=[r"GICv3", r"Processors online: 4 of 4 \(PSCI via hvc\)", r"working timer interrupt: 4 of 4", r"entered at EL1", r"RAM: 1024 MB",
                r"\[KIRA PCI\] ECAM at .*BAR\(s\) assigned", r"virtio-blk", r"\[KIRA FS\] KiraFS mounted", r"\[KIRA MIND\] Mind online", r"\[KIRA SYSCALL\] SVC from EL0",
-               r"\[KIRA GIC\] ITS at .*PCI interrupts by message", r"virtio-blk, .*completion by MSI-X interrupt"],
+               r"\[KIRA GIC\] ITS at .*PCI interrupts by message", r"virtio-blk, .*completion by MSI-X interrupt",
+               r"No SMMUv3 in the device tree: DMA isolation is not available, devices keep unrestricted DMA"],
          net=True,
          cmds=[("smp", [r"core 3: MPIDR 0x0+3, online, ticks [1-9]"]),
                ("mem", [r"RAM 0x0+40000000 \.\. 0x0+80000000 \(1024 MB\)", r"kernel heap: \d+ bytes"]),
@@ -24,7 +25,7 @@ SC = [
                ("disk", [r"\[системный\]", r"прерываний устройств \(MSI\): [1-9]"]), ("df", [r"KiraFS"]),
                ("write /hello.txt kira-arm64", []), ("cat /hello.txt", [r"kira-arm64"]), ("ls /", [r"hello.txt"]),
                ("ai", [r"предвидение: риск опоздания экрана", r"здоровье \d+"]), ("ai model", [r"обучено на \d+ с"]),
-               ("ai levers", [r"13\. вес окна в фокусе: 6 /4 \(обычно 6\)", r"16\. период тактики: 25 мс", r"21\. предел одного запроса к диску: 256 блоков", r"23\. окно предела доли процессора: 50 тиков", r"смен значений за запуск \d+"]),
+               ("ai levers", [r"13\. вес окна в фокусе: 6 /4 \(обычно 6\)", r"16\. период тактики: (25 мс \(обычно 25\)|\d+ мс \(обычно 25\) - идёт проба)", r"21\. предел одного запроса к диску: 256 блоков", r"23\. окно предела доли процессора: 50 тиков", r"смен значений за запуск \d+"]),
                ("ai save", [r"опыт записан"]),
                ("ai cap 70", [r"70%"]),
                ("ls /bin", [r"mt", r"ipc"]),
@@ -127,7 +128,9 @@ SC = [
          cmds=[("test isolation", [r"address spaces are isolated \(PASS\)", r"address spaces are isolated \(PASS\)[\s\S]*address spaces are isolated \(PASS\)"]),
                ("test atk", [r"kernel pointer passed to write\(\) was rejected \(PASS\)", r"jumping into kernel memory"]),
                ("@sleep 3", []),
-               ("test caps", [r"atk-cap: 16 calls without rights refused, harmless calls work \(PASS\)", r"\[KIRA CAPS\] process 'atk-cap' .* denied, no right CAP_GFX"]),
+               ("test caps", [r"atk-cap: 17 calls without rights refused, harmless calls work \(PASS\)", r"\[KIRA CAPS\] process 'atk-cap' .* denied, no right CAP_GFX"]),
+               ("test ipc", [r"ipcx: foreign-domain open of a public shared-memory object refused \(PASS\)", r"ipc server: .* - PASS"]),
+               ("@sleep 5", []),
                ("test fpu", [r"fpu: rounds \d+, mismatches 0 - PASS[\s\S]*- PASS[\s\S]*- PASS"]),
                ("test threads", [r"mt: .* - PASS"]),
                ("status", [r"interrupts: GICv3"]),
@@ -203,6 +206,58 @@ SC = [
                ("cp /bin/plasma /usb0/plasma.bin", [r"том подключён только для чтения"]),
                ("ls /usb0", [r"hello\.txt", r"big\.bin"]),
                ("umount usb0", [])]),
+    # ARM SMMUv3 (QEMU virt,iommu=smmuv3): диск virtio-blk работает через домен устройства с таблицей страниц ядра, запись в невыданную память блокируется
+    dict(name="arm64-smmu", m="virt,gic-version=3,iommu=smmuv3", cpu="cortex-a72", smp=2, mem="1G", disk="virtio-blk-pci,disable-legacy=on,iommu_platform=on",
+         must=[r"SMMUv3 translation enabled", r"pci 0:1\.0 passthrough: unrestricted DMA, NOT isolated", r"pci 0:1\.0 isolated: own translation domain",
+               r"virtio-blk: enforcement check passed", r"Disk virtio-blk, .*DMA isolated by IOMMU", r"\[KIRA FS\] KiraFS mounted"],
+         cmds=[("write /smmu.txt kira-smmu", []), ("cat /smmu.txt", [r"kira-smmu"]), ("disk", [r"\[системный\]", r"прерываний устройств \(MSI\): [1-9]"]), ("df", [r"KiraFS"]),
+               ("dma", [r"IOMMU включена", r"pci 0:1\.0 1af4:1042 изолировано, остановлено обращений [1-9]"])]),
+    # Все устройства virtio ядра под SMMUv3: диск, сеть, энтропия, экран и ввод - у каждого свой домен (таблица страниц ядра, выданы только кольца и буферы),
+    # принуждение проверено до включения (обращение к невыданной памяти остановлено и записано как событие SMMU), система работает: диск, DHCP + ping, rng, кадры экрана.
+    # virtio-input (клавиатура и планшет): под SMMU принуждение подтверждается (очередь состояния при невыданной памяти даёт событие SMMU) - в отличие от VT-d в QEMU.
+    dict(name="arm64-smmu-all", m="virt,gic-version=3,iommu=smmuv3", cpu="cortex-a72", smp=2, mem="1G", gui=True,
+         disk="virtio-blk-pci,disable-legacy=on,iommu_platform=on", net="virtio", rng=True, viprops=",disable-legacy=on,iommu_platform=on",
+         nicprops=",disable-legacy=on,iommu_platform=on", ready_timeout=90,
+         must=[r"SMMUv3 translation enabled", r"virtio-rng: enforcement check passed", r"virtio-blk: enforcement check passed", r"Disk virtio-blk, .*DMA isolated by IOMMU",
+               r"virtio-gpu: enforcement check passed", r"\[KIRA GPU\] virtio-gpu: \d+x\d+ 2D scanout", r"virtio-net: enforcement check passed", r"\[KIRA NET\] virtio-net: MAC 52:54:00",
+               r"virtio-input: enforcement check passed.*\n.*Virtio Keyboard", r"virtio-input: enforcement check passed.*\n.*Virtio Tablet"],
+         forbid=[r"DMA fault", r"NOT isolated: ", r"NOT confirmed", r"did not start", r"stopped answering"],
+         cmds=[("@sleep 4", []),
+               ("random", [r"источники - .*virtio-rng", r"засеян аппаратным источником", r"проба: [0-9a-f]{32}"]),
+               ("net", [r"карта virtio-net, канал есть", r"адрес 10\.0\.2\.15"]),
+               ("ping 10.0.2.2 3", [r"получено [1-3]"]),
+               ("write /smmu.txt kira-smmu-all", []), ("cat /smmu.txt", [r"kira-smmu-all"]), ("disk", [r"\[системный\]", r"прерываний устройств \(MSI\): [1-9]"]),
+               ("dma", [r"IOMMU включена", r"pci 0:\d+\.0 1af4:1042 изолировано, остановлено обращений [1-9]", r"pci 0:\d+\.0 1af4:1041 изолировано, остановлено обращений [1-9]",
+                        r"pci 0:\d+\.0 1af4:1044 изолировано, остановлено обращений [1-9]", r"pci 0:\d+\.0 1af4:1050 изолировано, остановлено обращений [1-9]",
+                        r"pci 0:\d+\.0 1af4:1052 изолировано, остановлено обращений [1-9]", r"в своём домене: 6 из "]),
+               ("@shot smmu-all", [])]),
+    # SMMUv3 есть, но устройства не просят платформенный доступ (нет iommu_platform): их DMA идёт мимо SMMU, принуждение подтвердить нельзя -
+    # ядро честно пишет «NOT isolated», снимает домен, и устройства работают как раньше (сквозной режим с записью в журнал).
+    dict(name="arm64-smmu-fallback", m="virt,gic-version=3,iommu=smmuv3", cpu="cortex-a72", smp=2, mem="1G", disk="virtio-blk-pci", net="virtio", rng=True,
+         must=[r"SMMUv3 translation enabled", r"virtio-rng: device does not negotiate ACCESS_PLATFORM \(its DMA bypasses the IOMMU\): NOT isolated",
+               r"virtio-blk: device does not negotiate ACCESS_PLATFORM \(its DMA bypasses the IOMMU\): NOT isolated", r"pci 0:\d+\.0 back to passthrough: unrestricted DMA, NOT isolated",
+               r"\[KIRA FS\] KiraFS mounted"],
+         cmds=[("@sleep 4", []), ("net", [r"канал есть", r"адрес 10\.0\.2\.15"]), ("ping 10.0.2.2 3", [r"получено [1-3]"]),
+               ("write /fb.txt kira-passthrough", []), ("cat /fb.txt", [r"kira-passthrough"]),
+               ("dma", [r"IOMMU включена", r"в своём домене: 0 из "])]),
+    # SMMUv3 + устройства без согласованности кэша (kira.dma=noncoherent): обходчик таблиц SMMU и DMA устройств не видят кэш процессора, а очистки кэша для таблиц
+    # в ядре нет - поэтому SMMU не включается (честно сообщается), устройства работают через пул DMA без кэша. QEMU согласован всегда: настоящую
+    # некогерентность (очистка кэша для таблиц SMMU, пул, домены) здесь проверить нельзя - это «подтвердить на железе» (docs/BACKLOG.md).
+    dict(name="arm64-smmu-nc", m="virt,gic-version=3,iommu=smmuv3", cpu="cortex-a72", smp=2, mem="1G", disk="virtio-blk-pci,disable-legacy=on,iommu_platform=on", net="virtio",
+         nicprops=",disable-legacy=on,iommu_platform=on", extra=["-append", "kira.dma=noncoherent"],
+         must=[r"DMA: devices are NOT cache-coherent: \d+ MB pool at 0x[0-9A-Fa-f]+", r"SMMUv3: DMA is not cache-coherent on this platform, SMMU left off", r"\[KIRA FS\] KiraFS mounted"],
+         forbid=[r"SMMUv3 translation enabled", r"isolated: own translation domain"],
+         cmds=[("@sleep 4", []), ("net", [r"канал есть", r"адрес 10\.0\.2\.15"]), ("ping 10.0.2.2 3", [r"получено [1-3]"]),
+               ("write /nc.txt kira-smmu-nc", []), ("cat /nc.txt", [r"kira-smmu-nc"]), ("dma", [r"IOMMU нет", r"в своём домене: 0 из "])]),
+    # То же при загрузке как на железе: прошивка AAVMF -> ISO -> BOOTAA64.EFI -> ядро (дерево устройств с iommu-map отдаёт прошивка, а не QEMU -kernel).
+    dict(name="arm64-smmu-uefi", m="virt,gic-version=3,acpi=off,iommu=smmuv3", cpu="cortex-a72", smp=2, mem="1G", uefi=True, ready_timeout=240, net="virtio",
+         disk="virtio-blk-pci,disable-legacy=on,iommu_platform=on", nicprops=",disable-legacy=on,iommu_platform=on",
+         must=[r"\[KIRA BOOT\] loaded by the Kira UEFI loader", r"SMMUv3 translation enabled", r"virtio-blk: enforcement check passed", r"Disk virtio-blk, .*DMA isolated by IOMMU",
+               r"virtio-net: enforcement check passed", r"\[KIRA FS\] KiraFS mounted"],
+         forbid=[r"DMA fault", r"NOT isolated: ", r"NOT confirmed"],
+         cmds=[("@sleep 4", []), ("net", [r"канал есть", r"адрес 10\.0\.2\.15"]), ("ping 10.0.2.2 3", [r"получено [1-3]"]),
+               ("write /u.txt kira-smmu-uefi", []), ("cat /u.txt", [r"kira-smmu-uefi"]),
+               ("disk", [r"прерываний устройств \(MSI\): [1-9]"]), ("dma", [r"IOMMU включена", r"pci 0:\d+\.0 1af4:1042 изолировано", r"pci 0:\d+\.0 1af4:1041 изолировано"])]),
     dict(name="arm64-power", m="virt,gic-version=3", cpu="cortex-a72", smp=2, mem="512M", disk="virtio-blk-pci",
          must=[r"Processors online: 2 of 2"],
          cmds=[("write /reboot.txt kira-before-reboot", []),
@@ -222,6 +277,58 @@ SC = [
                ("write /nc.txt dma-pool-ok", []), ("cat /nc.txt", [r"dma-pool-ok"]),
                ("beep 440 300", [r"DMA прошёл [1-9]\d* байт - карта играет"]),
                ("ps", [r"core\s+RUNNING"])]),
+    # acpi=off: при включённом ACPI edk2 публикует только таблицы ACPI, а ядро ARM64 читает дерево устройств (разбор ACPI на ARM64 - в таблице паритета)
+    # Загрузка как на железе: прошивка AAVMF (edk2) -> ISO kira-arm64.iso (El Torito, ESP) -> наш BOOTAA64.EFI -> ядро.
+    # Доказательство в serial.log: сначала строки загрузчика [KIRA UEFI] (их печатает консоль прошивки), потом ядро с меткой загрузчика.
+    dict(name="arm64-uefi", m="virt,gic-version=3,acpi=off", cpu="cortex-a72", smp=4, mem="1G", disk="virtio-blk-pci", uefi=True, ready_timeout=240,
+         must=[r"\[KIRA UEFI\] Kira OS ARM64 loader \(UEFI, no GRUB\)", r"\[KIRA UEFI\] kernel image: \d+ bytes, \d+ in memory, at 0x[0-9a-f]+", r"\[KIRA UEFI\] device tree from firmware: \d+ bytes, copy at 0x[0-9a-f]+",
+               r"\[KIRA BOOT\] loaded by the Kira UEFI loader", r"GICv3", r"Processors online: 4 of 4", r"working timer interrupt: 4 of 4", r"RAM: 1024 MB",
+               r"virtio-blk", r"\[KIRA FS\] KiraFS mounted", r"\[KIRA MIND\] Mind online", r"\[KIRA SYSCALL\] SVC from EL0"],
+         cmds=[("smp", [r"core 3: MPIDR 0x0+3, online, ticks [1-9]"]),
+               ("mem", [r"RAM 0x0+40000000 \.\. 0x0+80000000 \(1024 MB\)"]),
+               ("test smp", [r"RESULT: PASS", r"preempted by tick"]),
+               ("mt", [r"mt: .* - PASS"]), ("test ipc", [r"ipc server: .* - PASS", r"ipc client: .* - PASS"]),
+               ("ps", [r"core\s+RUNNING", r"idle"]), ("df", [r"KiraFS"])]),
+    # Паритет с x86-64 (docs/architecture/PARITY_ARM64.md): службы ksvc на портах (kira.gfx, kira.fs), SYS_PORT_WAIT, потоки и futex,
+    # вещественная арифметика/NEON и 3D-движок k3d с потоками, замер обмена, Python/ksh на WebAssembly; экран virtio-gpu.
+    dict(name="arm64-parity", m="virt,gic-version=3", cpu="cortex-a72", smp=4, mem="1G", disk="virtio-blk-pci", gui=True, files=True,
+         allow=[r"process terminated"],
+         must=[r"\[KIRA GPU\] virtio-gpu: \d+x\d+ 2D scanout", r"\[KIRA DISPLAY\] Shell online", r"Processors online: 4 of 4"],
+         cmds=[("@sleep 2", []),
+               ("@log \\[KIRA GFXCTL\\] port kira\\.gfx ready", []), ("@log \\[KIRA FSSVC\\] port kira\\.fs ready", []),
+               ("test gfxport", [r"gfxport: screen \d+x\d+, \d+ checks, 0 failed - PASS"]),
+               ("test fsport", [r"fsport: \d+ checks, 0 failed - PASS"]),
+               ("test ipc", [r"ipcx: foreign-domain open of a public shared-memory object refused \(PASS\)",
+                             r"ipc client: descriptors passed through messages \(private port and shared memory, both directions\) \(PASS\)",
+                             r"ipc server: descriptors received through messages: client's private port and shared memory \(PASS\)",
+                             r"ipc server: wait on two ports: messages from both seen, timeout and duplicate refused \(PASS\)"]),
+               ("test threads", [r"mt: .* - PASS"]),
+               ("test fpu", [r"fpu: rounds \d+, mismatches 0 - PASS"]),
+               ("run cube3d bench threads=3", [r"cube3d: selftest PASS", r"cube3d: k3d engine running, 3 helper threads", r"cube3d: bench helpers=0: \d+ frames",
+                                               r"cube3d: bench helpers=3: \d+ frames", r"cube3d: bench speedup x\d+\.\d+"]),
+               ("test ipcbench", [r"ipcbench: round trip, polling two ports \(before\)", r"ipcbench: round trip, waiting on two ports \(after\)",
+                                  r"ipcbench: round trip, one port \(floor\)", r"ipcbench: 1 MiB by one shared-memory attachment \(after\)", r"ipcbench: done"]),
+               ("python -c print(6*7)", [r"wasm: /wasm/python\.wasm - \d+ functions", r"\[USER pid \d+\] 42\b", r"wasm: finished with code 0"]),
+               ("write /data/wasm/t.sh for i in 1 2 3; do echo n=$((i*i)); done", []),
+               ("ksh t.sh", [r"wasm: /wasm/ksh\.wasm - \d+ functions", r"n=9\b", r"wasm: finished with code 0"]),
+               ("ps", [r"core\s+RUNNING"])]),
+    # IPv6 на ARM64 (virtio-net, QEMU user ipv6=on): адрес канала + DAD, RA -> SLAAC, ND, ping6. Серверы IPv6 хозяина (net6 UDP/TCP) стенд ARM64 пока не поднимает.
+    dict(name="arm64-ipv6", m="virt,gic-version=3", cpu="cortex-a72", smp=2, mem="512M", disk="virtio-blk-pci", net="virtio", netdev="ipv4=on,ipv6=on",
+         must=[r"Processors online: 2 of 2"],
+         cmds=[("@sleep 10", []),
+               ("@log \\[KIRA NET\\] IPv6: fe80::5054:ff:fe12:3456 \\(link-local, DAD passed\\) ready", []),
+               ("@log \\[KIRA NET\\] IPv6: router advertisement from fe80::", []),
+               ("@log \\[KIRA NET\\] IPv6: fec0::5054:ff:fe12:3456 \\(SLAAC /64, DAD passed\\) ready", []),
+               ("net", [r"IPv6: fec0::5054:ff:fe12:3456/64 \(SLAAC\)", r"IPv6: соседей в кэше [1-9]"]),
+               ("ping6 fec0::2 3", [r"ответ от fec0::2", r"отправлено 3, получено [1-3]"])]),
+    # Планировщик с очередями на ядро на 8 ядрах ARM64: плазма x8 + burnall, отклик консоли, замеры замков очередей
+    dict(name="arm64-sched8", m="virt,gic-version=3", cpu="cortex-a72", smp=8, mem="2G", disk="virtio-blk-pci", gui=True, ready_timeout=90,
+         must=[r"Processors online: 8 of 8", r"working timer interrupt: 8 of 8", r"\[KIRA DISPLAY\] Shell online"],
+         cmds=[("@sleep 2", [])] + [("plasma", []) for _ in range(8)] +
+               [("burnall", []), ("@sleep 5", []), ("burnall", []), ("@sleep 6", []),
+                ("status", [r"interrupts: GICv3"]), ("ps", [r"plasma"]), ("smp", [r"core 7: MPIDR 0x0+7, online, ticks [1-9]"]),
+                ("ai", [r"замок планировщика: ядра ждут его \d+,\d% времени; взятий с ожиданием \d+ из \d+; затяжных ожиданий \d+"]),
+                ("status", [r"interrupts: GICv3"])]),
 ]
 
 
@@ -279,11 +386,74 @@ def host_http(port, path):
 QCODE = {" ": "spc", "\r": "ret", "-": "minus", "/": "slash", ".": "dot"}
 
 
+def ensure_flash():
+    """Флешка стенда должна быть настоящей FAT32: пустой образ даёт ложное падение «нет usb0» (причина - стенд, не ядро)."""
+    f = "ci-out/flash.img"
+    def ok():
+        try:
+            with open(f, "rb") as fh: fh.seek(82); return fh.read(5) == b"FAT32"
+        except OSError: return False
+    if not ok():
+        subprocess.run(["bash", "ci/make_flash.sh"], check=True, stdout=subprocess.DEVNULL)
+        if not ok(): sys.exit("стенд: ci-out/flash.img не FAT32 (нужен mkfs.fat или mformat)")
+
+
+def host_resolves(name="example.com"):
+    try: socket.getaddrinfo(name, 80, socket.AF_INET); return True
+    except OSError: return False
+
+
+FAKE_DNS_ADDR = "93.184.216.34"
+
+
+def fake_dns_server():
+    """Маленький DNS-ответчик на 127.0.0.1:53: на запрос A отвечает FAKE_DNS_ADDR, на остальные типы - пустой ответ. Нужен, когда
+    у хозяина нет интернета (QEMU user пересылает запросы гостя на DNS из /etc/resolv.conf хозяина)."""
+    import threading
+    srv = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); srv.bind(("127.0.0.1", 53)); srv.settimeout(0.5)
+    stop = threading.Event()
+    def loop():
+        while not stop.is_set():
+            try: q, addr = srv.recvfrom(512)
+            except socket.timeout: continue
+            except OSError: break
+            if len(q) < 12: continue
+            end = 12
+            while end < len(q) and q[end]: end += q[end] + 1
+            qsec = q[12:end + 5]; qtype = struct.unpack(">H", q[end + 1:end + 3])[0] if end + 3 <= len(q) else 0
+            hdr = q[:2] + struct.pack(">HHHHH", 0x8180, 1, 1 if qtype == 1 else 0, 0, 0)
+            ans = b"\xc0\x0c" + struct.pack(">HHIH", 1, 1, 60, 4) + socket.inet_aton(FAKE_DNS_ADDR) if qtype == 1 else b""
+            srv.sendto(hdr + qsec + ans, addr)
+        srv.close()
+    t = threading.Thread(target=loop, daemon=True); t.start()
+    return lambda: (stop.set(), t.join(2))
+
+
+def hermetic_dns(d):
+    """Проверка «dns example.com»: у хозяина без интернета имя не разрешается, и гость честно получает «такого имени нет» -
+    падение стендовое, не ядра. Тогда QEMU запускается в своём пространстве монтирования, где /etc/resolv.conf указывает
+    на локальный ответчик (fake_dns_server); гость по-прежнему сам шлёт DNS-запрос и разбирает ответ. Возвращает
+    (приставка команды, функция остановки); если хозяин имя знает - ([], None)."""
+    if host_resolves() or not shutil.which("unshare"): return [], None
+    rc = os.path.join(d, "resolv.conf"); open(rc, "w").write("nameserver 127.0.0.1\n")
+    try: stop = fake_dns_server()
+    except OSError: return [], None
+    return ["unshare", "-m", "sh", "-c", 'mount --bind "$0" /etc/resolv.conf && exec "$@"', rc], stop
+
+
 def run(sc, out):
     d = os.path.join(out, sc["name"]); os.makedirs(d, exist_ok=True)
     args = ["qemu-system-aarch64", "-M", sc["m"], "-cpu", sc["cpu"], "-smp", str(sc["smp"]), "-m", sc["mem"],
-            "-display", "none", "-monitor", "none", "-serial", "stdio", "-kernel", "kira-arm64.img",
+            "-display", "none", "-monitor", "none", "-serial", "stdio",
             "-d", "guest_errors,unimp", "-D", os.path.join(d, "qemu-debug.log")]
+    if sc.get("uefi"):                              # загрузка как на железе: прошивка AAVMF (edk2) -> ISO -> наш BOOTAA64.EFI -> ядро
+        fw = os.environ.get("AAVMF_CODE", "/usr/share/AAVMF/AAVMF_CODE.fd")
+        vars_ = os.path.join(d, "vars.fd"); shutil.copyfile(os.environ.get("AAVMF_VARS", "/usr/share/AAVMF/AAVMF_VARS.fd"), vars_)
+        args += ["-drive", f"if=pflash,format=raw,unit=0,file={fw},readonly=on", "-drive", f"if=pflash,format=raw,unit=1,file={vars_}",
+                 "-drive", "file=kira-arm64.iso,if=none,id=cd0,media=cdrom,format=raw,readonly=on",
+                 "-device", "virtio-scsi-pci", "-device", "scsi-cd,drive=cd0"]
+    else:
+        args += ["-kernel", "kira-arm64.img"]
     if sc.get("disk"):                              # свежая копия диска с KiraFS на каждую машину
         img = os.path.join(d, "disk.img"); shutil.copyfile("kira-arm64.disk", img)
         if sc.get("files"):                         # тестовые файлы (ci/mkfiles.py) - на диск машины
@@ -302,23 +472,33 @@ def run(sc, out):
         srv = os.path.abspath(os.path.join(os.path.dirname(__file__), "http_once.py"))
         nic = "virtio-net-pci" if sc["net"] == "virtio" else "e1000"
         tls = os.path.abspath(os.path.join(os.path.dirname(__file__), "https_once.py"))
-        args += ["-netdev", f"user,id=n0,guestfwd=tcp:10.0.2.100:80-cmd:python3 {srv},guestfwd=tcp:10.0.2.100:443-cmd:python3 {tls} --chain {os.path.abspath("ci-out/tlschain")},guestfwd=tcp:10.0.2.100:8443-cmd:python3 {tls} --self {os.path.abspath("ci-out/tlschain")},hostfwd=tcp:127.0.0.1:18081-:8080,hostfwd=udp:127.0.0.1:18083-:9000",
-                 "-device", f"{nic},netdev=n0"]
+        if sc.get("netdev"):                        # своя настройка сети QEMU user (например IPv6)
+            args += ["-netdev", "user,id=n0," + sc["netdev"], "-device", f"{nic},netdev=n0{sc.get('nicprops', '')}"]
+        else:
+          args += ["-netdev", f"user,id=n0,guestfwd=tcp:10.0.2.100:80-cmd:python3 {srv},guestfwd=tcp:10.0.2.100:443-cmd:python3 {tls} --chain {os.path.abspath("ci-out/tlschain")},guestfwd=tcp:10.0.2.100:8443-cmd:python3 {tls} --self {os.path.abspath("ci-out/tlschain")},hostfwd=tcp:127.0.0.1:18081-:8080,hostfwd=udp:127.0.0.1:18083-:9000",
+                 "-device", f"{nic},netdev=n0{sc.get('nicprops', '')}"]
     else:
         args += ["-nic", "none"]
     qmp_path = os.path.join(d, "qmp.sock")
     if sc.get("flash"):                             # флешка FAT32 (ci/make_flash.sh) - свежая копия
+        ensure_flash()
         fl = os.path.join(d, "flash.img"); shutil.copyfile("ci-out/flash.img", fl)
         args += ["-drive", f"if=none,id=stick,format=raw,file={fl}"]
     args += sc.get("extra", [])
+    if sc.get("rng"):                               # источник энтропии virtio-rng (свойства - как у остальных устройств сценария)
+        args += ["-device", "virtio-rng-pci" + sc.get("viprops", "")]
     if sc.get("gui") or sc.get("qmp"):
         if os.path.exists(qmp_path): os.unlink(qmp_path)
     if sc.get("qmp") and not sc.get("gui"):
         args += ["-qmp", f"unix:{qmp_path},server=on,wait=off"]
     if sc.get("gui"):
         args += ["-audiodev", "none,id=snd0", "-device", "intel-hda", "-device", "hda-duplex,audiodev=snd0"]
-        args += ["-device", "virtio-gpu-pci", "-device", "virtio-keyboard-pci", "-device", "virtio-tablet-pci",
+        vp = sc.get("viprops", "")                  # viprops: ",disable-legacy=on,iommu_platform=on" - устройства видят память только через SMMU
+        args += ["-device", "virtio-gpu-pci" + vp, "-device", "virtio-keyboard-pci" + vp, "-device", "virtio-tablet-pci" + vp,
                  "-qmp", f"unix:{qmp_path},server=on,wait=off"]
+    stop_dns = None
+    if sc.get("net"):
+        pre, stop_dns = hermetic_dns(d); args = pre + args
     p = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     log = b""; t0 = time.time(); err = None
     print("[ARM64] scenario starting: " + sc["name"], flush=True)
@@ -341,7 +521,7 @@ def run(sc, out):
         return False
 
     try:
-        if not wait(READY, 60):
+        if not wait(READY, sc.get("ready_timeout", 60)):
             err = "не дождались готовности"
         else:
             text = log.decode(errors="replace")
@@ -431,13 +611,14 @@ def run(sc, out):
                     if err: break
             if not err:
                 text = log.decode(errors="replace")
-                forbid = [x for x in NO_ERR if not (sc.get("fault") and x == r"exception on core") and x not in sc.get("allow", [])]
+                forbid = [x for x in NO_ERR if not (sc.get("fault") and x == r"exception on core") and x not in sc.get("allow", [])] + sc.get("forbid", [])
                 for rx in forbid:
                     if re.search(rx, text): err = f"в журнале «{rx}»"; break
     finally:
         p.kill(); p.wait()
+        if stop_dns: stop_dns()
         open(os.path.join(d, "serial.log"), "wb").write(log)
-        for im in ("disk.img", "flash.img"):
+        for im in ("disk.img", "flash.img", "vars.fd"):
             if os.path.exists(os.path.join(d, im)): os.unlink(os.path.join(d, im))
         dbg = os.path.join(d, "qemu-debug.log")
         if os.path.exists(dbg):                     # начало журнала исключений QEMU - самое ценное, остальное - тики
@@ -451,5 +632,8 @@ def run(sc, out):
 
 if __name__ == "__main__":
     out = sys.argv[1] if len(sys.argv) > 1 else "ci-out"
-    ok = all([run(s, out) for s in SC])
+    only = sys.argv[2:]                              # необязательно: имена сценариев (или их начала), остальные пропускаются
+    todo = [s for s in SC if not only or any(s["name"] == o or s["name"].startswith(o) for o in only)]
+    if only and not todo: sys.exit("нет такого сценария: " + " ".join(only))
+    ok = all([run(s, out) for s in todo])
     sys.exit(0 if ok else 1)

@@ -10,8 +10,11 @@
 #include "apic.h"
 #include "immune.h"
 #include "mind_sys.h"
+#include "bbring.h"
+#include "bbsave.h"
 #include "watchdog.h"
 #include "keyboard.h"
+#include "input.h"
 #include "console.h"
 #include "sched.h"
 #include "timer.h"
@@ -22,6 +25,7 @@
 #include "e1000.h"
 #include "virtio_net.h"
 #include "net.h"
+#include "rcon.h"
 #include "hda.h"
 #include "acpi.h"
 #include "hwprofile.h"
@@ -30,14 +34,18 @@
 #include "percpu.h"
 #include "smp.h"
 #include "proc.h"
+#include "wire.h"
 #include "syscall.h"
 #include "fscmd.h"
 #include "life.h"
 #include "progs.h"
+#include "fssvc.h"
+#include "gfxctl.h"
 #include "kdrv.h"
 #include "fsrv.h"
 #include "experience.h"
 #include "irqmode.h"
+#include "acpirt.h"
 #include "mbinfo.h"
 #include "bootinfo.h"
 #include "earlycon.h"
@@ -63,6 +71,8 @@ void kernel_panic(const char* reason) {
     uart_print("\n[KIRA KERNEL PANIC] called from ");
     uart_print_hex((uint64_t)(uintptr_t)__builtin_return_address(0));
     uart_print("\n");
+    bb_event(BB_NOTE, BB_SEV_SEVERE, 0, 0, 0, 0, 0, "kernel panic");
+    bb_dump_tail(24, uart_print);   // диск в панике не трогаем: прерывания выключены; последние события - в отчёте
     uart_flush_all();        // накопленное в построчных буферах всех ядер
     display_panic_flush();   // то же самое - на экран (если он есть)
     for (;;) {
@@ -202,6 +212,7 @@ void kernel_main(unsigned long magic, unsigned long addr) {
     }
     ramext_init();
     bootmap_harden();               /* окно раннего отображения строилось до NXE: без NX */
+    wire_init();                 // проводка между уровнями: раньше описания железа, дисков и USB
     if (vmm_enforce_wx() != 0)      kernel_panic("W^X for kernel memory could not be enforced");
     acpi_set_map_hook(acpi_map);
     if (uefi_rsdp_override) acpi_init_rsdp(uefi_rsdp_override);
@@ -222,6 +233,7 @@ void kernel_main(unsigned long magic, unsigned long addr) {
     experience_init();   // опыт прошлых жизней: если есть диск, организм вспоминает
     fs_init();           // файловая система на том же диске (после хранилища опыта)
     life_init();         // журнал организма и профили программ в /var
+    bbsave_init();       // чёрный ящик: кольцо событий производительности, сброс на диск вне горячего пути
     mind_sys_init();     // Разум: нормы, профили и выученный квант из /var/mind*
 
     // Экран необязателен. Раннее окно снимается до того, как драйвер дисплея сам
@@ -241,8 +253,9 @@ void kernel_main(unsigned long magic, unsigned long addr) {
     rng_init();            // генератор случайных чисел: RDSEED/RDRAND, virtio-rng, времена прерываний
     usb_init();
     virtio_input_init();
-    if (e1000_probe() != 0) virtio_net_probe();   /* сетевая карта: Intel e1000 или virtio-net */         // сетевая карта Intel e1000 (Limbo, QEMU, многие ПК)
+    wire_net_probe();   /* сетевая карта: Intel e1000 или virtio-net */         // сетевая карта Intel e1000 (Limbo, QEMU, многие ПК)
     net_start();
+    rcon_init();           // удалённая консоль по TCP: выключена, пока не включена командой rcon on
     if (hda_probe() != 0 && ac97_probe() != 0) sb16_probe();   // звук: Intel HDA, иначе AC'97 (Limbo: Sound ac97), иначе Sound Blaster 16 (ISA)           // стек: ARP, IPv4, ICMP, UDP, DHCP - свой поток   // клавиатура/мышь/планшет virtio (если машина их даёт)     // USB: клавиатуры, мыши, планшеты, хабы, флешки (UHCI, xHCI): свой поток, работает рядом с PS/2
     if (timer_init(TIMER_HZ) != 0)  kernel_panic("Timer initialization failed");
 
@@ -298,7 +311,7 @@ void kernel_main(unsigned long magic, unsigned long addr) {
     uint64_t apic_rate = 0;
     if (have_apic) {
         apic_rate = apic_calibrate_timer_tsc(tsc_khz_val);
-        console_set_apic_rate(apic_rate);
+        irqmode_set_apic_rate(apic_rate);
         if (apic_rate) {
             uart_print("[KIRA APIC] Timer calibrated against TSC: ");
             uart_print_dec(apic_rate / 1000);
@@ -319,6 +332,8 @@ void kernel_main(unsigned long magic, unsigned long addr) {
         if (vmm_verify_wx(0) != 0) kernel_panic("W^X violated after start-up of the other cores");
     }
 
+    (void)acpirt_init();     // ACPI: интерпретатор AML, события SCI (кнопка питания, крышка), батарея, _PRT. Без таблицы или при отказе работа ядра не меняется
+
     uart_print("[KIRA OS] Ready. Type 'help' and press Enter.\n");
 
     // Поток "core": опрос консоли, секундные метрики, самоконтроль.
@@ -327,9 +342,16 @@ void kernel_main(unsigned long magic, unsigned long addr) {
     uint64_t seconds = 0;
     uint64_t last_verify = 0;
 
+    fssvc_init();        // порт kira.fs: файловая служба на сообщениях CBOR
+    gfxctl_init();       // порт kira.gfx: окна и события на сообщениях CBOR
     for (;;) {
+        bbsave_core_tick();  // чёрный ящик: разрыв между проходами этого цикла
         console_poll();
+        acpirt_poll();       // события ACPI и обновление питания
+        if (acpirt_take_poweroff()) console_graceful_poweroff();   // нажата кнопка питания: сохранить и выключить
         prog_poll();         // запуск, заказанный дисплеем (иконки дока)
+        fssvc_poll();        // запросы к порту kira.fs
+        gfxctl_poll();       // запросы к порту kira.gfx
         kdrv_poll();         // драйверы Ring 3: первое сканирование /drv, возврат памяти погибших
         (void)iommu_fault_poll();   // нарушения DMA, записанные VT-d: строка в журнал, без остановки ядра
         life_tick();         // журнал организма: запись накопленных событий
@@ -345,7 +367,7 @@ void kernel_main(unsigned long magic, unsigned long addr) {
             /* Раз в секунду - шаг Разума: замеры всей системы, нормы, решения (если секунд накопилось несколько -
                основной поток был занят, - шаг один: замеры всё равно за весь промежуток). */
             seconds += pending;
-            (void)console_take_events();
+            (void)input_take_events();
             mind_sys_tick(seconds);
             experience_tick(seconds);
             sched_reap();

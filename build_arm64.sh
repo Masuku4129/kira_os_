@@ -2,6 +2,8 @@
 # Сборка Kira OS для ARM64 (первый этап переноса: платформа - дерево устройств, MMU, GIC, таймер, ядра по PSCI).
 #   ./build_arm64.sh           собрать kira-arm64.img (образ ARM64: QEMU -kernel, U-Boot booti) и kira-arm64.elf (символы)
 #   ./build_arm64.sh --run     собрать и запустить в QEMU virt (4 ядра, GICv3)
+#   ./build_arm64.sh --run-uefi  собрать и запустить через UEFI (прошивка AAVMF/edk2, свой загрузчик BOOTAA64.EFI с ISO kira-arm64.iso)
+#   Результат также: kira-arm64.iso (UEFI-ISO как kira.iso у x86-64; собирается, если есть lld-link, mtools и xorriso)
 set -e
 cd "$(dirname "$0")"
 A=arch/aarch64
@@ -10,14 +12,37 @@ CFLAGS="$KIRA_ARM64_EXTRA -ffreestanding -fno-builtin -nostdlib -mgeneral-regs-o
 mkdir -p build-arm64
 # Программы для ARM64 (EL0): те же исходники, что и для x86-64; ядро их не содержит - они лежат на диске в /bin
 HOSTCC="${HOSTCC:-clang}"
-[ -x tools/kfstool ] || $HOSTCC -O1 -Wall -DKFS_NO_THREADS -I. -Iarch/x86_64 -o tools/kfstool tools/kfstool.c kfs.c store.c sha256.c
+[ -x tools/kfstool ] || $HOSTCC -O1 -Wall -DKFS_NO_THREADS -I. -Iarch/x86_64 -o tools/kfstool tools/kfstool.c kfs.c zstd.c store.c sha256.c sysseal.c cbor.c json.c cas.c
 UCFLAGS="-ffreestanding -fno-builtin -fno-math-errno -fPIE -fvisibility=hidden -fno-stack-protector -fno-asynchronous-unwind-tables -O2 -Wall -Wextra"
 UELF=""
-for app in mt ipc burn plasma cube3d paint fpu demo atk-mem atk-priv atk-sys atk-jmp atk-cap serve melody wasm udpecho rec; do   # fpu проверяет x87 (long double): на ARM64 - отдельная проверка позже
+for app in mt burn plasma paint fpu demo atk-mem atk-priv atk-sys atk-jmp atk-cap ipcx serve melody wasm udpecho rec; do   # fpu проверяет x87 (long double): на ARM64 - отдельная проверка позже
     $CC $UCFLAGS -c userland/$app.c -o build-arm64/u_$app.o
     ld.lld -T userland/user_arm64.ld -z max-page-size=4096 -z noseparate-code -z norelro -o build-arm64/$app.elf build-arm64/u_$app.o
     UELF="$UELF build-arm64/$app.elf"
 done
+# ipc: сообщения портов - CBOR (cbor.c - тот же файл, что у ядра)
+for f in userland/ipc.c cbor.c userland/libc_min.c; do
+    $CC $UCFLAGS -I. -Iuserland -c $f -o build-arm64/ui_$(basename $f .c).o
+done
+ld.lld -T userland/user_arm64.ld -z max-page-size=4096 -z noseparate-code -z norelro -o build-arm64/ipc.elf build-arm64/ui_*.o
+UELF="$UELF build-arm64/ipc.elf"
+# fsport: проверка файловой службы на портах (CBOR)
+$CC $UCFLAGS -I. -Iuserland -c userland/fsport.c -o build-arm64/fp_fsport.o
+ld.lld -T userland/user_arm64.ld -z max-page-size=4096 -z noseparate-code -z norelro -o build-arm64/fsport.elf build-arm64/fp_fsport.o build-arm64/ui_cbor.o build-arm64/ui_libc_min.o
+UELF="$UELF build-arm64/fsport.elf"
+# ipcbench: замер обмена между процессами (то же, что у x86-64; время - k_clock_ns)
+$CC $UCFLAGS -I. -c userland/ipcbench.c -o build-arm64/fp_ipcbench.o
+ld.lld -T userland/user_arm64.ld -z max-page-size=4096 -z noseparate-code -z norelro -o build-arm64/ipcbench.elf build-arm64/fp_ipcbench.o build-arm64/ui_libc_min.o
+UELF="$UELF build-arm64/ipcbench.elf"
+$CC $UCFLAGS -I. -Iuserland -c userland/gfxport.c -o build-arm64/fp_gfxport.o
+ld.lld -T userland/user_arm64.ld -z max-page-size=4096 -z noseparate-code -z norelro -o build-arm64/gfxport.elf build-arm64/fp_gfxport.o build-arm64/ui_cbor.o build-arm64/ui_libc_min.o
+UELF="$UELF build-arm64/gfxport.elf"
+# cube3d: сцена + 3D-движок k3d (потоки-помощники, вещественная арифметика EL0) + мини-libc
+$CC $UCFLAGS -c userland/cube3d.c -o build-arm64/u_cube3d.o
+$CC $UCFLAGS -c userland/k3d.c -o build-arm64/u_k3d.o
+$CC $UCFLAGS -c userland/libc_min.c -o build-arm64/u_cube3d_libc.o
+ld.lld -T userland/user_arm64.ld -z max-page-size=4096 -z noseparate-code -z norelro -o build-arm64/cube3d.elf build-arm64/u_cube3d.o build-arm64/u_k3d.o build-arm64/u_cube3d_libc.o
+UELF="$UELF build-arm64/cube3d.elf"
 # fetch: HTTP и HTTPS (TLS 1.3 и криптография внутри программы)
 for f in userland/fetch.c userland/tls.c userland/x509.c pk.c crypto.c sha256.c userland/libc_min.c; do
     $CC $UCFLAGS -I. -Iuserland -c $f -o build-arm64/uf_$(basename $f .c).o
@@ -77,16 +102,30 @@ for f in $A/boot.S $A/mem.S $A/context.S $A/fpu.S $A/uaccess.S; do
 done
 # Общее ядро (те же файлы, что и на x86-64) и платформа ARM64
 for f in fdt.c bootinfo.c bootinfo_fdt.c percpu.c sched.c scale.c kmutex.c heap.c pci.c virtio.c virtio_blk.c blk.c nvme.c ahci.c kfs.c store.c sha256.c \
-         experience.c fscmd.c buildcmd.c mind_build_core.c mind_build_grant.c vfs.c fat.c part.c life.c mind.c mindnet.c mind_sys.c devhealth.c klog.c linebuf.c kpar.c clock.c \
-         immune.c kobj.c futex.c corefault.c crypto.c pk.c kdrv_sig.c kdrv_state.c rng.c virtio_rng.c $A/rng_arch.c watchdog.c proc.c caps.c syscall.c elf.c progs.c trust.c uheap.c userlog.c fsrv.c uaccess.c \
-         virtio_gpu.c virtio_input.c e1000.c virtio_net.c net.c ip6.c ipfrag.c irqwait.c kdrv.c kdrv_fmt.c hda.c audio.c console.c fb.c display.c wm.c gfx2d.c gfxui.c gfxsrv.c framegov.c fbcon.c font8x16.c apps.c explorer.c fm.c dock.c \
-         icons.c brainfx.c input.c rtc.c usb.c usbhid.c usbhub.c usbmsc.c xhci.c \
+         experience.c fscmd.c buildcmd.c mind_build_core.c mind_build_grant.c vfs.c fat.c part.c life.c wire.c usbmsc_fs.c mind.c mindnet.c mind_sys.c devhealth.c klog.c bbring.c bbsave.c linebuf.c kpar.c clock.c \
+         immune.c iommu_smmu.c drivers/iommu/arm_smmu.c drivers/iommu/smmu_dom.c kobj.c json.c fssvc.c ksvc.c gfxctl.c futex.c corefault.c crypto.c pk.c kdrv_sig.c kdrv_state.c rng.c virtio_rng.c $A/rng_arch.c watchdog.c proc.c caps.c syscall.c elf.c progs.c trust.c uheap.c userlog.c fsrv.c uaccess.c \
+         virtio_gpu.c virtio_input.c e1000.c virtio_net.c net.c ip6.c ipfrag.c rcon.c irqwait.c kdrv.c kdrv_fmt.c kdrv_blk.c hda.c audio.c console.c fb.c display.c wm.c gfx2d.c gfxui.c gfxsrv.c framegov.c fbcon.c font8x16.c apps.c explorer.c fm.c dock.c \
+         icons.c brainfx.c wallpaper.c zstd.c cbor.c cas.c sysseal.c input.c rtc.c usb.c usbhid.c usbhub.c usbmsc.c xhci.c \
          $A/main.c $A/wx_arm.c $A/fb_arm.c $A/pmm_arm.c $A/selftest_arm.c $A/vmm_user.c $A/uaccess_arch.c; do
     o=build-arm64/$(basename $f .c).o; $CC $CFLAGS -c $f -o $o; OBJ="$OBJ $o"
 done
 ld.lld -T $A/linker.ld -nostdlib -pie --no-dynamic-linker -z text -z norelro -z max-page-size=4096 $OBJ -o kira-arm64.elf
 llvm-objcopy -O binary kira-arm64.elf kira-arm64.img
 echo "[*] kira-arm64.img (образ ARM64 с заголовком загрузки): $(stat -c %s kira-arm64.img) байт"
+# UEFI: свой загрузчик BOOTAA64.EFI (PE/COFF: clang --target=aarch64-unknown-windows + lld-link, без gnu-efi) и ISO, как kira.iso у x86-64
+if command -v lld-link >/dev/null 2>&1; then
+    clang --target=aarch64-unknown-windows-msvc -ffreestanding -fshort-wchar -mgeneral-regs-only -fno-stack-protector -fno-builtin -nostdlib -Wall -Wextra -Werror -O2 \
+        -c $A/uefi/bootaa64.c -o build-arm64/bootaa64.o
+    lld-link /subsystem:efi_application /entry:efi_main /nodefaultlib /machine:arm64 /out:build-arm64/BOOTAA64.EFI build-arm64/bootaa64.o >/dev/null
+    if command -v mformat >/dev/null 2>&1 && command -v xorriso >/dev/null 2>&1; then
+        rm -f kira-arm64.iso
+        tools/mkiso_arm64.sh build-arm64/BOOTAA64.EFI kira-arm64.img kira-arm64.iso && echo "[*] kira-arm64.iso (UEFI, свой загрузчик, без GRUB): $(stat -c %s kira-arm64.iso) байт"
+    else
+        echo "[!] kira-arm64.iso не собран: нужны mtools и xorriso"
+    fi
+else
+    echo "[!] BOOTAA64.EFI и kira-arm64.iso не собраны: нужен lld-link (пакет lld)"
+fi
 # Диск с KiraFS (тот же формат, что и на x86-64): программы ARM64 в /bin обновляются, данные и опыт сохраняются
 [ -f kira-arm64.disk ] || dd if=/dev/zero of=kira-arm64.disk bs=1M count=16 2>/dev/null
 tools/kfstool kira-arm64.disk init >/dev/null
@@ -108,11 +147,23 @@ for b in /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt ${P
 done
 ROOTS_N=$([ -n "$ROOTS_SRC" ] && tools/pem2der "$ROOTS_SRC" tools/roots.der)
 [ -n "$ROOTS_N" ] && echo "[*] Корневые сертификаты: $ROOTS_N из $ROOTS_SRC" || echo "[!] Связки корневых сертификатов нет (пакет ca-certificates): fetch https откажется проверять сервер"
-[ -n "$ROOTS_N" ] && tools/kfstool kira-arm64.disk put /etc/ssl/roots.der tools/roots.der >/dev/null
+[ -n "$ROOTS_N" ] && tools/kput.sh kira-arm64.disk /etc/ssl/roots.der tools/roots.der >/dev/null
 tools/kfstool kira-arm64.disk put /etc/ssl/drivers.index drivers/index.txt >/dev/null
 # Семя опыта Разума (см. build_clang.sh)
 [ -f data/mind_seed.bin ] && tools/kfstool kira-arm64.disk put /etc/mind_seed.bin data/mind_seed.bin >/dev/null
+[ -f data/wallpaper.kwp.zst ] && tools/kfstool kira-arm64.disk put /etc/wallpaper.kwp.zst data/wallpaper.kwp.zst >/dev/null
+tools/kfstool kira-arm64.disk seal
 if [ "$1" = "--run" ]; then
     exec qemu-system-aarch64 -M virt,gic-version=3 -cpu cortex-a72 -smp 4 -m 1G -serial mon:stdio -kernel kira-arm64.img -drive file=kira-arm64.disk,if=none,id=d0,format=raw -device virtio-blk-pci,drive=d0 \
+        -device virtio-gpu-pci -device virtio-keyboard-pci -device virtio-tablet-pci
+fi
+if [ "$1" = "--run-uefi" ]; then
+    # Прошивка AAVMF (apt install qemu-efi-aarch64); флеш с переменными - временная копия. Загрузка: ISO -> BOOTAA64.EFI -> ядро.
+    FW=${AAVMF_CODE:-/usr/share/AAVMF/AAVMF_CODE.fd}; VARS=${AAVMF_VARS:-/usr/share/AAVMF/AAVMF_VARS.fd}
+    cp "$VARS" build-arm64/vars.fd; truncate -s 64M build-arm64/vars.fd
+    exec qemu-system-aarch64 -M virt,gic-version=3,acpi=off -cpu cortex-a72 -smp 4 -m 1G -serial mon:stdio \
+        -drive if=pflash,format=raw,unit=0,file="$FW",readonly=on -drive if=pflash,format=raw,unit=1,file=build-arm64/vars.fd \
+        -drive file=kira-arm64.disk,if=none,id=d0,format=raw -device virtio-blk-pci,drive=d0 \
+        -drive file=kira-arm64.iso,if=none,id=cd0,media=cdrom,format=raw -device virtio-scsi-pci -device scsi-cd,drive=cd0 \
         -device virtio-gpu-pci -device virtio-keyboard-pci -device virtio-tablet-pci
 fi

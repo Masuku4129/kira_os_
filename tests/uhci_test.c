@@ -97,6 +97,13 @@ void usb_log_hex(uint64_t v) { char b[24]; snprintf(b, sizeof b, "0x%llX", (unsi
 
 static uint16_t legsup;
 void pci_enable(const pci_dev_t* d, uint16_t b) { (void)d; (void)b; }
+/* IOMMU в модели нет: изоляция недоступна, контроллер остаётся сквозным (как на машине без DMAR) */
+int iommu_isolate_device(const pci_dev_t* d) { (void)d; return -1; }
+int iommu_release_device(const pci_dev_t* d) { (void)d; return 0; }
+int iommu_map(const pci_dev_t* d, uint64_t iova, uint64_t phys, uint64_t len, unsigned rw) { (void)d; (void)iova; (void)phys; (void)len; (void)rw; return 0; }
+void iommu_expect_fault(const pci_dev_t* d, int on) { (void)d; (void)on; }
+int iommu_fault_poll(void) { return 0; }
+uint32_t iommu_fault_count(const pci_dev_t* d) { (void)d; return 0; }
 void pci_write16(const pci_dev_t* d, uint16_t off, uint16_t v) { (void)d; if (off == 0xC0) legsup = v; }
 
 static void port_write(int i, uint16_t v) {
@@ -130,10 +137,12 @@ uint16_t inw(uint16_t p) {
 void outl(uint16_t p, uint32_t v) { if (p - IO == 0x08) frbase = v; }
 void outb(uint16_t p, uint8_t v) { if (p - IO == 0x0C) sof = v; }
 
+#include "usbmsc_fs.h"
 int main(void) {
     arena = mmap((void*)0x10000000, 16u << 20, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_32BIT, -1, 0);
     CHECK(arena != MAP_FAILED && (uintptr_t)arena + (16u << 20) < 0x100000000ull);
     input_init();
+    msc_set_fs_ops(&usbmsc_fs_ops);
     mdev_kbd(&devm[0]); mdev_tablet(&devm[1]);
     port[0] = 2; port[1] = 2;                           /* CSC: устройства уже подключены */
     pci_dev_t pd = { 0 }; pd.bar[4].io = 1; pd.bar[4].base = IO; pd.bar[4].size = 32;

@@ -27,6 +27,11 @@ $T/context_test || note "KCC per-compilation context isolation failed"
 kc() { $T/kcc -I $INC -I kcc/include -S-ir -o $T/out.ir "$1" 2>$T/err; rc=$?; }
 lineinfo() { grep -Eq '^[^:]+:[0-9]+: error: .+' $T/err; }
 
+# Формат KIRA IR зафиксирован: вывод kcc -S-ir для образца совпадает с эталоном (docs/architecture/KIRA_IR.md). Правка формата - осознанная: меняется и sample.ir.
+total=$((total+1))
+$T/kcc -I $INC -I kcc/include -S-ir -o $T/golden.ir tests/kcc/ir_golden/sample.c 2>$T/err || note "ir_golden: kcc не собрал образец: $(head -c 200 $T/err)"
+diff -u tests/kcc/ir_golden/sample.ir $T/golden.ir >$T/gdiff || note "формат KIRA IR изменился против tests/kcc/ir_golden/sample.ir: $(head -c 400 $T/gdiff)"
+
 for f in tests/kcc/ok/*.c tests/kcc/gnu/*.c; do
     total=$((total+1)); std=c99; case $f in */gnu/*) std=gnu99;; esac
     kc $f
@@ -182,29 +187,29 @@ if command -v ld.lld >/dev/null && clang --target=x86_64-unknown-none-elf -ffree
     if [ $built != 1 ]; then note "kcc как программа Киры не собрана: $(head -c 300 $T/err)"
     else
         mkdir -p $T/sb; cp tests/kcc/native/*.c $T/sb/
-        $T/kloader -s $T/sb -i kcc/include -a "hello.c hello" $T/kcc_kira.elf >$T/got 2>&1
+        $T/kloader -m 8 -s $T/sb -i kcc/include -a "hello.c hello" $T/kcc_kira.elf >$T/got 2>&1
         grep -q '^kcc: ok: hello.c -> hello' $T/got || note "kcc-на-Кире: hello.c не собран: $(head -c 200 $T/got)"
         total=$((total+1))
         $T/kloader $T/sb/hello >$T/got 2>&1
         cmp -s tests/kcc/native/hello.out $T/got || note "kcc-на-Кире: собранная программа печатает другое: $(head -c 160 $T/got | tr '\n' ' ')"
         total=$((total+1))
         # режим @build (задание на сборку) того же kcc-на-Кире: отчёт с хешем, образ и запись в песочнице, образ запускается и даёт эталон
-        $T/kloader -s $T/sb -i kcc/include -a "@build probe 50000 7" $T/kcc_kira.elf >$T/got 2>&1
+        $T/kloader -m 8 -s $T/sb -i kcc/include -a "@build probe 50000 7" $T/kcc_kira.elf >$T/got 2>&1
         grep -q '^\[BUILD\] mb1[0-9a-f]\{6\} sha256 [0-9a-f]\{64\}' $T/got && ls $T/sb/mb1*.mbj >/dev/null 2>&1 || note "kcc-на-Кире: @build не собрал образ: $(head -c 200 $T/got)"
         total=$((total+1))
         img=$(ls $T/sb/mb1* 2>/dev/null | grep -v '\.mbj$' | head -1)
         [ -n "$img" ] && [ "$($T/kloader "$img" 2>&1 | head -1)" = 1153170643 ] || note "kcc-на-Кире: образ @build дал не 1153170643"
         total=$((total+1))
-        $T/kloader -s $T/sb -i kcc/include -a "@build probe 0 1" $T/kcc_kira.elf >$T/got 2>&1
+        $T/kloader -m 8 -s $T/sb -i kcc/include -a "@build probe 0 1" $T/kcc_kira.elf >$T/got 2>&1
         grep -q 'отказ' $T/got || note "kcc-на-Кире: @build принял probe 0: $(head -c 200 $T/got)"
         total=$((total+1))
-        $T/kloader -s $T/sb -i kcc/include -a "bad.c bad" $T/kcc_kira.elf >$T/got 2>&1
+        $T/kloader -m 8 -s $T/sb -i kcc/include -a "bad.c bad" $T/kcc_kira.elf >$T/got 2>&1
         grep -q '^bad.c:9: error: ' $T/got || note "kcc-на-Кире: ошибка без номера строки: $(head -c 200 $T/got)"
         total=$((total+1))
-        $T/kloader -s $T/sb -i kcc/include -a "nofile.c out" $T/kcc_kira.elf >$T/got 2>&1
+        $T/kloader -m 8 -s $T/sb -i kcc/include -a "nofile.c out" $T/kcc_kira.elf >$T/got 2>&1
         grep -q 'nofile.c' $T/got && grep -q 'not found\|cannot\|No such' $T/got || note "kcc-на-Кире: нет файла должно давать сообщение: $(head -c 200 $T/got)"
         total=$((total+1))
-        $T/kloader -s $T/sb -i kcc/include -a "one" $T/kcc_kira.elf >$T/got 2>&1
+        $T/kloader -m 8 -s $T/sb -i kcc/include -a "one" $T/kcc_kira.elf >$T/got 2>&1
         grep -q 'использование: cc' $T/got || note "kcc-на-Кире: без результата должна быть справка: $(head -c 200 $T/got)"
     fi
 else

@@ -471,4 +471,9 @@ int64_t fsrv_syscall(uint64_t up) {
     kfree(r);
     return res;
 }
+void fsrv_exec_locked(fsrv_req_t* r) {
+    kmutex_lock(&fsrv_mx);
+    fsrv_execute(r);
+    kmutex_unlock(&fsrv_mx);
+}
 #endif

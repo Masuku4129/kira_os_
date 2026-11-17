@@ -21,6 +21,9 @@ enum { GEV_KEY_DOWN = 1, GEV_KEY_UP = 2, GEV_MOUSE_MOVE = 3, GEV_MOUSE_BUTTON = 
 int64_t gfx_sys_create(uint32_t pid, const char* title, uint32_t w, uint32_t h);   /* адрес пикселей в процессе или -1 */
 int64_t gfx_sys_present(uint32_t pid);
 int64_t gfx_sys_event(uint32_t pid, uint64_t user_ptr);                            /* 1 - событие, 0 - нет, -1 - ошибка */
+/* Для службы kira.gfx (gfxctl.c): те же данные, что у вызовов процесса, но в память ядра. */
+int     gfx_win_info(uint32_t pid, uint32_t* w, uint32_t* h, int* focus);                  /* 0 - окно есть, -1 - нет */
+int     gfx_event_take(uint32_t pid, gfx_event_t* out);                                    /* 1 - событие забрано, 0 - нет, -1 - окна нет */
 void    gfx_proc_gone(uint32_t pid);                                               /* процесс завершён (IF может быть 0) */
 
 /* Поток дисплея. */
@@ -29,5 +32,19 @@ void gfx_on_input(int win, int type, int x, int y, unsigned buttons);
 void gfx_on_close(int win);
 
 int  gfx_focus_pid(void);
+
+/* Окна приложений создаёт оконный менеджер (ур.8). Сервер работает с ним только через эти операции (все поля обязательны). */
+typedef struct {
+    int  (*create)(const char* title, int content_w, int content_h, uint32_t* mem);   /* окно с поверхностью mem, место выбирает менеджер; id или <0 */
+    void (*destroy)(int id);
+    const char* (*nice_title)(const char* program);                                   /* понятное название программы или 0 */
+    void (*set_title)(int id, const char* title);
+    void (*set_frame_seq)(int id, const volatile uint32_t* seq);
+    void (*raise)(int id);
+    int  (*visible)(int id);
+    void (*invalidate)(int id);
+    int  (*top)(void);                                                                /* верхнее видимое окно или -1 */
+} gfx_wm_ops_t;
+void gfx_set_wm_ops(const gfx_wm_ops_t* ops);
 
 #endif

@@ -108,3 +108,4 @@ const char* kdrv_sig_strerror(int e) {
     default: return "неизвестная ошибка подписи";
     }
 }
+const uint8_t KDRV_SIG_DOMAIN_SEAL[16]   = { 'K','I','R','A','-','S','E','A','L','-','S','I','G','-','V','1' };

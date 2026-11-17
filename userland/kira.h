@@ -133,6 +133,19 @@ static inline i64 k_port_open(const char* name, u32 flags) { return ksys(K_PORT_
 static inline i64 k_port_send(i64 h, const void* data, u64 len) { return ksys(K_PORT_SEND, (u64)h, (u64)data, len); }
 static inline i64 k_port_recv(i64 h, void* buf, u32 cap, u32 timeout) { return ksys(K_PORT_RECV, (u64)h, (u64)buf, (u64)cap | ((u64)timeout << 32)); }
 /* Разделяемая память: страницы обнулены при создании; отображение - адрес в программе. */
+/* Вложение: дескриптор порта или памяти едет с сообщением (att, 0 - нет); получатель принимает его новым дескриптором. */
+typedef struct { u64 buf; u32 cap, timeout; u32 from; int att; } kport_recv_t;
+enum { K_PORT_RECVA = 59, K_PORT_WAIT = 60 };
+/* Ждать сразу несколько портов (до 8, срок в 10 мс, 0xFFFFFFFF - без срока): индекс первого порта с сообщением (оно остаётся в очереди - забрать k_port_recv) или ошибка */
+static inline i64 k_port_wait(const int* hs, u32 n, u32 timeout) { return ksys(K_PORT_WAIT, (u64)hs, (u64)n, (u64)timeout); }
+static inline i64 k_port_send_att(i64 h, i64 att, const void* data, u64 len) { return ksys(K_PORT_SEND, (u64)h | ((u64)att << 32), (u64)data, len); }
+/* -> длина сообщения или ошибка; *from - pid отправителя, *att - дескриптор вложения (0 - нет) */
+static inline i64 k_port_recv_att(i64 h, void* buf, u32 cap, u32 timeout, u32* from, int* att) {
+    kport_recv_t q; q.buf = (u64)buf; q.cap = cap; q.timeout = timeout; q.from = 0; q.att = 0;
+    i64 r = ksys(K_PORT_RECVA, (u64)h, (u64)&q, 0);
+    if (r >= 0) { if (from) *from = q.from; if (att) *att = q.att; }
+    return r;
+}
 static inline i64 k_shm_open(const char* name, u32 pages, u32 flags) { return ksys(K_SHM_OPEN, (u64)name, k_strlen(name), (u64)pages | ((u64)flags << 32)); }
 static inline void* k_shm_map(i64 h) { i64 r = ksys(K_SHM_MAP, (u64)h, 0, 0); return r < 0 ? (void*)0 : (void*)(u64)r; }
 static inline i64 k_shm_unmap(void* va) { return ksys(K_SHM_UNMAP, (u64)va, 0, 0); }
@@ -183,6 +196,9 @@ static inline i64 k_udp_sendto(i64 s, const ksockaddr_t* to, const void* p, u64 
 static inline i64 k_udp_recvfrom(i64 s, void* buf, u32 cap, u32 timeout_ms) { return ksys(K_UDP_RECVFROM, (u64)s, (u64)buf, (u64)cap | (u64)timeout_ms << 32); }
 /* Строка аргументов запуска (run имя аргументы): длина или < 0. */
 static inline i64 k_args(char* buf, u64 cap) { return ksys(K_ARGS, (u64)buf, cap, 0); }
+/* Строка консоли (с \n), право CAP_STDIN. Пока программа читает, консоль отдаёт ей набранное, оболочке - нет. 0 - конец ввода (Ctrl+D), -4 - прервано (Ctrl+C), -16 - ввод у другой программы. */
+enum { K_STDIN = 58 };
+static inline i64 k_stdin(void* buf, u64 cap) { return ksys(K_STDIN, (u64)buf, cap, 0); }
 
 /* Точка входа: выравнивает стек, вызывает umain, затем exit. */
 #if defined(__KIRA__) && defined(__x86_64__)

@@ -40,6 +40,14 @@ int  blk_flush_all(void);                              /* дописать кэ�
 /* Для драйверов: добавить диск (id - короткое имя, model - описание). */
 void blk_register(blk_dev_t* raw, const char* id, const char* model);
 
+/* Диск драйвера Ring 3 (kdrv.c, CAP_BLKDEV). blk_r3_check: 0 - имя свободно или занято прежним диском Ring 3 той же ёмкости; -1 - имя занято другим диском;
+   -2 - диск с этим именем уже был другой ёмкости. blk_register_r3: заводит диск (читает его для классификации: драйвер должен уже обслуживать кольца)
+   или, если драйвер перезапущен, подменяет «провод» к прежнему слоту; 0 - отказ. Слот не исчезает при гибели драйвера: операции получают -5. */
+int  blk_r3_check(const char* id, uint64_t sectors);
+blk_dev_t* blk_register_r3(blk_dev_t* raw, const char* id, const char* model);
+/* Проверка диска: test blk ИМЯ. Запись и чтение через слой blk (куски на несколько буферов), возврат прежнего содержимого, выход за границы отклоняется. */
+void blk_selftest(const char* id);
+
 void blk_stats(uint64_t* requests, uint64_t* tsc_total);   /* операций с дисками и их суммарное время в тактах TSC */
 uint64_t blk_bytes(void);                                   /* байт, переданных дискам (чтение и запись) с запуска */
 
@@ -57,5 +65,8 @@ typedef struct { uint64_t start, end; uint8_t real; struct irqwait* iw; uint32_t
 void blk_wait_irq(blk_wait_t* w, struct irqwait* iw);
 void blk_wait_begin(blk_wait_t* w, uint32_t ms);
 int  blk_wait_step(blk_wait_t* w);
+
+/* Распознаватель «своих» дисков: fn возвращает 1, если на диске наша разметка (только чтение). Подключается до blk_probe (wire_init). */
+void blk_set_own_detect(int (*fn)(blk_dev_t* d));
 
 #endif

@@ -25,6 +25,37 @@ def host_http(port, path):
         return f"[HOST] http {path}: error {e} in {time.time() - t0:.1f} s\n"
 
 
+def host_rcon(port, password, lines, wait=6.0):
+    """Клиент удалённой консоли с хозяина (hostfwd): AUTH, команды, весь ответ - в журнал стенда."""
+    t0 = time.time()
+    out = b""
+    try:
+        c = socket.create_connection(("127.0.0.1", port), timeout=10)
+        c.settimeout(1.0)
+        def rd(sec):
+            nonlocal out
+            end = time.time() + sec
+            while time.time() < end:
+                try:
+                    d = c.recv(4096)
+                except socket.timeout:
+                    continue
+                if not d:
+                    return False
+                out += d
+            return True
+        rd(1.5)
+        c.sendall(b"AUTH " + password.encode() + b"\n")
+        rd(3.0)
+        for ln in lines:
+            c.sendall(ln.encode() + b"\n")
+            rd(wait)
+        c.close()
+    except Exception as e:
+        return f"[HOST] rcon: error {e} in {time.time() - t0:.1f} s\n"
+    return "[HOST] rcon begin\n" + "".join("[RCON] " + l + "\n" for l in out.decode(errors="replace").splitlines()) + "[HOST] rcon end\n"
+
+
 def host_udp(port, msg):
     """Датаграмма с хозяина в гостевую систему (hostfwd udp) и ответ: строка итога для журнала."""
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.settimeout(10)
@@ -97,6 +128,26 @@ PROMPT = "кира> ".encode()
 FATAL = [rb"\[KIRA FATAL\]", rb"\[KIRA KERNEL PANIC\]", rb"\[KIRA WATCHDOG\] Halting"]
 
 
+def env_missing(needs, kvm):
+    """Чего не хватает хозяину для сценария (None - всё есть). Сценарий без нужной среды не падает, а пропускается с причиной."""
+    for n in needs or []:
+        if n == "kvm" and not kvm:
+            return "нужен KVM (на TCG скорость не измеряется честно)"
+        if n == "ipv6":
+            try:
+                t = socket.socket(socket.AF_INET6); t.bind(("::1", 0)); t.close()
+            except OSError:
+                return "у хозяина нет IPv6 (loopback ::1 недоступен)"
+        if n == "dns":
+            try:
+                socket.getaddrinfo("example.com", 80)
+            except OSError:
+                return "у хозяина нет DNS/интернета (example.com не находится)"
+        if n == "initrd" and not os.environ.get("KIRA_INITRD"):
+            return "образ собран без initrd.img (задайте KIRA_INITRD при сборке и запуске)"
+    return None
+
+
 class Fail(Exception):
     pass
 
@@ -130,6 +181,10 @@ class VM:
         if sc.get("disk_mb"):
             with open(self.disk, "r+b") as f:
                 f.truncate(sc["disk_mb"] * 1024 * 1024)
+        self.spare = os.path.join(out, "spare.img")
+        if sc.get("spare_mb"):                      # второй пустой диск (для драйверов Ring 3): файл из нулей, в extra он подставляется как {spare}
+            with open(self.spare, "wb") as f:
+                f.truncate(sc["spare_mb"] * 1024 * 1024)
         self.ser_path = os.path.join(out, "serial.sock")
         self.qmp_path = os.path.join(out, "qmp.sock")
         for p in (self.ser_path, self.qmp_path):
@@ -151,7 +206,7 @@ class VM:
     def args(self):
         sc = self.sc
         a = ["qemu-system-x86_64", "-machine", sc.get("machine", "pc"), "-m", str(sc.get("mem", "1G")),
-             "-smp", str(sc.get("smp", 4)), "-vga", "std", "-display", "none",
+             "-smp", str(sc.get("smp", 4)), "-vga", sc.get("vga", "std"), "-display", "none",
              *self.boot_args(),
              "-chardev", f"socket,id=ser0,path={self.ser_path},server=on,wait=on", "-serial", "chardev:ser0",
              "-qmp", f"unix:{self.qmp_path},server=on,wait=off",
@@ -174,11 +229,11 @@ class VM:
             a += ["-drive", f"file={d},format=raw,if=none,id=kd0", "-device", "ahci,id=ahci0", "-device", "ide-hd,drive=kd0,bus=ahci0.0"]
         elif disk == "nvme":
             a += ["-drive", f"file={d},format=raw,if=none,id=kd0", "-device", "nvme,drive=kd0,serial=KIRA0001"]
-        a += sc.get("extra", [])
+        a += [x.replace("{spare}", self.spare) for x in sc.get("extra", [])]
         if sc.get("flash"):
             fl = os.path.join(self.out, "flash.img")
             shutil.copyfile(sc["flash"], fl)
-            bus = "usb-bus.0" if "-usb" in a else "xhci.0"
+            bus = sc.get("flash_bus") or ("usb-bus.0" if "-usb" in a else "xhci.0")
             port = ",port=1.1" if sc.get("hub") else ""
             a += ["-drive", f"if=none,id=stick,format=raw,file={fl}", "-device", f"usb-storage,bus={bus}{port},drive=stick,removable=on"]
         return a
@@ -399,6 +454,13 @@ def run(sc, args):
             elif "send" in st:                        # без ожидания приглашения (нагрузка, запуск программ)
                 mark = len(vm.log)
                 vm.send(st["send"] + "\r")
+            elif "type" in st:                        # ввод запущенной программе (её читает стандартный ввод): оболочка приглашения не печатает, ждать его нельзя
+                vm.drain(0.05)
+                vm.ser.setblocking(True)
+                for ch in (st["type"] + "\r").encode():
+                    vm.ser.sendall(bytes([ch]))
+                    time.sleep(0.004)
+                mark = len(vm.log)
             elif "capture" in st:                     # значения из журнала после последнего send (первая группа регулярного выражения)
                 for nm, rx in st["capture"].items():
                     m = re.search(rx.encode(), bytes(vm.log[mark:]))
@@ -421,7 +483,21 @@ def run(sc, args):
                     raise Fail(f"«{st['exit']}»: QEMU завершился с кодом {vm.qemu.returncode}")
                 vm.exited = True
                 result["checks"].append({"exit": st["exit"], "ok": True})
-            elif "relaunch" in st:                    # выключить машину и поднять её снова на ТОМ ЖЕ диске с другим набором устройств (extra):
+            elif "qmp_exit" in st:                    # команда QMP (например system_powerdown - нажатие кнопки питания), после неё машина должна выключиться сама
+                r = vm.qmp_cmd({"execute": st["qmp_exit"]})
+                if r is None or "error" in r:
+                    raise Fail(f"QMP «{st['qmp_exit']}»: {r}")
+                end_t = time.time() + st.get("within", 30) * args.timeout_scale
+                while vm.qemu.poll() is None and time.time() < end_t:
+                    vm.drain(0.5)
+                if vm.qemu.poll() is None:
+                    raise Fail(f"после «{st['qmp_exit']}» машина не выключилась за {st.get('within', 30)} с")
+                vm.drain(0.5)
+                if vm.qemu.returncode != 0:
+                    raise Fail(f"после «{st['qmp_exit']}» QEMU завершился с кодом {vm.qemu.returncode}")
+                vm.exited = True
+                result["checks"].append({"qmp_exit": st["qmp_exit"], "ok": True})
+            elif "relaunch" in st:                  # выключить машину и поднять её снова на ТОМ ЖЕ диске с другим набором устройств (extra):
                 vm.send("poweroff\r")                  # драйвер, установленный в первой фазе, нужен устройству, которого в первой фазе не было
                 end_t = time.time() + 30 * args.timeout_scale
                 while vm.qemu.poll() is None and time.time() < end_t:
@@ -434,6 +510,56 @@ def run(sc, args):
                 time.sleep(1.0)
                 mark = len(vm.log)
                 result["checks"].append({"relaunch": True, "ok": True})
+            elif "crash" in st:                       # обрыв питания: машину убивают без выключения и поднимают снова на ТОМ ЖЕ диске (дополнительные устройства - в st["crash"])
+                vm.qemu.kill()
+                vm.qemu.wait(timeout=10)
+                vm.restart(st["crash"])
+                vm.expect(re.escape(PROMPT.decode()), sc.get("boot_timeout", 90), vm.phase_mark)
+                time.sleep(1.0)
+                mark = len(vm.log)
+                result["checks"].append({"crash": True, "ok": True})
+            elif "pointer" in st:                     # поставить указатель в точку экрана: PS/2-мышь отдаёт только смещения, поэтому идём шагами
+                px, py = st["pointer"][0], st["pointer"][1]
+                cur = getattr(vm, "ptr", (640, 360))
+                dx, dy = px - cur[0], py - cur[1]
+                n = max(abs(dx), abs(dy)) // 40 + 1
+                for k in range(n):
+                    sx = dx * (k + 1) // n - dx * k // n
+                    sy = dy * (k + 1) // n - dy * k // n
+                    vm.qmp_cmd({"execute": "input-send-event", "arguments": {"events": [
+                        {"type": "rel", "data": {"axis": "x", "value": sx}}, {"type": "rel", "data": {"axis": "y", "value": sy}}]}})
+                    time.sleep(0.02)
+                vm.ptr = (px, py)
+                vm.pump(0.6)
+            elif "click" in st:                       # щелчок кнопкой мыши (left/right) там, где стоит указатель (сначала шаг "pointer")
+                btn = st["click"] if isinstance(st["click"], str) else "left"
+                for down in (True, False):
+                    vm.qmp_cmd({"execute": "input-send-event", "arguments": {"events": [{"type": "btn", "data": {"down": down, "button": btn}}]}})
+                    time.sleep(0.08)
+                vm.pump(0.4)
+            elif "mouse" in st:                       # поток движения мыши через QMP: кружит по экрану; hz - событий в секунду, step - пикселей за событие
+                m = st["mouse"]
+                hz, secs, step = m.get("hz", 125), m.get("seconds", 10), m.get("step", 8)
+                kind = m.get("kind", "rel")
+                import math
+                t_end = time.time() + secs * args.timeout_scale
+                t_next = time.time(); k = 0; sent = 0
+                while time.time() < t_end:
+                    ang = k * 0.05
+                    if kind == "abs":
+                        ev = [{"type": "abs", "data": {"axis": "x", "value": int(16000 + 12000 * math.cos(ang))}},
+                              {"type": "abs", "data": {"axis": "y", "value": int(16000 + 12000 * math.sin(ang))}}]
+                    else:
+                        ev = [{"type": "rel", "data": {"axis": "x", "value": int(step * math.cos(ang))}},
+                              {"type": "rel", "data": {"axis": "y", "value": int(step * math.sin(ang))}}]
+                    vm.qmp_cmd({"execute": "input-send-event", "arguments": {"events": ev}})
+                    k += 1; sent += 1
+                    t_next += 1.0 / hz
+                    d = t_next - time.time()
+                    if d > 0: time.sleep(d)
+                    else: vm.drain(0)
+                vm.log += f"[HOST] mouse: sent {sent} move events in {secs * args.timeout_scale} s\n".encode()
+                vm.pump(0.5)
             elif "combo" in st:                       # одновременное нажатие (Alt+Shift - раскладка)
                 vm.qmp_cmd({"execute": "send-key", "arguments": {"keys": [{"type": "qcode", "data": k} for k in st["combo"]]}})
                 vm.pump(0.3)
@@ -449,6 +575,9 @@ def run(sc, args):
             elif "host_http" in st:                   # запрос с хозяина к серверу Киры (hostfwd)
                 port, path = st["host_http"]
                 vm.log += host_http(port, path).encode()
+            elif "host_rcon" in st:                   # удалённая консоль: клиент на хозяине через hostfwd
+                port, pw, cmds = st["host_rcon"]
+                vm.log += host_rcon(port, pw, cmds).encode()
             elif "host_udp" in st:                    # датаграмма с хозяина программе Киры (hostfwd udp)
                 port, msg = st["host_udp"]
                 vm.log += host_udp(port, msg).encode()
@@ -523,7 +652,14 @@ def main():
         return 2
     fails = 0
     summary = []
+    skipped = 0
     for sc in chosen:
+        why = env_missing(sc.get("needs"), a.kvm)
+        if why:
+            print(f"SKIP {sc['name']:<22} {why}", flush=True)
+            summary.append({"name": sc["name"], "ok": None, "skipped": why})
+            skipped += 1
+            continue
         r = run(sc, a)
         mark = "OK  " if r["ok"] else "FAIL"
         line = f"{mark} {sc['name']:<22} {r['seconds']:>6} с" + (f"  загрузка {r.get('boot_seconds')} с" if r.get("boot_seconds") else "")

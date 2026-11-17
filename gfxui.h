@@ -9,6 +9,8 @@
 
 void ui_blend(surface_t* s, int x, int y, uint32_t color, unsigned alpha);
 void ui_round_rect(surface_t* s, int x, int y, int w, int h, int r, uint32_t color, unsigned alpha);
+/* Без дыры (hx,hy,hw,hh): под непрозрачным содержимым смешивать незачем. */
+void ui_round_rect_hole(surface_t* s, int x, int y, int w, int h, int r, uint32_t color, unsigned alpha, int hx, int hy, int hw, int hh);
 void ui_round_frame(surface_t* s, int x, int y, int w, int h, int r, uint32_t color, unsigned alpha);  /* контур 1 px */
 void ui_disc(surface_t* s, int cx, int cy, int r, uint32_t color, unsigned alpha);                      /* (cx,cy) - центр, r - радиус в пикселях */
 void ui_ring(surface_t* s, int cx, int cy, int r_in, int r_out, uint32_t color, unsigned alpha);

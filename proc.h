@@ -18,6 +18,7 @@ int  proc_spawn_driver(const char* name, const void* image, size_t len, uint32_t
 uint32_t proc_current_drv(void);         /* номер привязки + 1; 0 - не драйвер */
 int  proc_map_phys(uint64_t va, uint64_t pa, uint32_t pages, uint64_t flags);   /* страницы в пространство текущего процесса (под proc_space_lock); VMM_SHARED добавляется */
 void proc_unmap_pages(uint64_t va, uint32_t pages);                              /* снять и сбросить TLB (под proc_space_lock) */
+uint32_t proc_current_domain(void);      /* домен текущего процесса (caps.h, DOM_*) */
 uint32_t proc_current_caps(void);        /* права текущего процесса (caps.h); 0 - не процесс */
 int  proc_cap_denied(uint32_t cap, uint64_t nr);   /* записывает отказ в журнал (раз на процесс); возвращает KE_PERM */
 const char* proc_current_grant(void);   /* "" - права нет */
@@ -59,9 +60,18 @@ typedef struct { uint32_t pid; char name[16]; uint32_t threads; uint32_t heap_kb
 unsigned proc_stats(proc_stat_t* out, unsigned max);
 uint32_t proc_faults_total(void);
 int      proc_kill(uint32_t pid);
+int      proc_info(uint32_t pid, char name[16], uint32_t* caps, uint32_t* domain);   /* имя, права и домен живого процесса по номеру; 1 - найден */
 void     proc_set_heap_restrict(int level);
 void     proc_count_syscall(void);                            /* из обработчика системного вызова */
 
 int      proc_stack_prepare(uint64_t va, uint64_t len);       /* буфер вызова на невыросшей части стека */
+
+// Крючки жизненного цикла: нижний уровень (ядро) не знает о службах выше и зовёт их через зарегистрированные обратные вызовы
+// (регистрирует корень сборки в wire.c). Вызываются из teardown: прерывания выключены, спать нельзя.
+typedef void (*proc_gone_fn)(uint32_t pid, uint32_t drv);   /* drv - привязка драйвера Ring 3 + 1 или 0 */
+int  proc_add_gone_hook(proc_gone_fn fn, int late);         /* late=0: до снятия звука и журнала, late=1: после; 0 - принят, -1 - таблица полна */
+typedef void (*proc_note_fn)(const char* kind, const char* name, int code);
+void proc_set_note_hook(proc_note_fn fn);                   /* куда писать события жизни программ (журнал организма) */
+void proc_note(const char* kind, const char* name, int code);   /* из любого контекста; без крючка - ничего не делает */
 
 #endif

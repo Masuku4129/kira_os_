@@ -2,15 +2,15 @@
 #include "gfxui.h"
 #include "icons.h"
 #include "brainfx.h"
+#include "wallpaper.h"
 #include "theme.h"
 #include "input.h"
 
 #define CUR_W 12
 #define CUR_H 19
 #define PANEL_R 10
-#define TILE 44                    /* плитка значка боковой панели */
-#define TILE_GAP 10
-#define SIDE_X 10
+#define TILE 48                    /* плитка значка Dock */
+#define TILE_GAP 12
 #define PILL_ZONE 56               /* в полноэкранном режиме панель кнопок показывается, когда курсор выше этой черты */
 #define LIGHT_R 6                  /* «светофор» окна */
 
@@ -25,6 +25,8 @@ typedef struct {
     char tag[16];
     surface_t content;
     const volatile uint32_t* seq;
+    uint32_t* shadow;                 /* копия содержимого, как его видит композитор (для wm_invalidate_diff) */
+    int shadow_ok, sh_w, sh_h;
 } win_t;
 
 static surface_t* scr;
@@ -38,8 +40,10 @@ static int dragging = -1, drag_ox, drag_oy;
 static int resizing = -1;
 static int capture = -1;
 static int dmg_valid, dx0, dy0, dx1, dy1;
+static int last_dmg[4];
+void wm_last_damage(int* b) { for (int i = 0; i < 4; i++) b[i] = last_dmg[i]; }     /* охватывающая рамка последнего собранного кадра (замеры) */
 static wm_side_item_t side[WM_SIDE_MAX];
-static int side_n, side_hover = -1;
+static int side_n, side_hover = -1, side_hover_desk;
 static wm_tab_t tabs[WM_TAB_MAX];
 static int tab_n, tab_hover = -1, last_tab = -2;
 static int light_hover = -1;       /* окно, над «светофором» которого курсор */
@@ -50,6 +54,7 @@ static surface_t bgs;
 static char clock_date[48], clock_hm[8];
 static uint8_t m_busy[64];
 static int m_cores, m_mem = -1, m_health = -1;
+static int m_bat_on, m_bat_pct = -1, m_bat_chg;
 static int fx_level = 3;
 static uint32_t anim_ms;
 #define WM_NOTIFY_MAX 3
@@ -67,7 +72,8 @@ static int brain_cx, brain_cy;
 
 #define SYS_ZONE_W 200
 static void damage_home(void);
-static int home_open;                                  /* обзор системы: по клику на системную зону, по умолчанию скрыт */
+static int topbar_right(surface_t* c, int ox, int oy, int dry);
+static int home_open = 1;                                /* обзор системы: по клику на системную зону, по умолчанию скрыт */
 
 static const char* const cursor_art[CUR_H] = {
     "#           ", "##          ", "#.#         ", "#..#        ", "#...#       ", "#....#      ",
@@ -81,9 +87,19 @@ static const char* const cursor_art[CUR_H] = {
 #define DTILE 64
 #define TMAX_X 160                       /* экран до 10240 точек в ширину */
 #define TMAX_Y 160
-static uint8_t tdirty[TMAX_Y][TMAX_X];
+/* В плитке помнится не флаг, а рамка изменённого внутри неё: курсор (12x19 точек) перерисовывает свои точки, а не плитку 64x64. */
+typedef struct { int16_t x0, y0, x1, y1; } tbox_t;       /* x1 <= x0 - плитка чистая */
+static tbox_t tdirty[TMAX_Y][TMAX_X];
 
-static void damage(int x0, int y0, int x1, int y1) {
+static struct { uintptr_t ra; uint32_t n; } inv_tab[16];                   /* кто чаще всего даёт крупные изменения (замеры) */
+static void inv_note(uintptr_t ra) {
+    int k = 0, free_i = -1;
+    for (; k < 16; k++) { if (inv_tab[k].n && inv_tab[k].ra == ra) break; if (!inv_tab[k].n && free_i < 0) free_i = k; }
+    if (k < 16) inv_tab[k].n++;
+    else if (free_i >= 0) { inv_tab[free_i].ra = ra; inv_tab[free_i].n = 1; }
+}
+__attribute__((noinline)) static void damage(int x0, int y0, int x1, int y1) {
+    if ((long)(x1 - x0) * (y1 - y0) > 8000) inv_note((uintptr_t)__builtin_return_address(0));
     if (x0 < 0) x0 = 0;
     if (y0 < 0) y0 = 0;
     if (x1 > scr->w) x1 = scr->w;
@@ -94,7 +110,20 @@ static void damage(int x0, int y0, int x1, int y1) {
         if (ty1 >= TMAX_Y) ty1 = TMAX_Y - 1;
         if (tx1 >= TMAX_X) tx1 = TMAX_X - 1;
         for (int ty = y0 / DTILE; ty <= ty1; ty++)
-            for (int tx = x0 / DTILE; tx <= tx1; tx++) tdirty[ty][tx] = 1;
+            for (int tx = x0 / DTILE; tx <= tx1; tx++) {
+                tbox_t* b = &tdirty[ty][tx];
+                int ax = tx * DTILE > x0 ? tx * DTILE : x0, ay = ty * DTILE > y0 ? ty * DTILE : y0;
+                int bx = (tx + 1) * DTILE < x1 ? (tx + 1) * DTILE : x1, by = (ty + 1) * DTILE < y1 ? (ty + 1) * DTILE : y1;
+                if (tx == TMAX_X - 1 && x1 > bx) bx = x1;               /* край экрана шире карты: последняя плитка берёт остаток */
+                if (ty == TMAX_Y - 1 && y1 > by) by = y1;
+                if (b->x1 <= b->x0) { b->x0 = (int16_t)ax; b->y0 = (int16_t)ay; b->x1 = (int16_t)bx; b->y1 = (int16_t)by; }
+                else {
+                    if (ax < b->x0) b->x0 = (int16_t)ax;
+                    if (ay < b->y0) b->y0 = (int16_t)ay;
+                    if (bx > b->x1) b->x1 = (int16_t)bx;
+                    if (by > b->y1) b->y1 = (int16_t)by;
+                }
+            }
     }
     if (!dmg_valid) { dx0 = x0; dy0 = y0; dx1 = x1; dy1 = y1; dmg_valid = 1; return; }
     if (x0 < dx0) dx0 = x0;
@@ -133,8 +162,25 @@ static void damage_win(const win_t* w) {
     if (w->full) damage(0, 0, scr->w, scr->h);
     else damage(w->x - WM_GLOW, w->y - WM_GLOW, w->x + outer_w(w) + WM_GLOW, w->y + outer_h(w) + WM_GLOW);
 }
+/* Свечение и стеклянность рамки зависят от того, какое окно в фокусе: сменился верхний - перерисовать оба. */
+static void focus_moved(int prev_top) {
+    int now = wm_top();
+    if (now == prev_top) return;
+    if (prev_top >= 0 && win[prev_top].used) damage_win(&win[prev_top]);
+    if (now >= 0) damage_win(&win[now]);
+}
 static void damage_cursor(void) { damage(cx, cy, cx + CUR_W, cy + CUR_H); }
 static void damage_top(void) { damage(0, 0, scr->w, WM_TOP_H); }
+/* Левый край правой капсулы (время, здоровье, батарея) без рисования. */
+static int top_cap_left(void) { return topbar_right(0, 0, 0, 1) - 16; }
+/* Часы, батарея и метры меняют только правую капсулу: перерисовываем её (старую и новую ширину), а не всю панель. */
+static void damage_top_right(int old_left) {
+    int l = top_cap_left();
+    if (old_left < l) l = old_left;
+    l -= 6;
+    if (l < 0) l = 0;
+    damage(l, 0, scr->w, WM_TOP_H);
+}
 
 static int fs_top(void) {
     for (int i = zcount - 1; i >= 0; i--) {
@@ -144,25 +190,42 @@ static int fs_top(void) {
     return -1;
 }
 
-/* --- боковая панель --- */
+/* --- Dock (плавающая стеклянная панель значков снизу по центру) и значки рабочего стола слева --- */
 
-static int side_panel_h(void) { return scr->h - WM_TOP_H - 20; }
-
-#define SIDE_AREA_W (WM_SIDE_W + 460)   /* панель и подпись к значку справа от неё */
-#define SEP_GAP 14                 /* черта между закреплёнными и идущими */
-#define TILE_MIN 26                /* наименьшая плитка, когда значков много */
-#define GAP_MIN 5
+#define SEP_GAP 14                 /* черта между группами: закреплённые, идущие, прижатые вправо */
+#define TILE_MIN 30                /* наименьшая плитка, когда значков много */
+#define GAP_MIN 6
+#define DOCK_PAD 14                /* поля внутри стеклянной панели */
+#define DOCK_BOT 14                /* отступ панели от нижнего края экрана */
+#define DESK_MAX 5                 /* значков рабочего стола слева */
+#define DESK_TILE 48
+#define DESK_CELL_W 76
+#define DESK_PITCH 92
 static int side_ts = TILE, side_gap = TILE_GAP;     /* текущая плитка и промежуток: сжимаются, если значки не помещаются */
+static int side_from_desk;                          /* последний side_hit попал в значок рабочего стола, а не в Dock */
 
-static int side_has_sep(void) {
-    int pin = 0, tmp = 0;
-    for (int i = 0; i < side_n; i++) if (!side[i].bottom) { if (side[i].temp) tmp = 1; else pin = 1; }
-    return pin && tmp;
+static int side_group(int i) { return side[i].bottom ? 2 : side[i].temp ? 1 : 0; }
+static int side_groups_present(void) {
+    int has[3] = {0, 0, 0};
+    for (int i = 0; i < side_n; i++) has[side_group(i)] = 1;
+    return has[0] + has[1] + has[2];
 }
+static int side_seps_before(int i) {
+    int has[3] = {0, 0, 0}, n = 0;
+    for (int j = 0; j < side_n; j++) has[side_group(j)] = 1;
+    for (int g = 0; g < side_group(i); g++) n += has[g];
+    return n;
+}
+static int side_order(int i) {                       /* место значка слева направо: по группам, внутри - по порядку */
+    int k = 0, g = side_group(i);
+    for (int j = 0; j < side_n; j++) { int gj = side_group(j); if (gj < g || (gj == g && j < i)) k++; }
+    return k;
+}
+static int side_seps(void) { int g = side_groups_present(); return g > 0 ? g - 1 : 0; }
 
-/* Подбор размера плитки: от 44 вниз до TILE_MIN, пока все значки не поместятся по высоте панели. */
+/* Подбор размера плитки: от TILE вниз до TILE_MIN, пока все значки не поместятся по ширине экрана. */
 static void side_layout(void) {
-    int avail = side_panel_h() - 24 - (side_has_sep() ? SEP_GAP : 0);
+    int avail = scr->w - 40 - 2 * DOCK_PAD - side_seps() * SEP_GAP;
     side_ts = TILE; side_gap = TILE_GAP;
     for (int ts = TILE; ts >= TILE_MIN; ts--) {
         int gap = ts * TILE_GAP / TILE; if (gap < GAP_MIN) gap = GAP_MIN;
@@ -173,54 +236,109 @@ static void side_layout(void) {
 
 int wm_side_capacity(void) {
     if (!scr) return 0;
-    int avail = side_panel_h() - 24 - SEP_GAP;
+    int avail = scr->w - 40 - 2 * DOCK_PAD - 2 * SEP_GAP;
     int n = (avail + GAP_MIN) / (TILE_MIN + GAP_MIN);
     return n > WM_SIDE_MAX ? WM_SIDE_MAX : n;
 }
 int wm_side_tile(void) { return side_ts; }
 
-static int side_item_y(int i) {
-    int top = WM_TOP_H + 10 + 12;
-    int pitch = side_ts + side_gap;
-    if (!side[i].bottom) {
-        int k = 0, sep = 0;
-        for (int j = 0; j < i; j++) if (!side[j].bottom) k++;
-        if (side[i].temp) for (int j = 0; j < i; j++) if (!side[j].bottom && !side[j].temp) { sep = 1; break; }
-        return top + k * pitch + sep * SEP_GAP;
+static int dock_w(void) {
+    if (side_n <= 0) return 0;
+    return 2 * DOCK_PAD + side_n * side_ts + (side_n - 1) * side_gap + side_seps() * SEP_GAP;
+}
+static int dock_h(void) { return side_ts + 20; }
+static int dock_x(void) { return (scr->w - dock_w()) / 2; }
+static int dock_y(void) { return scr->h - DOCK_BOT - dock_h(); }
+static int side_ty(void) { return dock_y() + 10; }
+static int side_item_x(int i) { return dock_x() + DOCK_PAD + side_order(i) * (side_ts + side_gap) + side_seps_before(i) * SEP_GAP; }
+
+static int desk_on(void) { return scr->w >= 800 && scr->h >= 600; }
+static int desk_item(int k) {                        /* k-й значок рабочего стола -> индекс в side[], -1 нет */
+    int n = 0;
+    for (int i = 0; i < side_n; i++) if (!side[i].temp && !side[i].bottom) { if (n == k) return i; n++; }
+    return -1;
+}
+static int desk_count(void) {
+    int n = 0;
+    if (!desk_on()) return 0;
+    while (n < DESK_MAX && desk_item(n) >= 0) n++;
+    return n;
+}
+static int desk_cx(void) { return 8 + DESK_CELL_W / 2; }
+static int desk_ty(int k) { return WM_TOP_H + 26 + k * DESK_PITCH; }
+
+/* Область, которую нужно перерисовать при смене подсвеченного значка: весь Dock с подписью над ним и колонка слева. */
+static void damage_side_full(void) {
+    damage(0, scr->h - WM_DOCK_H - 96, scr->w, scr->h);
+    if (desk_on()) damage(0, WM_TOP_H, WM_SIDE_W + 20, WM_TOP_H + 26 + DESK_MAX * DESK_PITCH);
+}
+static void damage_side(void) { damage_side_full(); }
+
+/* Наведение мыши на значок: перерисовывается сам значок и его подпись, а не весь Dock шириной в экран
+   (раньше каждый переход курсора по значкам давал около 170 тысяч точек, на медленной машине - десятки миллисекунд). */
+/* Размер и место подписи над значком Dock; одно и то же считают рисование и перерисовка наведения.
+   stl - строка состояния (0 - нет). */
+static void tip_geom(int i, const char* stl, int* out_lx, int* out_ty, int* out_lw, int* out_th) {
+    const char* desc = side[i].desc; const char* hint = side[i].hint;
+    int lines = 1 + (desc && *desc) + (stl != 0) + (hint && *hint);
+    int th = 12 + lines * 18;
+    int lw = gfx_text_width(side[i].label);
+    if (desc && gfx_text_width(desc) > lw) lw = gfx_text_width(desc);
+    if (hint && gfx_text_width(hint) > lw) lw = gfx_text_width(hint);
+    if (stl && gfx_text_width(stl) > lw) lw = gfx_text_width(stl);
+    lw += 20;
+    if (lw > 440) lw = 440;
+    if (lw > scr->w - 8) lw = scr->w - 8;
+    int lx = side_item_x(i) + side_ts / 2 - lw / 2;
+    if (lx < 4) lx = 4;
+    if (lx + lw > scr->w - 4) lx = scr->w - 4 - lw;
+    *out_lx = lx; *out_ty = dock_y() - 10 - th; *out_lw = lw; *out_th = th;
+}
+#define TIP_STL_MAX "свёрнуто - щелчок вернёт"      /* самая длинная строка состояния: запас по размеру при перерисовке */
+static void damage_hover_item(int i, int from_desk) {
+    if (i < 0 || i >= side_n) return;
+    if (from_desk) {
+        for (int k = 0, n = desk_count(); k < n; k++)
+            if (desk_item(k) == i) { int x = desk_cx() - DESK_CELL_W / 2, y = desk_ty(k); damage(x - 8, y - 8, x + DESK_CELL_W + 8, y + DESK_TILE + 30); return; }
+        damage_side_full();
+        return;
     }
-    int k = 0; for (int j = i + 1; j < side_n; j++) if (side[j].bottom) k++;
-    return WM_TOP_H + 10 + side_panel_h() - 12 - side_ts - k * pitch;
+    int x = side_item_x(i), y = side_ty();
+    damage(x - 12, y - 12, x + side_ts + 12, y + side_ts + 12);               /* значок с подсветкой */
+    int lx, ty, lw, th;
+    tip_geom(i, TIP_STL_MAX, &lx, &ty, &lw, &th);
+    damage(lx - 4, ty - 4, lx + lw + 4, dock_y() - 4);
 }
 
-static void damage_side_full(void) { damage(0, WM_TOP_H, SIDE_AREA_W, scr->h); }
-static void damage_side(void) { damage(0, WM_TOP_H, side_hover >= 0 ? SIDE_AREA_W : WM_SIDE_W + 20, scr->h); }   /* подпись у значка - только при наведении */
-
-static int side_tx(void) { return SIDE_X + 6 + (TILE - side_ts) / 2; }   /* плитки выровнены по центру колонки */
-
 static int side_hit(int px, int py) {
+    side_from_desk = 0;
     for (int i = 0; i < side_n; i++) {
-        int x = side_tx(), y = side_item_y(i);
+        int x = side_item_x(i), y = side_ty();
         if (px >= x && px < x + side_ts && py >= y && py < y + side_ts) return i;
+    }
+    for (int k = 0, n = desk_count(); k < n; k++) {
+        int x = desk_cx() - DESK_CELL_W / 2, y = desk_ty(k);
+        if (px >= x && px < x + DESK_CELL_W && py >= y && py < y + DESK_TILE + 22) { side_from_desk = 1; return desk_item(k); }
     }
     return -1;
 }
 
 int wm_side_center(int i, int* x, int* y) {
     if (i < 0 || i >= side_n) return -1;
-    *x = side_tx() + side_ts / 2; *y = side_item_y(i) + side_ts / 2;
+    *x = side_item_x(i) + side_ts / 2; *y = side_ty() + side_ts / 2;
     return 0;
 }
 
 /* --- верхняя панель --- */
 
-#define TAB_X0 154
+#define TAB_X0 206
 #define TAB_H 26
 #define TAB_GAP 6
 
 /* Панель разделов занимает только свободное место между логотипом и системными индикаторами.
    На узких экранах ячейки равномерно сжимаются, а подписи обрезаются по UTF-8, не налезая на часы. */
 static int tab_right(void) {
-    int reserve = scr->w < 1024 ? 76 : scr->w < 1280 ? 350 : 500;
+    int reserve = scr->w < 1024 ? 110 : scr->w < 1280 ? 170 : 390;
     int right = scr->w - reserve;
     return right < TAB_X0 ? TAB_X0 : right;
 }
@@ -281,11 +399,21 @@ static uint32_t accent_of(const win_t* w) {
 
 /* --- фон --- */
 
+static const uint8_t* wp_rgb; static int wp_w, wp_h;      /* обои из картинки (см. wallpaper.h); без них - заставка brainfx */
+
+int wm_wallpaper_set(const uint8_t* kwp, uint64_t len) {
+    const uint8_t* rgb; int w, h;
+    if (wallpaper_parse(kwp, (size_t)len, &w, &h, &rgb)) return -1;
+    wp_rgb = rgb; wp_w = w; wp_h = h;
+    return 0;
+}
+
 static void bg_render(void) {
     int W = scr->w, H = scr->h;
     bg = (uint32_t*)ops.alloc((uint64_t)W * H * 4);
     if (!bg) return;
     bgs.px = bg; bgs.w = W; bgs.h = H; bgs.pitch = W;
+    if (wp_rgb) { wallpaper_scale(bg, W, H, wp_rgb, wp_w, wp_h); return; }
     int area_x = WM_SIDE_W, area_w = W - WM_SIDE_W;
     brain_cx = area_x + area_w / 2;
     brain_cy = WM_TOP_H + (H - WM_TOP_H) / 2;
@@ -346,7 +474,7 @@ void wm_init(surface_t* screen, const wm_ops_t* o) {
     ops = *o;
     for (int i = 0; i < WM_MAX_WIN; i++) win[i].used = 0;
     zcount = 0; dragging = -1; resizing = -1; capture = -1; prev_buttons = 0;
-    side_n = 0; side_ts = TILE; side_gap = TILE_GAP; side_hover = -1; tab_n = 0; tab_hover = -1; light_hover = -1; last_tab = -2;
+    home_open = 1; side_n = 0; side_ts = TILE; side_gap = TILE_GAP; side_hover = -1; tab_n = 0; tab_hover = -1; light_hover = -1; last_tab = -2;
     last_fs = -1; last_pill = 0; cascade = 0; clock_date[0] = 0; clock_hm[0] = 0; m_cores = 0; m_mem = -1; m_health = -1;
     __builtin_memset(notices, 0, sizeof notices); notice_count = 0;
     cx = scr->w / 2; cy = scr->h / 2;
@@ -360,7 +488,7 @@ static int fit_zoom16(int cw, int ch) {
     int ax = scr->w >= 800 ? WM_SIDE_W + 8 : 8;
     int aw = scr->w - ax - 12;
     int ay = WM_TOP_H + 12;
-    int ah = scr->h - ay - 12;
+    int ah = scr->h - ay - 12 - (side_n ? WM_DOCK_H : 0);     /* Dock не должен закрывать окно: подгоняем масштаб */
     int maxw = aw - 2 * WM_PAD;
     int maxh = ah - WM_HEAD - WM_PAD;
     if (maxw < 1) maxw = 1;
@@ -376,6 +504,7 @@ static void auto_place(win_t* w) {
     int ow = outer_w(w), oh = outer_h(w);
     int ax = scr->w >= 800 ? WM_SIDE_W + 8 : 8, aw = scr->w - ax - 12;
     int ay = WM_TOP_H + 12, ah = scr->h - ay - 12;
+    if (side_n && oh <= ah - WM_DOCK_H) ah -= WM_DOCK_H;     /* окно помещается над Dock - ставим над ним; иначе Dock чуть перекроет низ */
     int k = cascade++ % 4;
     int x = ax + (aw - ow) / 2 + k * 26, y = ay + (ah - oh) / 2 + k * 22 - 8;
     if (x + ow > scr->w - 8) x = scr->w - 8 - ow;
@@ -392,6 +521,7 @@ static int create_in(const char* title, int x, int y, int cw, int ch, int flags,
     int id = -1;
     for (int i = 0; i < WM_MAX_WIN; i++) if (!win[i].used) { id = i; break; }
     if (id < 0) return -1;
+    int prev_top = wm_top();
     if (!mem) {
         /* Окна ядра должны иметь парный alloc/release: иначе закрытие окна
            навсегда теряло бы выделенные страницы. Память Ring 3 приходит извне. */
@@ -402,6 +532,7 @@ static int create_in(const char* title, int x, int y, int cw, int ch, int flags,
     }
     win_t* w = &win[id];
     w->used = 1; w->visible = 1; w->full = 0; w->seq = 0;
+    w->shadow = 0; w->shadow_ok = 0; w->sh_w = w->sh_h = 0;
     w->closable = (flags & WM_CLOSABLE) != 0; w->pinned = (flags & WM_PINNED) != 0; w->user = user;
     w->input = (flags & WM_INPUT) != 0;
     str_copy(w->title, title, sizeof(w->title));
@@ -422,6 +553,7 @@ static int create_in(const char* title, int x, int y, int cw, int ch, int flags,
         zorder[0] = id; zcount++;
     } else zorder[zcount++] = id;
     damage_win(w);
+    focus_moved(prev_top);
     damage_side();
     damage_top();
     return id;
@@ -452,12 +584,15 @@ void wm_set_frame_seq(int id, const volatile uint32_t* seq) {
 
 void wm_destroy(int id) {
     if (id < 0 || id >= WM_MAX_WIN || !win[id].used) return;
+    int prev_top = wm_top();
     damage_win(&win[id]);
     win_t* w = &win[id];
     uint32_t* owned = w->user ? 0 : w->content.px;
     uint64_t owned_bytes = (uint64_t)(unsigned)w->cap_w * (uint64_t)(unsigned)w->cap_h * sizeof(uint32_t);
     w->used = 0; w->visible = 0;
     if (owned && ops.release) ops.release(owned, owned_bytes);
+    if (w->shadow && ops.release) ops.release(w->shadow, owned_bytes);
+    w->shadow = 0; w->shadow_ok = 0;
     int j = 0;
     for (int i = 0; i < zcount; i++) if (zorder[i] != id) zorder[j++] = zorder[i];
     zcount = j;
@@ -465,6 +600,7 @@ void wm_destroy(int id) {
     if (resizing == id) resizing = -1;
     if (capture == id) capture = -1;
     if (light_hover == id) light_hover = -1;
+    focus_moved(prev_top);
     damage_side();
     damage_top();
 }
@@ -552,9 +688,12 @@ void wm_set_visible(int id, int v) {
     if (id < 0 || id >= WM_MAX_WIN || !win[id].used) return;
     v = v != 0;
     if (win[id].visible == v) return;
+    int prev_top = wm_top();
     win[id].visible = v;
+    win[id].shadow_ok = 0;                     /* пока окно было скрыто, содержимое могло уйти от копии */
     if (v) wm_raise(id);
     damage_win(&win[id]);
+    focus_moved(prev_top);
     damage_side();
     damage_top();
 }
@@ -598,11 +737,66 @@ void wm_set_fullscreen(int id, int on) {
 
 int wm_fullscreen(int id) { return id >= 0 && id < WM_MAX_WIN && win[id].used && win[id].full; }
 
+void wm_invalidate_report(void (*out)(uintptr_t ra, uint32_t n)) { for (int i = 0; i < 16; i++) { if (inv_tab[i].n) out(inv_tab[i].ra, inv_tab[i].n); inv_tab[i].n = 0; } }
 void wm_invalidate(int id) {
     if (!wm_visible(id)) return;
     win_t* w = &win[id];
     int ox, oy, dw, dh; geom(w, &ox, &oy, &dw, &dh);
     damage(ox, oy, ox + dw, oy + dh);
+}
+
+
+/* Перерисовать только то, что изменилось в содержимом окна. Приложения ядра (Разум, Монитор, Проводник, Настройки)
+   рисуют окно целиком каждый раз, а меняется обычно пара строк; без сравнения композитор пересобирал бы весь
+   прямоугольник окна (сотни тысяч точек, ~60 нс на точку). Здесь содержимое сравнивается с копией того, что уже
+   показано, и в композитор уходят только изменившиеся полосы строк, каждая со своими границами по x.
+   Если копии нет, размер окна менялся или окно было скрыто - перерисовывается всё окно, как раньше. */
+#define DIFF_GAP 6                 /* неизменные строки меньше этого не разрывают полосу */
+void wm_invalidate_diff(int id) {
+    if (id < 0 || id >= WM_MAX_WIN || !win[id].used) return;
+    win_t* w = &win[id];
+    if (!w->visible) { w->shadow_ok = 0; return; }
+    int cw = w->content.w, ch = w->content.h;
+    if (!w->shadow && ops.alloc && ops.release)
+        w->shadow = (uint32_t*)ops.alloc((uint64_t)w->cap_w * (uint64_t)w->cap_h * sizeof(uint32_t));
+    uint32_t* sh = w->shadow;
+    int spitch = w->cap_w;
+    if (!sh) { wm_invalidate(id); return; }
+    if (!w->shadow_ok || w->sh_w != cw || w->sh_h != ch) {          /* нечего сравнивать: всё окно */
+        for (int j = 0; j < ch; j++) __builtin_memcpy(sh + (long)j * spitch, w->content.px + (long)j * w->content.pitch, (size_t)cw * 4);
+        w->shadow_ok = 1; w->sh_w = cw; w->sh_h = ch;
+        wm_invalidate(id);
+        return;
+    }
+    int ox, oy, dw, dh; geom(w, &ox, &oy, &dw, &dh);
+    int scaled = dw != cw || dh != ch;
+    int bs = -1, be = 0, bx0 = 0, bx1 = 0;                           /* текущая полоса: строки [bs,be), столбцы [bx0,bx1) */
+    for (int j = 0; j <= ch; j++) {
+        int x0 = 0, x1 = 0, diff = 0;
+        if (j < ch) {
+            const uint32_t* a = w->content.px + (long)j * w->content.pitch;
+            uint32_t* b = sh + (long)j * spitch;
+            int i = 0;
+            while (i < cw && a[i] == b[i]) i++;
+            if (i < cw) {
+                int k = cw - 1;
+                while (a[k] == b[k]) k--;
+                x0 = i; x1 = k + 1; diff = 1;
+                __builtin_memcpy(b + i, a + i, (size_t)(x1 - x0) * 4);
+            }
+        }
+        if (diff) {
+            if (bs < 0) { bs = j; bx0 = x0; bx1 = x1; }
+            else { if (x0 < bx0) bx0 = x0; if (x1 > bx1) bx1 = x1; }
+            be = j + 1;
+        }
+        if (bs >= 0 && (j == ch || (!diff && j - be >= DIFF_GAP))) {   /* полоса закончилась */
+            int m = scaled ? 1 : 0;
+            damage(ox + bx0 * dw / cw - m, oy + bs * dh / ch - m,
+                   ox + (bx1 * dw + cw - 1) / cw + m, oy + (be * dh + ch - 1) / ch + m);
+            bs = -1;
+        }
+    }
 }
 
 void wm_invalidate_rows(int id, int y0, int y1) {
@@ -629,10 +823,22 @@ static int same_str(const char* a, const char* b, int cap) {
 
 void wm_set_clock(const char* date, const char* hm) {
     if (same_str(clock_date, date, (int)sizeof clock_date) && same_str(clock_hm, hm, (int)sizeof clock_hm)) return;
+    int l0 = top_cap_left();
     str_copy(clock_date, date, sizeof clock_date);
     str_copy(clock_hm, hm, sizeof clock_hm);
-    damage_top();
+    damage_top_right(l0);
     damage_home();
+}
+
+void wm_set_battery(int present, int percent, int charging) {
+    present = present ? 1 : 0;
+    if (percent > 100) percent = 100;
+    if (percent < 0) percent = -1;
+    if (!present) { percent = -1; charging = 0; }
+    if (present == m_bat_on && percent == m_bat_pct && (charging ? 1 : 0) == m_bat_chg) return;
+    int l0 = top_cap_left();
+    m_bat_on = present; m_bat_pct = percent; m_bat_chg = charging ? 1 : 0;
+    damage_top_right(l0);
 }
 
 void wm_set_meters(const uint8_t* busy, int ncores, int mem_pct, int health) {
@@ -640,9 +846,10 @@ void wm_set_meters(const uint8_t* busy, int ncores, int mem_pct, int health) {
     int changed = ncores != m_cores || mem_pct != m_mem || health != m_health;
     for (int i = 0; i < ncores && !changed; i++) if (m_busy[i] / 8 != busy[i] / 8) changed = 1;   /* шаг столбика ~ 8% */
     if (!changed) return;
+    int l0 = top_cap_left();
     for (int i = 0; i < ncores; i++) m_busy[i] = busy[i];
     m_cores = ncores; m_mem = mem_pct; m_health = health;
-    damage_top();
+    damage_top_right(l0);
     damage_home();
 }
 
@@ -668,7 +875,7 @@ void wm_anim(uint32_t now_ms, unsigned activity) {
     anim_ms = now_ms;
     notices_expire(now_ms);
     if (fs_top() >= 0) return;                        /* во весь экран фон не виден */
-    brainfx_anim(now_ms, fx_level, activity, anim_damage);
+    if (!wp_rgb) brainfx_anim(now_ms, fx_level, activity, anim_damage);
 }
 
 void wm_cursor(int* x, int* y) { *x = cx; *y = cy; }
@@ -864,7 +1071,11 @@ static void click(int px, int py) {
 static void update_hover(void) {
     int fs = fs_top();
     int sh = fs >= 0 ? -1 : side_hit(cx, cy);
-    if (sh != side_hover) { damage_side_full(); side_hover = sh; damage_side_full(); }
+    if (sh != side_hover) {
+        damage_hover_item(side_hover, side_hover_desk);                       /* был подсвечен тот - перерисовать */
+        side_hover = sh; side_hover_desk = sh >= 0 ? side_from_desk : 0;
+        damage_hover_item(side_hover, side_hover_desk);                       /* и новый */
+    }
     int th = fs >= 0 ? -1 : tab_hit(cx, cy);
     if (th != tab_hover) { tab_hover = th; damage_top(); }
     int lh = -1;
@@ -950,24 +1161,89 @@ void wm_mouse(int ddx, int ddy, unsigned buttons) {
 /* --- рисование (в поверхность clip, координаты экрана сдвинуты на ox,oy) --- */
 
 /* Масштабированная копия. Без общих таблиц: композитор рисует полосы экрана на нескольких ядрах одновременно.
-   Номер столбца источника (i - dx) * w / dw ведётся приращениями - точно то же значение, без деления на точку. */
+   Уменьшение - усреднение по площади (каждый исходный пиксель входит с весом своей доли в целевом): тонкие линии букв
+   не пропадают, как при выборе ближайшей точки. Увеличение - ближайшая точка (интерфейс сам не увеличивается). */
 static void blit_scaled(surface_t* c, int dx, int dy, int dw, int dh, const surface_t* src) {
     if (dw == src->w && dh == src->h) { gfx_blit(c, dx, dy, src, 0, 0, src->w, src->h); return; }
     if (dw <= 0 || dh <= 0) return;
     int xa = dx < 0 ? 0 : dx, xb = dx + dw > c->w ? c->w : dx + dw;
     int ya = dy < 0 ? 0 : dy, yb = dy + dh > c->h ? c->h : dy + dh;
     if (xa >= xb || ya >= yb) return;
-    long n0 = (long)(xa - dx) * src->w;
-    int q0 = (int)(n0 / dw);
-    long r0 = n0 - (long)q0 * dw;
+    int sw = src->w, sh = src->h;
+    if (dw >= sw && dh >= sh) {                                  /* увеличение: ближайшая точка */
+        long n0 = (long)(xa - dx) * sw;
+        int q0 = (int)(n0 / dw);
+        long r0 = n0 - (long)q0 * dw;
+        for (int j = ya; j < yb; j++) {
+            const uint32_t* sp = src->px + (long)((j - dy) * sh / dh) * src->pitch;
+            uint32_t* dp = &c->px[(long)j * c->pitch];
+            int q = q0; long r = r0;
+            for (int i = xa; i < xb; i++) {
+                dp[i] = sp[q];
+                r += sw;
+                while (r >= dw) { r -= dw; q++; }
+            }
+        }
+        return;
+    }
+    /* Уменьшение: усреднение по площади точными долями (как при делении на dw, dh), но без деления на каждую точку:
+       границы исходных столбцов идут по шагам (частное и остаток), веса строк считаются один раз на строку,
+       итоговое деление на общую площадь - умножением на обратную величину (точно: сумма*площадь < 2^64). */
+    enum { SC_ROWS = 64 };
+    uint64_t tot = (uint64_t)sw * (uint64_t)sh;
+    uint64_t inv = 0xFFFFFFFFFFFFFFFFull / tot + 1;               /* floor(n/tot) == (n*inv)>>64 для n*tot < 2^64 */
+    long n0 = (long)(xa - dx) * sw;
+    int q0 = (int)(n0 / dw); long r0 = n0 - (long)q0 * dw;           /* левая граница: x0 / dw */
+    long n1 = n0 + sw - 1;
+    int q1 = (int)(n1 / dw); long r1 = n1 - (long)q1 * dw;           /* правая граница: (x0 + sw - 1) / dw */
     for (int j = ya; j < yb; j++) {
-        const uint32_t* sp = src->px + (long)((j - dy) * src->h / dh) * src->pitch;
+        long y0 = (long)(j - dy) * sh, y1 = y0 + sh;              /* строка назначения покрывает [y0, y1) в долях 1/dh строки источника */
+        int ry0 = (int)(y0 / dh), ry1 = (int)((y1 - 1) / dh);
+        if (ry1 >= sh) ry1 = sh - 1;
+        int nry = ry1 - ry0 + 1;
         uint32_t* dp = &c->px[(long)j * c->pitch];
-        int q = q0; long r = r0;
-        for (int i = xa; i < xb; i++) {
-            dp[i] = sp[q];
-            r += src->w;
-            while (r >= dw) { r -= dw; q++; }
+        uint64_t wyv[SC_ROWS]; const uint32_t* sps[SC_ROWS];
+        int fast = nry <= SC_ROWS;
+        if (fast)
+            for (int k = 0; k < nry; k++) {
+                long ry = ry0 + k;
+                long ya0 = ry * dh > y0 ? ry * dh : y0;
+                long ya1 = (ry + 1) * dh < y1 ? (ry + 1) * dh : y1;
+                wyv[k] = (uint64_t)(ya1 - ya0);
+                sps[k] = src->px + ry * src->pitch;
+            }
+        int qa = q0, qb = q1; long ra = r0, rb = r1;
+        long x0 = n0;
+        for (int i = xa; i < xb; i++, x0 += sw) {
+            long x1 = x0 + sw;
+            int rx0 = qa, rx1 = qb;
+            if (rx1 >= sw) rx1 = sw - 1;
+            ra += sw; while (ra >= dw) { ra -= dw; qa++; }
+            rb += sw; while (rb >= dw) { rb -= dw; qb++; }
+            uint64_t sr = 0, sg = 0, sb = 0;
+            for (int k = 0; k < nry; k++) {
+                uint64_t wy;
+                const uint32_t* sp;
+                if (fast) { wy = wyv[k]; sp = sps[k]; }
+                else {
+                    long ry = ry0 + k;
+                    long ya0 = ry * dh > y0 ? ry * dh : y0;
+                    long ya1 = (ry + 1) * dh < y1 ? (ry + 1) * dh : y1;
+                    wy = (uint64_t)(ya1 - ya0);
+                    sp = src->px + ry * src->pitch;
+                }
+                for (int rx = rx0; rx <= rx1; rx++) {
+                    long xa0 = (long)rx * dw > x0 ? (long)rx * dw : x0;
+                    long xa1 = (long)(rx + 1) * dw < x1 ? (long)(rx + 1) * dw : x1;
+                    uint64_t wgt = wy * (uint64_t)(xa1 - xa0);
+                    uint32_t p = sp[rx];
+                    sr += wgt * ((p >> 16) & 255); sg += wgt * ((p >> 8) & 255); sb += wgt * (p & 255);
+                }
+            }
+            uint32_t R = (uint32_t)(((unsigned __int128)sr * inv) >> 64);
+            uint32_t G = (uint32_t)(((unsigned __int128)sg * inv) >> 64);
+            uint32_t B = (uint32_t)(((unsigned __int128)sb * inv) >> 64);
+            dp[i] = R << 16 | G << 8 | B;
         }
     }
 }
@@ -998,16 +1274,32 @@ static void draw_lights(surface_t* c, int x, int y, int hover) {
     }
 }
 
+/* Горизонтальный отрезок цвета с прозрачностью (как ui_blend по точкам, но целой строкой). */
+static void row_blend(surface_t* c, int x, int y, int n, uint32_t col, unsigned alpha) {
+    if (y < 0 || y >= c->h || alpha == 0) return;
+    int xa = x < 0 ? 0 : x, xb = x + n > c->w ? c->w : x + n;
+    if (xa >= xb) return;
+    if (alpha >= 255) gfx_hline(c, xa, y, xb - xa, col & 0x00FFFFFF);
+    else gfx_span_blend(&c->px[(long)y * c->pitch + xa], xb - xa, col, alpha + (alpha >> 7));
+}
+
 static void draw_panel(surface_t* c, int ox, int oy, int id) {
     const win_t* w = &win[id];
     int x = w->x + ox, y = w->y + oy, ow = outer_w(w), oh = outer_h(w);
     int focused = w->pinned || id == wm_top();
     uint32_t accent = accent_of(w);
     if (focused && !w->pinned) ui_glow(c, x, y, ow, oh, PANEL_R, WM_GLOW, accent, 150);
-    ui_round_rect(c, x, y, ow, oh, PANEL_R, TH_PANEL1, 255);
-    ui_round_rect(c, x, y, ow, WM_HEAD, PANEL_R, TH_PANEL0, 255);
-    ui_vgrad(c, x + 1, y + PANEL_R, ow - 2, WM_HEAD - PANEL_R,
-             focused ? TH_PANEL0 : ui_mix(TH_PANEL0, TH_PANEL1, 48), TH_PANEL1); /* заголовок отделён мягким градиентом */
+    /* Стеклянная рамка: заголовок и поля вокруг содержимого полупрозрачны, обои просвечивают; само содержимое непрозрачно. */
+    unsigned glass = wp_rgb ? (focused ? 178u : 150u) : 255u;
+    /* Под содержимым (оно непрозрачное и рисуется последним) стекло смешивать незачем. */
+    ui_round_rect_hole(c, x, y, ow, oh, PANEL_R, TH_PANEL1, glass, x + WM_PAD, y + WM_HEAD, disp_w(w), disp_h(w));
+    ui_round_rect(c, x, y, ow, WM_HEAD, PANEL_R, TH_PANEL0, glass);
+    for (int j = PANEL_R; j < WM_HEAD; j++) {                                    /* мягкий градиент заголовка (с прозрачностью) */
+        unsigned t = (unsigned)(j - PANEL_R) * 256u / (unsigned)(WM_HEAD - PANEL_R);
+        uint32_t gc = ui_mix(focused ? TH_PANEL0 : ui_mix(TH_PANEL0, TH_PANEL1, 48), TH_PANEL1, t);
+        row_blend(c, x + 1, y + j, ow - 2, gc, glass);
+    }
+    if (wp_rgb) row_blend(c, x + PANEL_R, y + 1, ow - 2 * PANEL_R, 0x00FFFFFF, 34u);  /* блик по верхней кромке стекла */
     for (int i = 0; i < ow - 2 * PANEL_R; i++) {                                 /* неоновая черта под заголовком: к краям гаснет */
         int e = i < (ow - 2 * PANEL_R) / 2 ? i : ow - 2 * PANEL_R - 1 - i;       /* расстояние до ближайшего края */
         unsigned fade = e >= 40 ? 256u : (unsigned)e * 256u / 40u;
@@ -1105,8 +1397,8 @@ static void draw_home(surface_t* c, int ox, int oy) {
     if (scr->w < 900 || scr->h < 620) return;
     const int w = 300, h = 158;
     int x = scr->w - 318, y = scr->h - 176;
-    ui_round_rect(c, x + ox, y + oy, w, h, 14, TH_BAR0, 255);
-    ui_round_frame(c, x + ox, y + oy, w, h, 14, TH_BORDER, 255);
+    ui_round_rect(c, x + ox, y + oy, w, h, 16, TH_BAR0, wp_rgb ? 168 : 255);
+    ui_round_frame(c, x + ox, y + oy, w, h, 16, ui_mix(TH_BORDER, TH_CYAN, 70), 255);
     ui_text_bold(c, x + 16 + ox, y + 11 + oy, "ОБЗОР СИСТЕМЫ", TH_TEXT);
     if (clock_hm[0]) ui_text_bold(c, x + w - 16 - gfx_text_width(clock_hm) + ox, y + 11 + oy, clock_hm, TH_CYAN);
 
@@ -1119,31 +1411,34 @@ static void draw_home(surface_t* c, int ox, int oy) {
     uint32_t cc = TH_TEXT_FAINT, mc = TH_TEXT_FAINT, hc = TH_TEXT_FAINT;
     if (cpu >= 0) meter_color((unsigned)cpu, &cc);
     if (m_mem >= 0) meter_color((unsigned)m_mem, &mc);
-    if (m_health >= 0) meter_color((unsigned)m_health, &hc);
+    if (m_health >= 0) hc = m_health >= 70 ? TH_GREEN : m_health >= 50 ? TH_AMBER : TH_RED;   /* здоровье: чем больше, тем лучше */
     home_metric(c, x + 16, y + 39, w - 32, ox, oy, "ПРОЦЕССОР", cpu, cc);
     home_metric(c, x + 16, y + 77, w - 32, ox, oy, "ПАМЯТЬ", m_mem, mc);
     home_metric(c, x + 16, y + 115, w - 32, ox, oy, "ЗДОРОВЬЕ MIND", m_health, hc);
 }
 
-static void draw_topbar(surface_t* c, int ox, int oy) {
-    int y = oy, W = scr->w;
-    ui_vgrad(c, ox, y, W, WM_TOP_H, TH_BAR0, TH_BAR1);
-    for (int i = 0; i < W; i++) ui_blend(c, ox + i, y + WM_TOP_H - 1, TH_CYAN, (unsigned)(i < W / 2 ? 30 + i * 60 / W : 90 - i * 60 / W));
-    icon_draw(c, ox + 30, y + 20, 30, ICON_BRAIN, TH_CYAN, 1);
-    ui_text_smooth(c, ox + 52, y + 8, "ОС Кира", 24, TH_TEXT);
-    int act = active_tab();
-    for (int i = 0; i < tab_n; i++) {
-        int tx = tab_x(i) + ox, tw = tab_w(i);
-        if (i == act) {
-            ui_round_rect(c, tx, y + 7, tw, TAB_H, 7, TH_CYAN, 46);
-            ui_round_frame(c, tx, y + 7, tw, TAB_H, 7, TH_CYAN, 120);
-            ui_round_rect(c, tx + 10, y + WM_TOP_H - 4, tw - 20, 2, 1, TH_CYAN, 230);
-        } else if (i == tab_hover) ui_round_rect(c, tx, y + 7, tw, TAB_H, 7, TH_CYAN, 20);
-        if (tw > 20) ui_text_fit(c, tx + 10, y + 12, tabs[i].label, tw - 20,
-                                      i == act ? TH_CYAN : (i == tab_hover ? TH_TEXT : TH_TEXT_DIM));
+/* Правая стеклянная капсула: здоровье, время, дата. dry - только посчитать, где она начинается (рисовать ещё нечем). */
+static int topbar_right(surface_t* c, int ox, int oy, int dry) {
+    int W = scr->w, y = oy;
+    int rx = W - 22 + ox;
+    if (W >= 1024 && m_bat_on) {                          /* батарея: рамка 22x11 с выступом, заливка по заряду, число; зелёный - зарядка */
+        char t[8]; int n = 0, k = 0; char d[4];
+        if (m_bat_pct >= 0) { int v = m_bat_pct; do { d[k++] = (char)('0' + v % 10); v /= 10; } while (v && k < 3); while (k) t[n++] = d[--k]; t[n++] = '%'; }
+        else t[n++] = '?';
+        t[n] = 0;
+        uint32_t bc = m_bat_chg ? TH_GREEN : m_bat_pct < 0 ? TH_TEXT_DIM : m_bat_pct <= 15 ? TH_RED : m_bat_pct <= 30 ? TH_AMBER : TH_TEXT;
+        rx -= gfx_text_width(t);
+        if (!dry) ui_text_bold(c, rx, y + 12, t, bc);
+        rx -= 28;
+        if (!dry) {
+            int bx = rx, by = y + 14;
+            gfx_rect(c, bx, by, 22, 1, bc); gfx_rect(c, bx, by + 10, 22, 1, bc);
+            gfx_rect(c, bx, by, 1, 11, bc); gfx_rect(c, bx + 21, by, 1, 11, bc);
+            gfx_rect(c, bx + 22, by + 3, 2, 5, bc);
+            if (m_bat_pct > 0) { int fw = (18 * m_bat_pct + 99) / 100; if (fw < 1) fw = 1; gfx_rect(c, bx + 2, by + 2, fw, 7, bc); }
+        }
+        rx -= 14;
     }
-    /* справа налево: здоровье, память, ядра, время, дата */
-    int rx = W - 14 + ox;
     if (W >= 1024 && m_health >= 0) {
         char t[8]; int n = 0, v = m_health; char d[4]; int k = 0;
         do { d[k++] = (char)('0' + v % 10); v /= 10; } while (v && k < 3);
@@ -1151,30 +1446,65 @@ static void draw_topbar(surface_t* c, int ox, int oy) {
         t[n] = 0;
         uint32_t hc = m_health >= 70 ? TH_GREEN : m_health >= 50 ? TH_AMBER : TH_RED;
         rx -= gfx_text_width(t);
-        ui_text_bold(c, rx, y + 12, t, hc);
+        if (!dry) ui_text_bold(c, rx, y + 12, t, hc);
         rx -= 14;
-        ui_disc(c, rx + 4, y + 20, 4, hc, 255);
-        ui_disc(c, rx + 4, y + 20, 7, hc, 50);
+        if (!dry) { ui_disc(c, rx + 4, y + 20, 4, hc, 255); ui_disc(c, rx + 4, y + 20, 7, hc, 50); }
         rx -= 16;
     }
-    /* Ядра и память постоянно не показываются (KIRA_DESIGN_SYSTEM, инвариант 1): они в обзоре по клику на системную зону. */
     if (clock_hm[0]) {
         rx -= gfx_text_width(clock_hm);
-        ui_text_bold(c, rx, y + 12, clock_hm, TH_TEXT);
+        if (!dry) ui_text_bold(c, rx, y + 12, clock_hm, TH_TEXT);
         if (W >= 1280) {
             rx -= 20;
-            gfx_rect(c, rx + 9, y + 12, 1, 16, TH_BORDER);
+            if (!dry) gfx_rect(c, rx + 9, y + 12, 1, 16, TH_BORDER);
             const char* d = clock_date;
-            int left_limit = tab_n ? tab_x(tab_n - 1) + tab_w(tab_n - 1) + 16 + ox : 200 + ox;
+            int left_limit = tab_n ? tab_x(tab_n - 1) + tab_w(tab_n - 1) + 36 + ox : 200 + ox;
             while (*d && rx - gfx_text_width(d) < left_limit) {
                 const char* comma = d; while (*comma && *comma != ',') comma++;
                 if (!*comma) { d = ""; break; }
                 d = comma + 2;
             }
             rx -= gfx_text_width(d);
-            if (*d) gfx_text(c, rx, y + 12, d, TH_TEXT_DIM, -1);
+            if (*d && !dry) gfx_text(c, rx, y + 12, d, TH_TEXT_DIM, -1);
         }
     }
+    return rx;
+}
+
+static void draw_topbar(surface_t* c, int ox, int oy) {
+    int y = oy, W = scr->w;
+    /* Бренд слева, стеклянная пилюля с разделами, капсула с временем справа. Полосы на всю ширину нет: обои видны целиком. */
+    ui_round_rect(c, ox + 10, y + 3, 184, 34, 17, TH_BAR0, wp_rgb ? 150 : 255);
+    icon_draw(c, ox + 31, y + 20, 28, ICON_BRAIN, TH_CYAN, 1);
+    ui_text_smooth(c, ox + 52, y + 4, "KIRA OS", 18, TH_TEXT);
+    gfx_text(c, ox + 52, y + 21, "Spatial Desktop", TH_TEXT_FAINT, -1);
+    int px0 = TAB_X0 - 8, px1 = tab_right() + ox;
+    if (tab_n && px1 > px0) {
+        int last = tab_x(tab_n - 1) + tab_w(tab_n - 1) + 8;
+        if (last < px1) px1 = last;
+        ui_round_rect(c, px0 + ox, y + 3, px1 - px0, TAB_H + 8, (TAB_H + 8) / 2, TH_BAR0, wp_rgb ? 150 : 255);
+        ui_round_frame(c, px0 + ox, y + 3, px1 - px0, TAB_H + 8, (TAB_H + 8) / 2, ui_mix(TH_BORDER, TH_CYAN, 50), 255);
+    }
+    int act = active_tab();
+    for (int i = 0; i < tab_n; i++) {
+        int tx = tab_x(i) + ox, tw = tab_w(i);
+        if (i == act) {
+            ui_round_rect(c, tx, y + 7, tw, TAB_H, 13, TH_CYAN, 52);
+            ui_round_frame(c, tx, y + 7, tw, TAB_H, 13, TH_CYAN, 130);
+        } else if (i == tab_hover) {
+            ui_round_rect(c, tx, y + 7, tw, TAB_H, 13, TH_CYAN, 22);
+            ui_round_frame(c, tx, y + 7, tw, TAB_H, 13, TH_CYAN, 60);
+        }
+        int lw = gfx_text_width(tabs[i].label), room = tw - 16;
+        if (lw > room) lw = room;
+        if (tw > 20) ui_text_fit(c, tx + (tw - lw) / 2, y + 12, tabs[i].label, room,
+                                      i == act ? TH_CYAN : (i == tab_hover ? TH_TEXT : TH_TEXT_DIM));
+    }
+    int left = topbar_right(c, ox, oy, 1) - 16;
+    if (left > W - 40 + ox) left = W - 40 + ox;
+    ui_round_rect(c, left, y + 3, W - 8 + ox - left, 34, 17, TH_BAR0, wp_rgb ? 150 : 255);
+    ui_round_frame(c, left, y + 3, W - 8 + ox - left, 34, 17, ui_mix(TH_BORDER, TH_CYAN, 50), 255);
+    topbar_right(c, ox, oy, 0);
 }
 
 /* Состояние значка: 0 - окна нет, 1 - свёрнуто, 2 - открыто, 3 - в фокусе (окно сверху). id - окно или -1. */
@@ -1191,62 +1521,66 @@ static int side_state(int i, int top, int* id_out) {
     return st;
 }
 
+static void draw_side_tile(surface_t* c, int i, int tx, int ty, int ts, int top, int dock) {
+    int st = side_state(i, top, 0);
+    int running = st > 0, shown = st >= 2, focused = st == 3;
+    uint32_t col = side[i].color;
+    int big = ts >= 36, hov = i == side_hover && side_from_desk == !dock;
+    uint32_t fill = hov ? ui_mix(TH_TILE, col, 40) : TH_TILE;
+    if (focused) ui_glow(c, tx, ty, ts, ts, 12, 3, col, 140);
+    ui_round_rect(c, tx, ty, ts, ts, big ? 14 : 9, fill, wp_rgb && !dock ? 190 : 255);
+    ui_round_frame(c, tx, ty, ts, ts, big ? 14 : 9, focused ? col : ui_mix(TH_BORDER, col, hov ? 160 : 70), 255);
+    icon_draw(c, tx + ts / 2, ty + ts / 2, ts * 26 / TILE, side[i].icon, running ? col : ui_mix(col, TH_TEXT_FAINT, 90), 1);
+    if (side[i].badge && big) {                         /* буква программы в углу: одинаковые значки различимы */
+        char b[2] = { side[i].badge, 0 };
+        ui_disc(c, tx + ts - 9, ty + ts - 9, 8, TH_BAR0, 255);
+        ui_ring(c, tx + ts - 9, ty + ts - 9, 7, 8, col, 255);
+        gfx_text(c, tx + ts - 13, ty + ts - 17, b, TH_TEXT, -1);
+    }
+    int cnt = running ? tag_count(side[i].tag) : 0;
+    if (cnt > 1) {                                      /* несколько окон одной программы: число в верхнем углу */
+        char b[4] = { (char)(cnt > 9 ? '+' : '0' + cnt), 0, 0, 0 };
+        ui_disc(c, tx + ts - 7, ty + 7, 7, col, 255);
+        gfx_text(c, tx + ts - 11, ty - 1, b, TH_BAR0, -1);
+    }
+    /* индикатор под плиткой Dock: длинная яркая полоса - открыто, в фокусе (+ свечение); короткая тусклая точка - свёрнуто */
+    if (dock && running) ui_round_rect(c, tx + ts / 2 - (shown ? ts * 8 / TILE : 3), ty + ts + 3, shown ? ts * 16 / TILE : 6, 3, 1, shown ? col : TH_TEXT_FAINT, 255);
+}
+
 static void draw_side(surface_t* c, int ox, int oy) {
-    if (!side_n) return;
-    int x = SIDE_X + ox, y = WM_TOP_H + 10 + oy, w = TILE + 12, h = side_panel_h();
-    int ts = side_ts, big = ts >= 36;
-    ui_round_rect(c, x, y, w, h, 16, TH_BAR0, 255);
-    ui_round_frame(c, x, y, w, h, 16, ui_mix(TH_BORDER, TH_CYAN, 60), 255);
     int top = wm_top();
-    for (int i = 0; i < side_n; i++) if (side[i].temp && !side[i].bottom) {
-        int pinned = 0; for (int j = 0; j < i; j++) if (!side[j].bottom && !side[j].temp) pinned = 1;
-        if (pinned) gfx_rect(c, SIDE_X + 12 + ox, side_item_y(i) - SEP_GAP / 2 - side_gap / 2 + oy, TILE - 12, 1, ui_mix(TH_BORDER, TH_CYAN, 90));
-        break;
+    /* значки рабочего стола слева: подпись под значком, с тенью - читается на любых обоях */
+    for (int k = 0, n = desk_count(); k < n; k++) {
+        int i = desk_item(k), x = desk_cx() - DESK_TILE / 2 + ox, y = desk_ty(k) + oy;
+        draw_side_tile(c, i, x, y, DESK_TILE, top, 0);
+        const char* lb = side[i].label;
+        int lw = gfx_text_width(lb); if (lw > DESK_CELL_W - 4) lw = DESK_CELL_W - 4;
+        int lx = desk_cx() - lw / 2 + ox;
+        ui_text_fit(c, lx + 1, y + DESK_TILE + 6 + 1, lb, DESK_CELL_W - 4, 0x0A0E24);
+        ui_text_fit(c, lx, y + DESK_TILE + 6, lb, DESK_CELL_W - 4, TH_TEXT);
     }
-    for (int i = 0; i < side_n; i++) {
-        int st = side_state(i, top, 0);
-        int running = st > 0, shown = st >= 2, focused = st == 3;
-        uint32_t col = side[i].color;
-        int tx = side_tx() + ox, ty = side_item_y(i) + oy;
-        uint32_t fill = i == side_hover ? ui_mix(TH_TILE, col, 40) : TH_TILE;
-        if (focused) ui_glow(c, tx, ty, ts, ts, 12, 3, col, 140);
-        ui_round_rect(c, tx, ty, ts, ts, big ? 12 : 8, fill, 255);
-        ui_round_frame(c, tx, ty, ts, ts, big ? 12 : 8, focused ? col : ui_mix(TH_BORDER, col, i == side_hover ? 160 : 70), 255);
-        icon_draw(c, tx + ts / 2, ty + ts / 2, ts * 26 / TILE, side[i].icon, running ? col : ui_mix(col, TH_TEXT_FAINT, 90), 1);
-        if (side[i].badge && big) {                         /* буква программы в углу: одинаковые значки различимы */
-            char b[2] = { side[i].badge, 0 };
-            ui_disc(c, tx + ts - 9, ty + ts - 9, 8, TH_BAR0, 255);
-            ui_ring(c, tx + ts - 9, ty + ts - 9, 7, 8, col, 255);
-            gfx_text(c, tx + ts - 13, ty + ts - 17, b, TH_TEXT, -1);
-        }
-        int cnt = running ? tag_count(side[i].tag) : 0;
-        if (cnt > 1) {                                      /* несколько окон одной программы: число в верхнем углу */
-            char b[4] = { (char)(cnt > 9 ? '+' : '0' + cnt), 0, 0, 0 };
-            ui_disc(c, tx + ts - 7, ty + 7, 7, col, 255);
-            gfx_text(c, tx + ts - 11, ty - 1, b, TH_BAR0, -1);
-        }
-        /* индикатор у левого края: высокая яркая полоса - открыто, в фокусе (+ свечение плитки); короткая тусклая - свёрнуто */
-        if (running) ui_round_rect(c, SIDE_X + 1 + ox, ty + ts / 2 - (shown ? ts * 8 / TILE : 3), 3, shown ? ts * 16 / TILE : 6, 2, shown ? col : TH_TEXT_FAINT, 255);
-        if (focused) ui_round_rect(c, SIDE_X + w - 4 + ox, ty + ts / 2 - 3, 3, 6, 2, col, 255);   /* и справа: «в фокусе» заметнее */
+    if (!side_n) return;
+    int ts = side_ts;
+    int x = dock_x() + ox, y = dock_y() + oy, w = dock_w(), h = dock_h();
+    ui_round_rect(c, x, y, w, h, 22, TH_BAR0, wp_rgb ? 150 : 255);
+    ui_round_frame(c, x, y, w, h, 22, ui_mix(TH_BORDER, TH_CYAN, 60), 255);
+    for (int g = 1; g < 3; g++) {                          /* чёрточки между группами */
+        int first = -1;
+        for (int i = 0; i < side_n; i++) if (side_group(i) == g && (first < 0 || side_order(i) < side_order(first))) first = i;
+        if (first < 0 || side_order(first) == 0) continue;
+        gfx_rect(c, side_item_x(first) - side_gap / 2 - SEP_GAP / 2 + ox, y + 12, 1, h - 24, ui_mix(TH_BORDER, TH_CYAN, 90));
     }
-    if (side_hover >= 0) {                                   /* подпись к значку под курсором */
+    for (int i = 0; i < side_n; i++) draw_side_tile(c, i, side_item_x(i) + ox, side_ty() + oy, ts, top, 1);
+    if (side_hover >= 0 && !side_from_desk) {                /* подпись над значком под курсором */
         int hi; int st = side_state(side_hover, top, &hi);
         const char* hint = side[side_hover].hint;
         const char* desc = side[side_hover].desc;
         const char* stl = st == 3 ? "в фокусе" : st == 2 ? "открыто" : st == 1 ? "свёрнуто - щелчок вернёт" : 0;
-        int lines = 1 + (desc && *desc) + (stl != 0) + (hint && *hint);
-        int th = 12 + lines * 18;
-        int ty = side_item_y(side_hover) + oy + ts / 2 - th / 2;
-        if (ty < WM_TOP_H + oy) ty = WM_TOP_H + oy;
-        if (ty + th > scr->h + oy - 4) ty = scr->h + oy - 4 - th;
-        int lw = gfx_text_width(side[side_hover].label);
-        if (desc && gfx_text_width(desc) > lw) lw = gfx_text_width(desc);
-        if (hint && gfx_text_width(hint) > lw) lw = gfx_text_width(hint);
-        lw += 20;
-        if (lw > 440) lw = 440;
-        int lx = SIDE_X + TILE + 22 + ox;
-        ui_round_rect(c, lx, ty, lw, th, 8, TH_BAR0, 245);
-        ui_round_frame(c, lx, ty, lw, th, 8, side[side_hover].color, 200);
+        int lx, ty, lw, th;
+        tip_geom(side_hover, stl, &lx, &ty, &lw, &th);
+        lx += ox; ty += oy;
+        ui_round_rect(c, lx, ty, lw, th, 10, TH_BAR0, 245);
+        ui_round_frame(c, lx, ty, lw, th, 10, side[side_hover].color, 200);
         int ly = ty + 5;
         ui_text_fit(c, lx + 10, ly, side[side_hover].label, lw - 20, TH_TEXT); ly += 18;
         if (desc && *desc) { ui_text_fit(c, lx + 10, ly, desc, lw - 20, TH_TEXT_DIM); ly += 18; }
@@ -1424,7 +1758,8 @@ static void compose_rect(int fs, int x0, int y0, int x1, int y1) {
             }
             if (above_hits) continue;
             if (x0 >= ccx && y0 >= ccy && x1 <= ccx + cw && y1 <= ccy + ch) { start = k; content_only = 1; }
-            else if (x0 >= wn->x + PANEL_R && y0 >= wn->y + PANEL_R &&
+            else if ((wn->full || !wp_rgb) &&                       /* рамка окна полупрозрачна (стекло над живым фоном): под ней нужно рисовать нижние слои */
+                     x0 >= wn->x + PANEL_R && y0 >= wn->y + PANEL_R &&
                      x1 <= wn->x + outer_w(wn) - PANEL_R && y1 <= wn->y + outer_h(wn) - PANEL_R) start = k;
             else if (x0 < wn->x + outer_w(wn) + WM_GLOW && x1 > wn->x - WM_GLOW && y0 < wn->y + outer_h(wn) + WM_GLOW && y1 > wn->y - WM_GLOW) break;
         }
@@ -1437,7 +1772,7 @@ static void compose_rect(int fs, int x0, int y0, int x1, int y1) {
             if (bg) gfx_blit(&clip, 0, 0, &bgs, x0, y0, rw, rh);
             else gfx_rect(&clip, 0, 0, rw, rh, TH_BG0);
             if (fs < 0) {
-                brainfx_draw(&clip, ox, oy, anim_ms);
+                if (!wp_rgb) brainfx_draw(&clip, ox, oy, anim_ms);
                 if (home_open) draw_home(&clip, ox, oy);
             }
             start = 0;
@@ -1450,7 +1785,7 @@ static void compose_rect(int fs, int x0, int y0, int x1, int y1) {
     }
     if (fs < 0) {
         if (y0 < WM_TOP_H) draw_topbar(&clip, ox, oy);
-        if (x0 < SIDE_AREA_W) draw_side(&clip, ox, oy);
+        draw_side(&clip, ox, oy);
         if (notice_count) draw_notifications(&clip, ox, oy);
         if (launcher_open) draw_launcher(&clip, ox, oy);
     } else draw_pill(&clip, ox, oy, fs, pill);
@@ -1461,7 +1796,7 @@ static void tiles_clear(void) {
     int tw = (scr->w + DTILE - 1) / DTILE, th = (scr->h + DTILE - 1) / DTILE;
     if (tw > TMAX_X) tw = TMAX_X;
     if (th > TMAX_Y) th = TMAX_Y;
-    for (int y = 0; y < th; y++) for (int x = 0; x < tw; x++) tdirty[y][x] = 0;
+    for (int y = 0; y < th; y++) for (int x = 0; x < tw; x++) tdirty[y][x] = (tbox_t){ 0, 0, 0, 0 };
 }
 
 /* Одна охватывающая область (проверки и простые случаи). */
@@ -1496,6 +1831,7 @@ static void run_job(void* ctx, uint32_t i) {
 uint32_t wm_compose_par(void (*present)(int x, int y, int w, int h), uint64_t* pixels) {
     int fs = compose_prepare();
     if (!dmg_valid) return 0;
+    last_dmg[0] = dx0; last_dmg[1] = dy0; last_dmg[2] = dx1; last_dmg[3] = dy1;
     dmg_valid = 0;
     int tw = (scr->w + DTILE - 1) / DTILE, th = (scr->h + DTILE - 1) / DTILE;
     if (tw > TMAX_X) tw = TMAX_X;
@@ -1504,11 +1840,18 @@ uint32_t wm_compose_par(void (*present)(int x, int y, int w, int h), uint64_t* p
     uint64_t px = 0;
     for (int ty = 0; ty < th; ty++) {
         for (int tx = 0; tx < tw; ) {
-            if (!tdirty[ty][tx]) { tx++; continue; }
-            int a = tx;
-            while (tx < tw && tdirty[ty][tx]) tdirty[ty][tx++] = 0;
-            job_t j = { (int16_t)(a * DTILE), (int16_t)(ty * DTILE), (int16_t)(tx * DTILE > scr->w ? scr->w : tx * DTILE),
-                        (int16_t)((ty + 1) * DTILE > scr->h ? scr->h : (ty + 1) * DTILE) };
+            if (tdirty[ty][tx].x1 <= tdirty[ty][tx].x0) { tx++; continue; }
+            job_t j = { tdirty[ty][tx].x0, tdirty[ty][tx].y0, tdirty[ty][tx].x1, tdirty[ty][tx].y1 };
+            while (tx < tw && tdirty[ty][tx].x1 > tdirty[ty][tx].x0) {            /* полоса подряд идущих грязных плиток: рамка - объединение их рамок */
+                const tbox_t* b = &tdirty[ty][tx];
+                if (b->x0 < j.x0) j.x0 = b->x0;
+                if (b->y0 < j.y0) j.y0 = b->y0;
+                if (b->x1 > j.x1) j.x1 = b->x1;
+                if (b->y1 > j.y1) j.y1 = b->y1;
+                tdirty[ty][tx++] = (tbox_t){ 0, 0, 0, 0 };
+            }
+            if (j.x1 > scr->w) j.x1 = (int16_t)scr->w;
+            if (j.y1 > scr->h) j.y1 = (int16_t)scr->h;
             /* та же полоса столбцов, что у строки выше, - одно задание выше ростом (меньше заданий, меньше накладных) */
             if (njobs && jobs[njobs - 1].x0 == j.x0 && jobs[njobs - 1].x1 == j.x1 && jobs[njobs - 1].y1 == j.y0 &&
                 jobs[njobs - 1].y1 - jobs[njobs - 1].y0 < 4 * DTILE) jobs[njobs - 1].y1 = j.y1;

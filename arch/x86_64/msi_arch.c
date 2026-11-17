@@ -1,4 +1,4 @@
-/* x86-64: векторы 0x50..0x5F для MSI / MSI-X. Сообщение - запись в окно Local APIC (0xFEE00000) с номером ядра
+/* x86-64: векторы 0x50..0x6F для MSI / MSI-X и для линий INTx (GSI 16 и выше) через IOAPIC. Сообщение - запись в окно Local APIC (0xFEE00000) с номером ядра
    получателя; доставляется загрузочному ядру. Если Local APIC в итоге не включится, сообщения пропадут, а ожидающий
    драйвер проснётся по сроку (irqwait_wait с таймаутом) - как при опросе. */
 #include "../../msi.h"
@@ -7,7 +7,7 @@
 #include "percpu.h"
 
 #define MSI_BASE 0x50
-#define MSI_N    16
+#define MSI_N    32
 extern void* msi_stub_table[MSI_N];
 static struct { msi_fn fn; void* ctx; } tab[MSI_N];
 static unsigned nvec;
@@ -25,6 +25,18 @@ int msi_alloc(const pci_dev_t* d, msi_fn fn, void* ctx, uint64_t* addr, uint32_t
     spin_unlock_irqrestore(&lk, f);
     *addr = 0xFEE00000ull | (uint64_t)dest << 12;
     *data = MSI_BASE + i;                                   /* фиксированная доставка, по фронту */
+    return 0;
+}
+
+/* Вектор для линии IOAPIC (INTx с GSI 16 и выше): тот же путь, что у MSI, только без адреса и данных сообщения. */
+int msi_vector_alloc(msi_fn fn, void* ctx, uint8_t* vector) {
+    uint64_t f = spin_lock_irqsave(&lk);
+    if (nvec >= MSI_N) { spin_unlock_irqrestore(&lk, f); return -1; }
+    unsigned i = nvec++;
+    tab[i].fn = fn; tab[i].ctx = ctx;
+    idt_set_gate((uint8_t)(MSI_BASE + i), msi_stub_table[i], 0x08, 0x8E);
+    spin_unlock_irqrestore(&lk, f);
+    *vector = (uint8_t)(MSI_BASE + i);
     return 0;
 }
 

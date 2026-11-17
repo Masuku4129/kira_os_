@@ -29,9 +29,22 @@ enum {
        регистры, BAR и память устройств; управление драйверами идёт отдельно через FS_OP_DRV_* (только drvget/drvman). */
     CAP_PCILIST   = 1u << 16,
     CAP_JIT       = 1u << 17,   /* окно кода JIT: выдать страницы RW-NX и один раз запечатать их RX (никогда W+X вместе); только интерпретатор wasm */
-    CAP_ALL_      = (1u << 18) - 1,
-    CAP_DRIVER_   = CAP_MMIO | CAP_IRQ | CAP_DMA | CAP_PCIDEV | CAP_NETDEV
+    CAP_STDIN     = 1u << 18,   /* читать строки консоли (стандартный ввод): пока программа жива и читает, консоль отдаёт ей набранные строки вместо оболочки */
+    /* Драйвер Ring 3 отдаёт ядру блочное устройство (диск): кольца запросов в общей памяти, регистрация в blk.c, проверка границ в ядре (kdrv_blk.h). */
+    CAP_BLKDEV    = 1u << 19,
+    CAP_ALL_      = (1u << 20) - 1,
+    CAP_DRIVER_   = CAP_MMIO | CAP_IRQ | CAP_DMA | CAP_PCIDEV | CAP_NETDEV | CAP_BLKDEV
 };
+/* Домены приложений (docs/APP_ISOLATION.md): каждая программа живёт в одном домене. Домен задаёт потолок прав (права программы
+   из таблицы caps.c никогда не выше), предел одновременных процессов и то, до чьих ОБЩИХ объектов (порты и память с KOPEN_PUBLIC)
+   домен дотягивается. Это изоляция процессами и адресными пространствами, без гипервизора. */
+enum { DOM_SYSTEM = 0, DOM_DRIVER, DOM_MEDIA, DOM_NET, DOM_TOOLS, DOM_UNTRUSTED, DOM_COUNT };
+uint32_t    domain_for_program(const char* name);   /* домен доверенной программы; неизвестное имя и local-* - DOM_UNTRUSTED */
+uint32_t    domain_caps_max(uint32_t dom);          /* потолок прав домена */
+unsigned    domain_proc_max(uint32_t dom);          /* сколько процессов домена живёт одновременно */
+int         domain_may_reach(uint32_t from, uint32_t to);   /* 1 - домен from открывает общие объекты домена to */
+const char* domain_name(uint32_t dom);
+const char* caps_program_at(unsigned i);            /* i-я запись таблицы доверенных программ (для проверок); 0 - записей больше нет */
 uint32_t    caps_for_program(const char* name);     /* права доверенной программы; неизвестное имя - 0 */
 const char* caps_bit_name(uint32_t bit);            /* "CAP_NET" и т.д. для журнала */
 #endif
