@@ -573,6 +573,41 @@ ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=halt_on_error=1 $T/kdrv_fuzz ${KIRA_FU
 echo "== KiraFS: потеря питания при диске с кэшем записи (случайный набор секторов, обрыв на записи и на flush) =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/kfs_crash tests/kfs_crash_test.c kfs.c sha256.c zstd.c store.c
 ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=halt_on_error=1 $T/kfs_crash 1 ${KIRA_KFS_CRASH_SEQ:-60}
+
+echo "== журнал аудита (цепочка, подписи Ed25519, сегменты на KiraFS, все виды подмены, обрыв питания, полный диск) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/audit tests/audit_test.c auditstore.c auditcore.c kfs.c sha256.c zstd.c store.c pk.c crypto.c
+mkdir -p $T/auditdump
+ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=halt_on_error=1 $T/audit ${KIRA_AUDIT_CRASH_SEQ:-6} $T/auditdump
+echo "== журнал аудита: независимая проверка tools/auditverify.py на файлах из теста (и подмена - обязана ловиться) =="
+AD=$T/auditdump
+python3 -I tools/auditverify.py --pub $AD/pub.hex --ckpt $AD/audit.ckpt $AD/audit.0*.log $AD/audit.log
+python3 - $AD <<'PYEOF'
+import sys
+d = sys.argv[1]
+b = bytearray(open(d + "/audit.0000000001.log", "rb").read()); b[256 + 160 * 5 + 70] ^= 1      # изменена одна запись
+open(d + "/mut_modify.log", "wb").write(b)
+b = bytearray(open(d + "/audit.0000000001.log", "rb").read()); del b[256 + 160 * 9: 256 + 160 * 10]      # удалена запись
+open(d + "/mut_delete.log", "wb").write(b)
+b = open(d + "/audit.log", "rb").read(); open(d + "/mut_trunc.log", "wb").write(b[:-3 * 160])         # отрезан хвост (свидетель audit.ckpt остался)
+PYEOF
+if python3 -I tools/auditverify.py --pub $AD/pub.hex $AD/mut_modify.log $AD/audit.0000000257.log $AD/audit.log >/dev/null; then echo "FAIL: auditverify.py пропустил изменённую запись"; exit 1; fi
+if python3 -I tools/auditverify.py --pub $AD/pub.hex $AD/mut_delete.log $AD/audit.0000000257.log $AD/audit.log >/dev/null; then echo "FAIL: auditverify.py пропустил удалённую запись"; exit 1; fi
+if python3 -I tools/auditverify.py --pub $AD/pub.hex --ckpt $AD/audit.ckpt $AD/audit.0000000001.log $AD/audit.0000000257.log $AD/mut_trunc.log >/dev/null; then echo "FAIL: auditverify.py пропустил обрезанный хвост"; exit 1; fi
+echo "tools/auditverify.py: чистый журнал проходит, три вида подмены ловятся"
+echo "== журнал аудита: мутации (убрали хэш, проверку цепочки или подписи - тест обязан упасть) =="
+mkdir -p $T/mut
+mut() {   # имя  образец  замена : копия auditcore.c с одним изменением, тест против неё должен упасть
+    sed "s|$2|$3|" auditcore.c > $T/mut/auditcore.c
+    if cmp -s auditcore.c $T/mut/auditcore.c; then echo "FAIL: мутация $1 не применилась (образец не найден)"; exit 1; fi
+    $CC -O1 -Wall -DKIRA_HOST_TEST -I. -Iarch/x86_64 -no-pie -o $T/mut/audit_$1 tests/audit_test.c auditstore.c $T/mut/auditcore.c kfs.c sha256.c zstd.c store.c pk.c crypto.c
+    if $T/mut/audit_$1 1 >/dev/null 2>&1; then echo "FAIL: мутант «$1» выжил: тест журнала не заметил, что защиты нет"; exit 1; fi
+    echo "   мутант «$1» убит"
+}
+mut no-prev      'mcpy(r->prev, c->head, 32);' ''
+mut no-hash      'sha256(r, sizeof \*r, out);' 'mzero(out, 32);'
+mut no-chain     'else if (!meq(r.prev, v->head, 32)) fail(v, AUD_V_CHAIN, r.seq, off);' ';'
+mut no-sig       'return ed25519_verify(pub, m, sizeof m, ((const aud_ckpt_t\*)r)->sig);' 'return 0;'
+mut no-seq       'if (r.seq != v->next_seq) { fail(v, AUD_V_SEQ, v->next_seq, off); v->next_seq = r.seq; }' 'if (0) {}'
 echo "== remote console (rcon): key derivation, password check, AUTH parsing =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/rcon tests/rcon_test.c rcon.c sha256.c
 $T/rcon

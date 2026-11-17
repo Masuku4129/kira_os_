@@ -410,3 +410,84 @@ int ed25519_verify(const uint8_t pub[32], const uint8_t* msg, size_t mlen, const
     uint8_t enc[32]; ept_encode(enc, &R);
     return crypto_eq(enc, sig, 32) ? 0 : -1;
 }
+
+/* ---------------- Ed25519: подпись (RFC 8032 §5.1.5-5.1.6) ----------------
+   Нужна для подписанных контрольных точек журнала аудита (audit.c): ключ устройства создаётся на самом устройстве. Секрет - 32-байтное семя.
+   Умножение на секретный скаляр идёт фиксированным числом шагов с выбором точки маской, без переходов по битам секрета. Арифметика поля
+   (mont_mul с условным вычитанием) остаётся с данными-зависимым временем: от наблюдателя по времени с того же ядра процессора это не защищает
+   (программы Ring 3 к ключу не имеют доступа, но канал по времени для ЭТОГО кода не закрыт; закрывается аппаратным хранилищем ключа - docs/AUDIT.md). */
+static void ept_select(ept_t* r, const ept_t* a, const ept_t* b, uint32_t take_b) {   /* r = take_b ? b : a, без перехода */
+    uint32_t m = (uint32_t)0 - (take_b & 1);
+    for (int i = 0; i < 8; i++) {
+        r->x[i] = (a->x[i] & ~m) | (b->x[i] & m); r->y[i] = (a->y[i] & ~m) | (b->y[i] & m);
+        r->z[i] = (a->z[i] & ~m) | (b->z[i] & m); r->t[i] = (a->t[i] & ~m) | (b->t[i] & m);
+    }
+}
+static void ept_mul_secret(ept_t* r, const ept_t* p, const uint32_t* k) {         /* k < 2^256: ровно 256 шагов */
+    ept_t acc, sum; ept_id(&acc);
+    for (int i = 255; i >= 0; i--) {
+        ept_add(&acc, &acc, &acc);
+        ept_add(&sum, &acc, p);
+        ept_select(&acc, &acc, &sum, (k[i / 32] >> (i % 32)) & 1);
+    }
+    *r = acc;
+}
+/* h (64 байта, little-endian) mod L -> k (8 частей) */
+static void sc_reduce64(uint32_t* k, const uint8_t h[64]) {
+    fe_t L; hexnum(L, 8, ED_L); bn_zero(k, 8);
+    for (int i = 511; i >= 0; i--) {
+        uint32_t carry = bn_add(k, k, k, 8);
+        k[0] |= (uint32_t)((h[i / 8] >> (i % 8)) & 1);
+        if (carry || bn_cmp(k, L, 8) >= 0) bn_sub(k, k, L, 8);
+    }
+}
+/* Расширение семени: a - зажатый скаляр (RFC 8032 §5.1.5), prefix - вторая половина хэша. */
+static int ed_expand(const uint8_t seed[32], uint32_t* a, uint8_t prefix[32], uint8_t pub[32]) {
+    uint8_t h[64], s[32];
+    sha512_ctx_t c; sha512_init(&c); sha512_update(&c, seed, 32); sha512_final(&c, h);
+    for (int i = 0; i < 32; i++) { s[i] = h[i]; prefix[i] = h[32 + i]; }
+    s[0] &= 248; s[31] &= 127; s[31] |= 64;
+    le_to_bn(a, 8, s, 32);
+    if (ed_init()) return -1;
+    ept_t B, A;
+    if (ept_decode(&B, ED_BASE)) return -1;
+    ept_mul_secret(&A, &B, a);
+    ept_encode(pub, &A);
+    crypto_wipe(h, sizeof h); crypto_wipe(s, sizeof s);
+    return 0;
+}
+int ed25519_pubkey(const uint8_t seed[32], uint8_t pub[32]) {
+    fe_t a; uint8_t prefix[32];
+    int r = ed_expand(seed, a, prefix, pub);
+    crypto_wipe(a, sizeof a); crypto_wipe(prefix, sizeof prefix);
+    return r;
+}
+int ed25519_sign(const uint8_t seed[32], const uint8_t* msg, size_t mlen, uint8_t sig[64]) {
+    if (!seed || !msg || !sig) return -1;
+    fe_t a, r, k, L, ka, tmp; uint8_t prefix[32], pub[32], h[64];
+    if (ed_expand(seed, a, prefix, pub)) return -1;
+    sha512_ctx_t c;
+    sha512_init(&c); sha512_update(&c, prefix, 32); sha512_update(&c, msg, mlen); sha512_final(&c, h);
+    sc_reduce64(r, h);                                                  /* r = H(prefix || M) mod L */
+    ept_t B, R;
+    if (ept_decode(&B, ED_BASE)) return -1;
+    ept_mul_secret(&R, &B, r);
+    ept_encode(sig, &R);                                                /* R */
+    sha512_init(&c); sha512_update(&c, sig, 32); sha512_update(&c, pub, 32); sha512_update(&c, msg, mlen); sha512_final(&c, h);
+    sc_reduce64(k, h);                                                  /* k = H(R || A || M) mod L */
+    hexnum(L, 8, ED_L);
+    bn_zero(ka, 8);                                                     /* ka = k * a mod L: сложение по битам a (a < 2^255) */
+    for (int i = 254; i >= 0; i--) {
+        uint32_t carry = bn_add(ka, ka, ka, 8);
+        if (carry || bn_cmp(ka, L, 8) >= 0) bn_sub(ka, ka, L, 8);
+        if ((a[i / 32] >> (i % 32)) & 1) {
+            carry = bn_add(ka, ka, k, 8);
+            if (carry || bn_cmp(ka, L, 8) >= 0) bn_sub(ka, ka, L, 8);
+        }
+    }
+    uint32_t carry = bn_add(tmp, ka, r, 8);                             /* S = (r + k a) mod L */
+    if (carry || bn_cmp(tmp, L, 8) >= 0) bn_sub(tmp, tmp, L, 8);
+    for (int i = 0; i < 32; i++) sig[32 + i] = (uint8_t)(tmp[i / 4] >> (8 * (i % 4)));
+    crypto_wipe(a, sizeof a); crypto_wipe(r, sizeof r); crypto_wipe(ka, sizeof ka); crypto_wipe(prefix, sizeof prefix); crypto_wipe(h, sizeof h);
+    return 0;
+}
