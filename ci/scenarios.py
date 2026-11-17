@@ -592,7 +592,9 @@ ALL = [
         {"log": [r"\[KIRA AUDIT\] journal online: next record #\d+, boot #3, .*previous run ended without shutdown record, chain verified OK"]},
         {"cmd": "audit verify", "timeout": 120, "must": [r"verify: OK: \d+ records \(#1\.\.#\d+\)"], "forbid": [r"VIOLATION"]},
         {"cmd": "audit 100", "must": [r"boot system OK pid=0 dom=0 arg=1 kernel"]},
-        {"log_forbid": NO_ERR + [r"tamper detected", r"kira-audit-pass"]},
+        {"log_forbid": NO_ERR + [r"tamper detected"]},
+        # пароль не должен попасть в файл журнала на диске (в консольном логе он есть только как эхо команд харнесса)
+        {"host_run": {"argv": ["grep", "-c", "-a", "kira-audit-pass", "{out}/p1_audit.log"], "rc": 1, "must": [r"^0$"]}},
     ], smp=2, mem="512M", extra=["-netdev", "user,id=n0,hostfwd=tcp:127.0.0.1:17078-:7077", "-device", "e1000,netdev=n0"]),
     # Подмена: файл журнала правится на диске вне системы (машина выключена); следующая загрузка находит и показывает место, audit verify говорит то же,
     # tools/auditverify.py на вынутом файле - тоже; неизменённая копия проходит.
