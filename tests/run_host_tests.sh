@@ -556,6 +556,9 @@ $CC $FLAGS -fsanitize=address,undefined -o $T/cbor_fuzz tests/cbor_fuzz.c cbor.c
 ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=halt_on_error=1 $T/cbor_fuzz ${KIRA_FUZZ_ITERS:-50000} 1
 $CC $FLAGS -fsanitize=address,undefined -o $T/kdrv_fuzz tests/kdrv_fuzz.c kdrv_fmt.c
 ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=halt_on_error=1 $T/kdrv_fuzz ${KIRA_FUZZ_ITERS:-50000} 1
+echo "== KiraFS: потеря питания при диске с кэшем записи (случайный набор секторов, обрыв на записи и на flush) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/kfs_crash tests/kfs_crash_test.c kfs.c sha256.c zstd.c store.c
+ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=halt_on_error=1 $T/kfs_crash 1 ${KIRA_KFS_CRASH_SEQ:-60}
 echo "== remote console (rcon): key derivation, password check, AUTH parsing =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/rcon tests/rcon_test.c rcon.c sha256.c
 $T/rcon
