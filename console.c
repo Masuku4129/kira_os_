@@ -33,6 +33,9 @@
 #include "audio.h"
 #include "spinlock.h"
 #include "usb.h"
+#if defined(__x86_64__)
+#include "kaslr_arch.h"
+#endif
 
 void console_init(void) {
     uart_print("[KIRA CONSOLE] Command line ready: type 'help' and press Enter.\n");
@@ -689,6 +692,11 @@ static const cmd_t cmds[] = {
     { "usb",       0,   "USB: дерево устройств, флешки; usb allow - вернуть отключённые клавиатуры", cmd_usb },
     { "telemetry", 0,   "telemetry on|off: построчная телеметрия на экране (по умолчанию только serial)", cmd_telemetry },
     { "test",      't', "проверки системы: test - список, test имя - запуск", cmd_test },
+#if defined(__x86_64__)
+    { "kaslr",     0,   "случайный адрес ядра: состояние, источник энтропии (адрес базы - в режиме отладки)", kaslr_cmd },
+    { "kptr",      0,   "политика печати адресов ядра: kptr - режим, kptr debug on|off", kptr_cmd },
+    { "wx",        0,   "W^X ядра: ранняя карта страниц, обход таблиц, пробная запись в .text и .rodata", wx_cmd },
+#endif
 };
 #define NCMDS (sizeof(cmds) / sizeof(cmds[0]))
 

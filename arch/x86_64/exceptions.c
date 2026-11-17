@@ -13,6 +13,7 @@
 #include "corefault.h"
 #include "irqmode.h"
 #include "apic.h"
+#include "kptr.h"
 
 static const char* const exception_names[32] = {
     "Divide Error (#DE)",
@@ -88,7 +89,7 @@ static unsigned other_live_cores(const percpu_t* me, uint32_t* irq_apic) {
 static void core_log(const char* tag, uint64_t vector, uint64_t rip, const char* thread, const char* tail) {
     uart_print("[KIRA CORE "); uart_print_dec(this_cpu()->cpu_id); uart_print("] ");
     uart_print(tag); uart_print(" #"); uart_print_dec(vector);
-    uart_print(" at RIP "); uart_print_hex(rip);
+    uart_print(" at RIP "); kptr_print(rip);
     uart_print(", thread '"); uart_print(thread); uart_print("'. "); uart_print(tail); uart_print("\n");
 }
 
@@ -116,10 +117,10 @@ static void corefault_handle(uint64_t vector, uint64_t err, uint64_t rip, uint64
         /* Для разбора плавающих сбоев: код ошибки, CR2, RSP и слова с вершины стека (при переходе по адресу 0 первое слово - адрес возврата). */
         uint64_t sp = frame[20], tmp;
         uart_print("[KIRA CORE] fault detail: error "); uart_print_hex(err); uart_print(", CR2 "); uart_print_hex(cr2);
-        uart_print(", RSP "); uart_print_hex(sp); uart_print(", RBP "); uart_print_hex(frame[8]);
+        uart_print(", RSP "); uart_print_hex(sp); uart_print(", RBP "); kptr_print(frame[8]);
         uart_print(", stack:");
         for (unsigned i = 0; i < 8 && sp >= 0x1000 && !(sp & 7) && vmm_translate(sp + 8ull * i, &tmp) == 0; i++) {   /* до конца отображённого стека */
-            uart_print(" "); uart_print_hex(((const uint64_t*)(uintptr_t)sp)[i]);
+            uart_print(" "); kptr_print(((const uint64_t*)(uintptr_t)sp)[i]);
         }
         uart_print("\n");
         c->in_fault = 0;
@@ -166,7 +167,7 @@ void exception_handler_main(uint64_t vector, uint64_t err_code, uint64_t rip, ui
         /* iretq отказал: что именно он пытался загрузить (код ошибки #GP - селектор-виновник) */
         const uint64_t* f = (const uint64_t*)(uintptr_t)frame[20];
         uart_print("[KIRA IRET] #GP on iretq, error code (selector) "); uart_print_hex(err_code);
-        uart_print(", frame RIP "); uart_print_hex(f[0]); uart_print(" CS "); uart_print_hex(f[1]);
+        uart_print(", frame RIP "); kptr_print(f[0]); uart_print(" CS "); uart_print_hex(f[1]);
         uart_print(" RFLAGS "); uart_print_hex(f[2]); uart_print(" RSP "); uart_print_hex(f[3]); uart_print(" SS "); uart_print_hex(f[4]);
         uart_print(", this CPU "); uart_print_dec(this_cpu()->cpu_id); uart_print("\n");
     }
@@ -185,7 +186,7 @@ void exception_handler_main(uint64_t vector, uint64_t err_code, uint64_t rip, ui
     }
     if (not_isolated_why) { uart_print("\n[KIRA FATAL] Not isolated: "); uart_print(not_isolated_why); }
     uart_print("\n[KIRA FATAL] RIP: ");
-    uart_print_hex(rip);
+    kptr_print(rip);
     uart_print("\n[KIRA FATAL] Error code: ");
     uart_print_hex(err_code);
     uart_print("\n");
@@ -204,7 +205,9 @@ void exception_handler_main(uint64_t vector, uint64_t err_code, uint64_t rip, ui
         if ((cs & 3) == 0 && (vmm_kstack_guard_hit(rsp) || ((vector == 14 || vector == 8) && vmm_kstack_guard_hit(cr2))))
             uart_print("[KIRA FATAL] Kernel thread stack overflow: the guard area below the stack was hit.\n");
         crash_regs_t cr = { read_cr(0), cr2, read_cr(3), read_cr(4) };
-        crashdump_print(frame, &cr, stack, dump_out);
+        extern char kernel_start[], kernel_end[];
+        int dbg = kptr_debug();     /* политика kptr: без режима отладки адреса образа - "K+смещение" (база KASLR не раскрывается) */
+        crashdump_print_masked(frame, &cr, stack, dump_out, dbg ? 0 : (uint64_t)(uintptr_t)kernel_start, dbg ? 0 : (uint64_t)(uintptr_t)kernel_end);
     }
     uart_print("[KIRA FATAL] System halted.\n");
     uart_print("==================================================\n");
