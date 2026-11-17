@@ -18,6 +18,9 @@
 #include "sched.h"
 #include "fscmd.h"
 #include "pci.h"
+#include "iommu.h"
+#include "rcon.h"
+#include "blk.h"
 #include "blk.h"
 #include "platform.h"
 void smp_describe(void (*out)(const char*)) { out("smp stub\n"); }
@@ -35,6 +38,15 @@ static int spawned = -1, saved, tele;
 static void emit(const char* s) { size_t n = strlen(s); if (outn + n < sizeof out) { memcpy(out + outn, s, n); outn += n; out[outn] = 0; } }
 
 void pci_print(void) {}
+/* Команды dma, blktest и rcon: в этом тесте нет ни устройств, ни IOMMU, ни сети; проверяется только разбор командной строки. */
+int pci_count(void) { return 0; }
+const pci_dev_t* pci_get(int i) { (void)i; return 0; }
+int iommu_enabled(void) { return 0; }
+int iommu_device_isolated(const pci_dev_t* d) { (void)d; return 0; }
+int iommu_fault_poll(void) { return 0; }
+uint32_t iommu_fault_count(const pci_dev_t* d) { (void)d; return 0; }
+void blk_selftest(const char* id) { (void)id; emit("[BLKTEST]\n"); }
+void rconcmd(const char* arg) { (void)arg; emit("[RCON]\n"); }
 void usb_print(void) { emit("[USB]\n"); }
 void usb_hid_allow_all(void) { emit("[ALLOW]\n"); }
 blk_dev_t* blk_primary(void) { return 0; }
