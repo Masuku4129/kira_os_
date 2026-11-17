@@ -52,30 +52,38 @@ OCSP_FWD = (_G % (8444, "--chain " + TLS_CHAIN + " --prefix ed_") + _G % (8445, 
 RESUME_DAEMON = ["openssl", "s_server", "-quiet", "-accept", "18449", "-cert", "{chain}/leaf.pem", "-key", "{chain}/leaf.key",
                  "-cert_chain", "{chain}/inter.pem", "-tls1_3", "-www"]
 
-# Сон S3: до сна - сеть, файл, часы; QMP system_wakeup будит машину; после - всё то же самое плюс новая запись, часы идут, ядра на месте
-S3_STEPS = [
-    {"log": BOOT_LOG + [r"\[KIRA ACPI\] AML up"]},
-    {"sleep": 8},
-    {"cmd": "net", "must": [r"адрес 10\.0\.2\.15"]},
-    {"cmd": "ping 10.0.2.2 2", "must": [r"отправлено 2, получено [1-2]"], "timeout": 20},
-    {"cmd": "write /s3-before.txt kira-before-sleep"},
-    {"cmd": "sleep status", "must": [r"сон S3: поддерживается", r"хуки устройств"]},
-    {"send": "status"}, {"sleep": 1}, {"capture": {"t0": r"precise clock ms: (\d+)"}},
-    {"send": "sleep"},
-    {"qmp": "system_wakeup", "wait_status": "suspended", "after_status": "running", "within": 60},
-    {"expect": r"\[KIRA SLEEP\] awake: devices restored, 0 failed to come back", "timeout": 60},
-    {"sleep": 3},
-    {"cmd": "net", "must": [r"адрес 10\.0\.2\.15"]},
-    {"cmd": "ping 10.0.2.2 3", "must": [r"отправлено 3, получено [1-3]"], "timeout": 30},
-    {"cmd": "cat /s3-before.txt", "must": [r"kira-before-sleep"]},
-    {"cmd": "write /s3-after.txt kira-after-sleep"},
-    {"cmd": "cat /s3-after.txt", "must": [r"kira-after-sleep"]},
-    {"send": "status"}, {"sleep": 1}, {"capture": {"t1": r"precise clock ms: (\d+)"}},
-    {"num": ["t1", "t0", 1, 600000]},
-    {"cmd": "smp", "must": [r"(?s)(  online  .*){4}"], "forbid": [r"FAILED", r"offline"], "timeout": 10},
-    {"cmd": "sleep status", "must": [r"сеансов сна: 1, отказов: 0, устройств не вернулось: 0"]},
-    {"log_forbid": NO_ERR + [r"did not come back", r"power button pressed", r"НЕ ВОССТАНОВИЛОСЬ", r"did not answer"]},
-]
+# Сон S3: до сна - сеть (если есть), файл, часы; QMP system_wakeup будит машину; после - всё то же самое плюс новая запись, часы идут, ядра на месте.
+# before/after - проверки устройств, которые есть только у этого сценария (звук, USB): выполняются до сна и после пробуждения.
+def s3_steps(before=(), after=(), net=True, boot=()):
+    return [
+        {"log": BOOT_LOG + [r"\[KIRA ACPI\] AML up"] + list(boot)},
+        {"sleep": 8},
+    ] + ([{"cmd": "net", "must": [r"адрес 10\.0\.2\.15"]},
+          {"cmd": "ping 10.0.2.2 2", "must": [r"отправлено 2, получено [1-2]"], "timeout": 20}] if net else []) + list(before) + [
+        {"cmd": "write /s3-before.txt kira-before-sleep"},
+        {"cmd": "sleep status", "must": [r"сон S3: поддерживается", r"хуки устройств"]},
+        {"send": "status"}, {"sleep": 1}, {"capture": {"t0": r"precise clock ms: (\d+)"}},
+        {"send": "sleep"},
+        {"qmp": "system_wakeup", "wait_status": "suspended", "after_status": "running", "within": 60},
+        {"expect": r"\[KIRA SLEEP\] awake: devices restored, 0 failed to come back", "timeout": 60},
+        {"sleep": 3},
+    ] + ([{"cmd": "net", "must": [r"адрес 10\.0\.2\.15"]},
+          {"cmd": "ping 10.0.2.2 3", "must": [r"отправлено 3, получено [1-3]"], "timeout": 30}] if net else []) + list(after) + [
+        {"cmd": "cat /s3-before.txt", "must": [r"kira-before-sleep"]},
+        {"cmd": "write /s3-after.txt kira-after-sleep"},
+        {"cmd": "cat /s3-after.txt", "must": [r"kira-after-sleep"]},
+        {"send": "status"}, {"sleep": 1}, {"capture": {"t1": r"precise clock ms: (\d+)"}},
+        {"num": ["t1", "t0", 1, 600000]},
+        {"cmd": "smp", "must": [r"(?s)(  online  .*){4}"], "forbid": [r"FAILED", r"offline"], "timeout": 10},
+        {"cmd": "sleep status", "must": [r"сеансов сна: 1, отказов: 0, устройств не вернулось: 0"]},
+        {"log_forbid": NO_ERR + [r"did not come back", r"power button pressed", r"НЕ ВОССТАНОВИЛОСЬ", r"did not answer", r"NOT isolated now"]},
+    ]
+
+
+S3_STEPS = s3_steps()
+S3_Q35 = ["-global", "ICH9-LPC.disable_s3=0", "-global", "ICH9-LPC.disable_s4=1"]
+S3_BEEP = {"cmd": "beep 440 400", "must": [r"DMA прошёл [1-9]\d* байт - карта играет"], "timeout": 15}
+S3_USB = {"cmd": "cat /usb0/hello.txt", "must": [r"kira-ci"], "timeout": 30}
 
 ALL = [
     sc("boot-grub", "запасной образ kira-grub.iso (GRUB): загрузка и базовые проверки", BASIC + [
@@ -627,6 +635,29 @@ ALL = [
        extra=["-global", "ICH9-LPC.disable_s3=0", "-global", "ICH9-LPC.disable_s4=1", "-nic", "user,model=virtio-net-pci"]),
     sc("sleep-s3-pc", "сон S3 (плата pc/PIIX4, сеть e1000): sleep -> QMP system_wakeup -> всё работает", S3_STEPS, smp=4, mem="512M",
        extra=["-global", "PIIX4_PM.disable_s3=0", "-global", "PIIX4_PM.disable_s4=1", "-nic", "user,model=e1000"]),
+    sc("sleep-s3-nvme-iommu", "сон S3: NVMe под VT-d (q35): контроллер и трансляция возвращаются, диск читается и пишется после пробуждения", s3_steps(boot=[r"\[KIRA NVMe\] nvme0n1"]),
+       disk="nvme", machine="q35", smp=4, mem="1G", extra=S3_Q35 + ["-device", "intel-iommu,aw-bits=48", "-nic", "user,model=e1000"]),
+    sc("sleep-s3-sata", "сон S3: AHCI (SATA) на плате q35: порт останавливается и запускается, диск читается и пишется", s3_steps(boot=[r"\[KIRA AHCI\] sata0"]),
+       disk="sata", machine="q35", smp=4, mem="512M", extra=S3_Q35 + ["-nic", "user,model=e1000"]),
+    sc("sleep-s3-ata", "сон S3: IDE (ATA PIO) на плате pc", s3_steps(boot=[r"\[KIRA ATA\] Disk"]), disk="ata", smp=4, mem="512M",
+       extra=["-global", "PIIX4_PM.disable_s3=0", "-global", "PIIX4_PM.disable_s4=1", "-nic", "user,model=e1000"]),
+    sc("sleep-s3-usb-xhci", "сон S3: xHCI с хабом, клавиатурой, планшетом и флешкой: после пробуждения устройства подключаются заново, флешка читается", s3_steps(
+        before=[{"sleep": 3}, {"cmd": "usb", "must": [r"xHCI", r"хаб", r"клавиатура", r"планшет"]}, S3_USB],
+        after=[{"sleep": 6}, {"cmd": "usb", "must": [r"xHCI", r"хаб", r"клавиатура", r"планшет"]}, {"cmd": "df", "must": [r"usb0"]}, S3_USB]),
+       machine="q35", smp=4, mem="512M", flash=FLASH, hub=True,
+       extra=S3_Q35 + ["-nic", "user,model=e1000", "-device", "qemu-xhci,id=xhci", "-device", "usb-hub,bus=xhci.0,port=1",
+                       "-device", "usb-kbd,bus=xhci.0,port=1.2", "-device", "usb-tablet,bus=xhci.0,port=2"]),
+    sc("sleep-s3-usb-uhci", "сон S3: UHCI с планшетом, клавиатурой и флешкой (плата pc)", s3_steps(
+        before=[{"sleep": 3}, {"cmd": "usb", "must": [r"UHCI", r"клавиатура|планшет"]}, S3_USB],
+        after=[{"sleep": 6}, {"cmd": "usb", "must": [r"UHCI", r"клавиатура|планшет"]}, S3_USB]),
+       smp=4, mem="512M", flash=FLASH,
+       extra=["-global", "PIIX4_PM.disable_s3=0", "-global", "PIIX4_PM.disable_s4=1", "-nic", "user,model=e1000", "-usb", "-device", "usb-tablet", "-device", "usb-kbd"]),
+    sc("sleep-s3-hda", "сон S3: Intel HDA: контроллер и кодек возвращаются, тон снова играет через DMA", s3_steps(before=[S3_BEEP], after=[S3_BEEP], boot=[r"\[KIRA HDA\] Sound: codec"]),
+       machine="q35", smp=4, mem="512M", extra=S3_Q35 + ["-nic", "user,model=e1000", "-device", "intel-hda", "-device", "hda-duplex,audiodev=a0"]),
+    sc("sleep-s3-ac97", "сон S3: Intel AC'97", s3_steps(before=[S3_BEEP], after=[S3_BEEP], boot=[r"\[KIRA AC97\] Sound: codec"]),
+       machine="q35", smp=4, mem="512M", extra=S3_Q35 + ["-nic", "user,model=e1000", "-device", "AC97,audiodev=a0"]),
+    sc("sleep-s3-sb16", "сон S3: Sound Blaster 16 (ISA)", s3_steps(before=[S3_BEEP], after=[S3_BEEP], boot=[r"\[KIRA SB16\] Sound: Sound Blaster 16"]),
+       smp=4, mem="512M", extra=["-global", "PIIX4_PM.disable_s3=0", "-global", "PIIX4_PM.disable_s4=1", "-nic", "user,model=e1000", "-device", "sb16,audiodev=a0"]),
     sc("power-reboot","перезагрузка на q35 (регистр сброса FADT / 0xCF9): система поднимается снова, файл, записанный до сброса, на месте", [
         {"log": BOOT_LOG},
         {"cmd": "write /reboot.txt kira-before-reboot"},

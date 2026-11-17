@@ -15,6 +15,7 @@ static inline int amd_iommu_unmap(const pci_dev_t* d, uint64_t a, uint64_t b) { 
 static inline void amd_iommu_unmap_all(const pci_dev_t* d) { (void)d; }
 static inline int amd_iommu_fault_poll(void) { return 0; }
 static inline uint32_t amd_iommu_fault_count(const pci_dev_t* d) { (void)d; return 0; }
+static inline int amd_iommu_resume(void) { return 0; }
 #else
 int  amd_iommu_init(void);                       /* число блоков, включивших трансляцию; 0 - ничего не изменилось; < 0 - таблица отвергнута */
 int  amd_iommu_active(void);
@@ -26,5 +27,6 @@ int  amd_iommu_unmap(const pci_dev_t* d, uint64_t iova, uint64_t len);
 void amd_iommu_unmap_all(const pci_dev_t* d);
 int  amd_iommu_fault_poll(void);
 uint32_t amd_iommu_fault_count(const pci_dev_t* d);
+int  amd_iommu_resume(void);                     /* сон S3: регистры блоков - заново, по прежним таблицам */
 #endif
 #endif

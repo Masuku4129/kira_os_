@@ -1,5 +1,8 @@
 #include "blk.h"
 #include "uart.h"
+#ifndef KIRA_HOST_TEST
+#include "devpm.h"
+#endif
 
 /* ATA PIO, первичный канал, ведущий диск, LBA28. Опрос без прерываний (nIEN).
    Это самый простой из драйверов, который работает в любом эмуляторе и на старом железе;
@@ -100,6 +103,29 @@ static int ata_flush(blk_dev_t* d) {
     return 0;
 }
 
+#ifndef KIRA_HOST_TEST
+/* Сон S3: у ATA PIO состояния ядра нет (прерываний нет, DMA нет), кэш записи диска сброшен до сна (blk_flush_all). После сна канал мог быть сброшен: снова nIEN,
+   ожидание готовности (диск раскручивается до десятков секунд), IDENTIFY - тот же ли диск (число секторов LBA28). Не отвечает или другой - устройство не вернулось. */
+static int ata_sleep_suspend(void* ctx) { (void)ctx; return wait_not_busy() < 0 ? -1 : 0; }
+static int ata_sleep_resume(void* ctx) {
+    (void)ctx;
+    outb(ATA_CTRL, 0x02);
+    outb(ATA_DRIVE, 0xA0);
+    delay400ns();
+    uint8_t st = inb(ATA_STATUS);
+    if (st == 0xFF || st == 0x00) return -1;
+    if (wait_not_busy() < 0) return -2;
+    outb(ATA_COUNT, 0); outb(ATA_LBA0, 0); outb(ATA_LBA1, 0); outb(ATA_LBA2, 0);
+    outb(ATA_CMD, 0xEC);
+    delay400ns();
+    if (wait_not_busy() < 0 || wait_drq() != 0) return -3;
+    uint16_t id[256];
+    insw(ATA_DATA, id, 256);
+    if (((uint32_t)id[60] | ((uint32_t)id[61] << 16)) != disk.sectors) { uart_print("[KIRA SLEEP] ata: another disk after sleep.\n"); return -4; }
+    return 0;
+}
+#endif
+
 blk_dev_t* ata_probe(void) {
     outb(ATA_CTRL, 0x02);              /* nIEN: без прерываний, только опрос */
     outb(ATA_DRIVE, 0xA0);             /* ведущий */
@@ -138,5 +164,8 @@ blk_dev_t* ata_probe(void) {
 
     uart_print("[KIRA ATA] Disk '"); uart_print(disk.name);
     uart_print("', "); uart_print_dec(disk.sectors / 2048); uart_print(" MB (PIO, LBA28).\n");
+#ifndef KIRA_HOST_TEST
+    (void)devpm_register("ata", ata_sleep_suspend, ata_sleep_resume, 0);
+#endif
     return &disk;
 }

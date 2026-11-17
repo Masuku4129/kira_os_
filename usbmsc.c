@@ -28,6 +28,7 @@ typedef struct {
 } msc_t;
 static msc_t mscs[USB_MAX_MSC];
 
+int msc_pending(void) { int n = 0; for (int i = 0; i < USB_MAX_MSC; i++) n += mscs[i].used && mscs[i].gone; return n; }
 int msc_count(void) { int n = 0; for (int i = 0; i < USB_MAX_MSC; i++) n += mscs[i].used && !mscs[i].gone; return n; }
 
 static void put_be32(uint8_t* p, uint32_t v) { p[0] = (uint8_t)(v >> 24); p[1] = (uint8_t)(v >> 16); p[2] = (uint8_t)(v >> 8); p[3] = (uint8_t)v; }

@@ -557,6 +557,45 @@ static int xhci_enforced(void) {
     return seen;
 }
 
+/* Запуск контроллера на готовой памяти (DCBAA, кольца, ERST): регистры, пуск, питание портов. Общий для первого пуска и пробуждения из сна. */
+static int xhci_run(void) {
+    w32(xs.op, 0x38, xs.maxslots);                                     /* CONFIG */
+    w64(xs.op, 0x30, xs.dcbaa_phys);                                   /* DCBAAP */
+    w64(xs.op, 0x18, xs.cmd.phys | 1u);                                /* CRCR, RCS = 1 */
+    w32(xs.rt, 0x20 + 0x00, 0);                                        /* IMAN: без прерываний */
+    w32(xs.rt, 0x20 + 0x08, 1);                                        /* ERSTSZ */
+    w64(xs.rt, 0x20 + 0x18, xs.ev_phys);                               /* ERDP */
+    w64(xs.rt, 0x20 + 0x10, xs.erst_phys);                             /* ERSTBA - последним */
+    w32(xs.op, 0, 1u);                                                 /* пуск */
+    for (int i = 0; i < 50 && (r32(xs.op, 4) & 1u); i++) usb_sleep_ms(1);
+    if (r32(xs.op, 4) & 1u) { usb_log("[KIRA USB] xHCI does not start\n"); return -1; }
+    if (r32(xs.cap, 0x10) & (1u << 3))                                              /* питание портов управляется: включить */
+        for (uint32_t port = 1; port <= xs.nports; port++) { uint32_t v = r32(xs.op, portsc_off(port)); if (!(v & PS_PP)) w32(xs.op, portsc_off(port), (v & PS_PRESERVE) | PS_PP); }
+    usb_sleep_ms(50);                                                  /* линии USB 3 успевают натренироваться */
+
+    return 0;
+}
+
+/* Сон S3: контроллер останавливается и сбрасывается; после сна запускается заново на той же памяти, кольца и таблица слотов обнуляются (устройства к этому
+   моменту отключены программно, поток usb подключит их снова по состоянию портов). */
+static int xhci_suspend(usb_hc_t* hc) {
+    X = (xhci_t*)hc->priv;
+    return xhci_reset();
+}
+static int xhci_resume(usb_hc_t* hc) {
+    X = (xhci_t*)hc->priv;
+    if (r32(xs.op, 4) == 0xFFFFFFFFu) return -1;                       /* регистры не отвечают */
+    if (xhci_reset() != 0) return -2;
+    for (uint32_t i = 1; i <= xs.maxslots; i++) xs.dcbaa[i] = 0;
+    ring_reset(&xs.cmd);
+    for (unsigned i = 0; i < EV_N; i++) { xs.ev[i].p0 = xs.ev[i].p1 = xs.ev[i].st = xs.ev[i].ctl = 0; }
+    xs.ev_deq = 0; xs.ev_cycle = 1;
+    xs.cmd_done = 0;
+    for (int i = 0; i < 256; i++) xs.port_seen[i] = 0;
+    if (xhci_run() != 0) return -3;
+    return 0;
+}
+
 static int xhci_start_dev(usb_hc_t* hc, const void* pd, int iso) {
     const pci_dev_t* p = (const pci_dev_t*)pd;
     if (started >= XHCI_MAX) { usb_log("[KIRA USB] more than 16 xHCI controllers: the rest are not used\n"); return -1; }
@@ -609,19 +648,7 @@ static int xhci_start_dev(usb_hc_t* hc, const void* pd, int iso) {
     xs.erst[0] = xs.ev_phys; xs.erst[1] = EV_N;
     xs.ev_deq = 0; xs.ev_cycle = 1;
 
-    w32(xs.op, 0x38, xs.maxslots);                                     /* CONFIG */
-    w64(xs.op, 0x30, xs.dcbaa_phys);                                   /* DCBAAP */
-    w64(xs.op, 0x18, xs.cmd.phys | 1u);                                /* CRCR, RCS = 1 */
-    w32(xs.rt, 0x20 + 0x00, 0);                                        /* IMAN: без прерываний */
-    w32(xs.rt, 0x20 + 0x08, 1);                                        /* ERSTSZ */
-    w64(xs.rt, 0x20 + 0x18, xs.ev_phys);                               /* ERDP */
-    w64(xs.rt, 0x20 + 0x10, xs.erst_phys);                             /* ERSTBA - последним */
-    w32(xs.op, 0, 1u);                                                 /* пуск */
-    for (int i = 0; i < 50 && (r32(xs.op, 4) & 1u); i++) usb_sleep_ms(1);
-    if (r32(xs.op, 4) & 1u) { usb_log("[KIRA USB] xHCI does not start\n"); return -1; }
-    if (hcc1 & (1u << 3))                                              /* питание портов управляется: включить */
-        for (uint32_t port = 1; port <= xs.nports; port++) { uint32_t v = r32(xs.op, portsc_off(port)); if (!(v & PS_PP)) w32(xs.op, portsc_off(port), (v & PS_PRESERVE) | PS_PP); }
-    usb_sleep_ms(50);                                                  /* линии USB 3 успевают натренироваться */
+    if (xhci_run() != 0) return -1;
 
     started++;
     hc->name = "xHCI"; hc->priv = X;
@@ -629,6 +656,7 @@ static int xhci_start_dev(usb_hc_t* hc, const void* pd, int iso) {
     hc->intr_open = xhci_intr_open; hc->intr_poll = xhci_intr_poll;
     hc->bulk_open = xhci_bulk_open; hc->bulk_xfer = xhci_bulk_xfer; hc->bulk_reset = xhci_bulk_reset;
     hc->pipe_close = xhci_pipe_close; hc->ports = xhci_ports; hc->release = xhci_release;
+    hc->suspend = xhci_suspend; hc->resume = xhci_resume;
     usb_log("[KIRA USB] xHCI "); usb_log_hex(p->vendor); usb_log(":"); usb_log_hex(p->device);
     usb_log(", "); usb_log_dec(xs.nports); usb_log(" ports, "); usb_log_dec(xs.maxslots); usb_log(" slots, context ");
     usb_log_dec(xs.csz); usb_log(" B"); if (nsp) { usb_log(", scratchpad "); usb_log_dec(nsp); }

@@ -347,6 +347,7 @@ void kernel_main(unsigned long magic, unsigned long addr) {
     fssvc_init();        // порт kira.fs: файловая служба на сообщениях CBOR
     gfxctl_init();       // порт kira.gfx: окна и события на сообщениях CBOR
     blk_sleep_register();   // сон S3: затвор дисков - последним из хуков (ко сну первым, при пробуждении последним)
+    usb_sleep_register();   // сон S3: USB - после затвора: ко сну раньше него (тома накопителей снимаются, пока диски открыты)
     for (;;) {
         bbsave_core_tick();  // чёрный ящик: разрыв между проходами этого цикла
         console_poll();

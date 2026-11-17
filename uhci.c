@@ -399,6 +399,38 @@ static int uhci_enforced(uhci_t* u, const pci_dev_t* p) {
     return seen;
 }
 
+/* Сон S3: контроллер останавливается (USBCMD = 0); после сна проходит тот же путь, что при первом пуске: общий сброс шины, сброс контроллера, адрес списка кадров,
+   пуск. Расписание в памяти прежнее, очереди пустые (устройства отключены программно). */
+static int uhci_suspend(usb_hc_t* hc) {
+    uhci_t* u = (uhci_t*)hc->priv;
+    outw((uint16_t)(u->io + USBINTR), 0);
+    outw((uint16_t)(u->io + USBCMD), 0);
+    for (int i = 0; i < 20 && !(inw((uint16_t)(u->io + USBSTS)) & STS_HALTED); i++) usb_sleep_ms(1);
+    return (inw((uint16_t)(u->io + USBSTS)) & STS_HALTED) ? 0 : -1;
+}
+static int uhci_resume(usb_hc_t* hc) {
+    uhci_t* u = (uhci_t*)hc->priv;
+    if (inw((uint16_t)(u->io + USBCMD)) == 0xFFFF) return -1;          /* порты ввода-вывода не отвечают */
+    outw((uint16_t)(u->io + USBCMD), 0);
+    outw((uint16_t)(u->io + USBCMD), CMD_GRESET);
+    usb_sleep_ms(20);
+    outw((uint16_t)(u->io + USBCMD), 0);
+    usb_sleep_ms(10);
+    outw((uint16_t)(u->io + USBCMD), CMD_HCRESET);
+    for (int i = 0; i < 100 && (inw((uint16_t)(u->io + USBCMD)) & CMD_HCRESET); i++) usb_sleep_ms(1);
+    if (inw((uint16_t)(u->io + USBCMD)) & CMD_HCRESET) return -2;
+    for (int i = 0; i <= QH_BULK; i++) u->qh[i].elem = LP_T;
+    for (int i = 0; i < 128; i++) u->addr_used[i] = 0;
+    outw((uint16_t)(u->io + USBINTR), 0);
+    outw((uint16_t)(u->io + FRNUM), 0);
+    outl((uint16_t)(u->io + FRBASE), (uint32_t)(uintptr_t)u->frames);
+    outb((uint16_t)(u->io + SOFMOD), 0x40);
+    outw((uint16_t)(u->io + USBSTS), 0xFFFF);
+    outw((uint16_t)(u->io + USBCMD), CMD_RS | CMD_CF | CMD_MAXP);
+    usb_sleep_ms(5);
+    return (inw((uint16_t)(u->io + USBSTS)) & STS_HALTED) ? -3 : 0;
+}
+
 static int uhci_start_dev(usb_hc_t* hc, const void* pd, int iso) {
     const pci_dev_t* p = (const pci_dev_t*)pd;
     if (nctl >= 8) { usb_log("[KIRA USB] more than 8 UHCI controllers: the rest are not used\n"); return -1; }
@@ -476,6 +508,7 @@ static int uhci_start_dev(usb_hc_t* hc, const void* pd, int iso) {
     hc->intr_open = uhci_intr_open; hc->intr_poll = uhci_intr_poll;
     hc->bulk_open = uhci_bulk_open; hc->bulk_xfer = uhci_bulk_xfer; hc->bulk_reset = uhci_bulk_reset;
     hc->pipe_close = uhci_pipe_close; hc->ports = uhci_ports; hc->release = uhci_release;
+    hc->suspend = uhci_suspend; hc->resume = uhci_resume;
     nctl++;
     usb_log("[KIRA USB] UHCI at I/O "); usb_log_hex(u->io); usb_log(", "); usb_log_dec(u->nports); usb_log(" ports, polled schedule\n");
     return 0;

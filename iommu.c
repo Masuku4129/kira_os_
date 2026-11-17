@@ -17,6 +17,7 @@
 #include "pmm.h"
 #include "vmm.h"
 #include "ramext.h"
+#include "devpm.h"
 #endif
 
 #define IOMMU_MAX_DOMAINS 16
@@ -149,7 +150,40 @@ int iommu_enabled(void) {
 
 static void zero_bytes(void* p, size_t n) { uint8_t* b = (uint8_t*)p; while (n--) *b++ = 0; }
 
+#ifndef KIRA_HOST_TEST
+/* Сон S3. Блок VT-d после сна теряет регистры (адрес корневой таблицы, включение трансляции), а таблицы - корневая, контекстов и страниц - лежат в памяти и
+   целы. Хук возвращает их: адрес корневой таблицы, SRTP, сброс кэша контекстов и IOTLB, включение трансляции - тот же порядок, что при первом включении. Хук стоит
+   в реестре сразу после PCI: ко сну выполняется предпоследним (устройства уже молчат), при пробуждении - вторым, раньше всех драйверов (их DMA идёт уже
+   через вернувшуюся трансляцию). Не вернувшийся блок - громкая запись: устройства его домена остались без изоляции. */
+static int iommu_sleep_suspend(void* ctx) { (void)ctx; (void)iommu_fault_poll(); return 0; }
+static int iommu_sleep_resume(void* ctx) {
+    (void)ctx;
+    if (amd_iommu_active()) return amd_iommu_resume();
+    int bad = 0;
+    for (int i = 0; i < VTD_MAX_UNITS; i++) {
+        if (!G.on[i]) continue;
+        G.unit[i].translation_enabled = 0;
+        int rc = kira_vtd_unit_enable_translation(&G.unit[i], &G.plat);
+        if (rc != KIRA_VTD_OK) {
+            bad++;
+            uart_print("[KIRA SLEEP] VT-d unit "); uart_print_dec((uint64_t)i); uart_print(" did not start after sleep ("); print_err(rc);
+            uart_print("): its devices are NOT isolated now.\n");
+        }
+    }
+    return bad ? -1 : 0;
+}
+#endif
+
+static int iommu_init_units(void);
 int iommu_init(void) {
+    int r = iommu_init_units();
+#ifndef KIRA_HOST_TEST
+    if (r > 0) (void)devpm_register("iommu", iommu_sleep_suspend, iommu_sleep_resume, 0);
+#endif
+    return r;
+}
+
+static int iommu_init_units(void) {
     if (G.active || amd_iommu_active()) return iommu_enabled();
     const acpi_info_t* ai = acpi_get();
     if (ai && !ai->dmar_phys && ai->ivrs_phys) return amd_iommu_init();      /* платформа AMD: таблица IVRS вместо DMAR */

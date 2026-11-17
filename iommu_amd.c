@@ -130,14 +130,8 @@ static const void* ivrs_view(uint64_t phys, uint64_t len) {
     return (const void*)vmm_map_mmio(phys, len, VMM_MMIO_UC);
 }
 
-static int unit_enable(aunit_t* u, unsigned idx) {
-    u->regs = (volatile uint8_t*)vmm_map_mmio(A.info.unit[idx].base, 0x4000, VMM_MMIO_UC);
-    if (!u->regs) return -1;
-    uint64_t pa;
-    u->cmd = page_alloc(0, &pa); u->cmd_pa = pa;
-    u->evt = page_alloc(0, &pa); u->evt_pa = pa;
-    u->wait = page_alloc(0, &pa); u->wait_pa = pa;
-    if (!u->cmd || !u->evt || !u->wait) return -1;
+/* Регистры блока: таблица устройств, кольца команд и событий, включение. Общий порядок для первого пуска и пробуждения из сна (память колец и таблицы - прежняя). */
+static int unit_program(aunit_t* u) {
     wr(u, R_CTRL, rd(u, R_CTRL) & ~(CTRL_EN | CTRL_CMD_EN | CTRL_EVT_EN));       /* на всякий случай: выключить, чем бы его ни оставила микропрограмма */
     wr(u, R_DTBA, A.dtab_pa | (A.dtab_pages - 1));
     wr(u, R_CMDBASE, u->cmd_pa | (8ull << 56));
@@ -148,6 +142,29 @@ static int unit_enable(aunit_t* u, unsigned idx) {
     wr(u, R_CTRL, rd(u, R_CTRL) | CTRL_EN);
     for (unsigned spin = 0; !(rd(u, R_STATUS) & ST_CMD_RUN); spin++) if (spin > WAIT_SPINS) return -1;
     return cmd_sync(u) == IOMMU_OK ? 0 : -1;                                       /* команда прошла кольцо: блок жив и читает таблицы */
+}
+
+static int unit_enable(aunit_t* u, unsigned idx) {
+    u->regs = (volatile uint8_t*)vmm_map_mmio(A.info.unit[idx].base, 0x4000, VMM_MMIO_UC);
+    if (!u->regs) return -1;
+    uint64_t pa;
+    u->cmd = page_alloc(0, &pa); u->cmd_pa = pa;
+    u->evt = page_alloc(0, &pa); u->evt_pa = pa;
+    u->wait = page_alloc(0, &pa); u->wait_pa = pa;
+    if (!u->cmd || !u->evt || !u->wait) return -1;
+    return unit_program(u);
+}
+
+/* Сон S3: после пробуждения блоки теряют регистры; таблица устройств, домены и кольца лежат в памяти. Регистры программируются заново, блок читает прежнюю
+   таблицу - домены устройств действуют как до сна. Журнал событий (отказов за время сна быть не могло: устройства молчали) начинается с пустого кольца. */
+int amd_iommu_resume(void) {
+    int bad = 0;
+    for (unsigned i = 0; i < A.info.nunits; i++) {
+        aunit_t* u = &A.unit[i];
+        if (!u->on) continue;
+        if (unit_program(u) != 0) { bad++; uart_print("[KIRA SLEEP] AMD-Vi unit "); uart_print_dec(i); uart_print(" did not start after sleep: its devices are NOT isolated now.\n"); }
+    }
+    return bad ? -1 : 0;
 }
 
 int amd_iommu_active(void) { return A.active; }

@@ -10,6 +10,7 @@
 #include "uart.h"
 #include "sched.h"
 #include "cpu.h"
+#include "devpm.h"
 
 static inline void outb(uint16_t p, uint8_t v) { __asm__ volatile ("outb %0, %1" :: "a"(v), "Nd"(p)); }
 static inline void outw(uint16_t p, uint16_t v) { __asm__ volatile ("outw %0, %1" :: "a"(v), "Nd"(p)); }
@@ -33,7 +34,10 @@ static struct {
     uint8_t *out, *in; uint64_t out_p, in_p;
     uint32_t *obdl, *ibdl; uint64_t obdl_p, ibdl_p;
     uint32_t vid; int vra, in_up;
+    const pci_dev_t* pci;
     uint64_t restarts;
+    int out_run;                     /* вывод запущен (audio.c) */
+    volatile int asleep;             /* сон S3 */
 } a;
 
 static void box_start(uint16_t box, uint32_t bdl_p) {
@@ -67,10 +71,10 @@ static void box_keep(uint16_t box) {                             /* послед
     else if (sr & 0x1C) outw((uint16_t)(b + B_SR), 0x1C);
 }
 
-static int out_start(void) { box_start(BOX_OUT, (uint32_t)a.obdl_p); return 0; }
-static uint32_t out_pos(void) { return box_pos(BOX_OUT); }
-static uint32_t in_pos(void) { return box_pos(BOX_IN); }
-static void service(void) { box_keep(BOX_OUT); if (a.in_up) box_keep(BOX_IN); }
+static int out_start(void) { if (a.asleep) return -1; box_start(BOX_OUT, (uint32_t)a.obdl_p); a.out_run = 1; return 0; }
+static uint32_t out_pos(void) { return a.asleep ? 0 : box_pos(BOX_OUT); }
+static uint32_t in_pos(void) { return a.asleep ? 0 : box_pos(BOX_IN); }
+static void service(void) { if (a.asleep) return; box_keep(BOX_OUT); if (a.in_up) box_keep(BOX_IN); }
 static void print(void) {
     uart_print("AC'97: кодек "); uart_print_hex(a.vid); uart_print(a.vra ? ", частота задана 48 кГц (VRA)" : ", 48 кГц (без VRA)");
     uart_print(", порты "); uart_print_hex(a.nam); uart_print("/"); uart_print_hex(a.nabm);
@@ -81,13 +85,8 @@ static void fill_bdl(uint32_t* bdl, uint64_t buf_p) {
     for (unsigned i = 0; i < NBD; i++) { bdl[2 * i] = (uint32_t)(buf_p + (uint64_t)i * PART); bdl[2 * i + 1] = PART / 2; }   /* отсчётов, без флагов */
 }
 
-int ac97_probe(void) {
-    const pci_dev_t* p = 0;
-    for (int i = 0; i < pci_count() && !p; i++) { const pci_dev_t* d = pci_get(i); if (d->class_code == 0x04 && d->subclass == 0x01) p = d; }
-    if (!p) return -1;
-    if (!p->bar[0].io || !p->bar[1].io || !p->bar[0].base || !p->bar[1].base) { uart_print("[KIRA AC97] controller without I/O port BARs - not supported.\n"); return -2; }
-    a.nam = (uint16_t)p->bar[0].base; a.nabm = (uint16_t)p->bar[1].base;
-    pci_enable(p, PCI_CMD_IO | PCI_CMD_MASTER | PCI_CMD_INTX_OFF);
+/* Кодек от холодного сброса до рабочего микшера: общий порядок для первого пуска и пробуждения из сна. */
+static int codec_up(void) {
     outl((uint16_t)(a.nabm + GLOB_CNT), 2);                     /* снять холодный сброс, прерывания выключены */
     int ready = 0;
     for (int i = 0; i < 200 && !ready; i++) { if (inl((uint16_t)(a.nabm + GLOB_STA)) & (1u << 8)) ready = 1; else sched_sleep_ticks(1); }
@@ -104,6 +103,40 @@ int ac97_probe(void) {
         outw((uint16_t)(a.nam + NAM_DAC_RATE), RATE); outw((uint16_t)(a.nam + NAM_ADC_RATE), RATE);
         a.vra = inw((uint16_t)(a.nam + NAM_DAC_RATE)) == RATE;
     }
+    return 0;
+}
+
+static int ac97_sleep_suspend(void* ctx) {
+    (void)ctx;
+    a.asleep = 1;
+    outb((uint16_t)(a.nabm + BOX_OUT + B_CR), 0);
+    outb((uint16_t)(a.nabm + BOX_IN + B_CR), 0);
+    return 0;
+}
+/* Сон S3: ящики DMA остановлены; после сна кодек проходит тот же путь (сброс, микшер, VRA), запись и вывод запускаются снова на прежних буферах. Другой кодек
+   (идентификатор) - устройство не вернулось. */
+static int ac97_sleep_resume(void* ctx) {
+    (void)ctx;
+    uint32_t vid = a.vid;
+    a.vra = 0;
+    pci_enable(a.pci, PCI_CMD_IO | PCI_CMD_MASTER | PCI_CMD_INTX_OFF);
+    if (codec_up()) { uart_print("[KIRA SLEEP] ac97: codec did not become ready after sleep.\n"); return -1; }
+    if (a.vid != vid) { uart_print("[KIRA SLEEP] ac97: another codec after sleep.\n"); return -2; }
+    a.asleep = 0;
+    box_start(BOX_IN, (uint32_t)a.ibdl_p);
+    if (a.out_run) box_start(BOX_OUT, (uint32_t)a.obdl_p);
+    return 0;
+}
+
+int ac97_probe(void) {
+    const pci_dev_t* p = 0;
+    for (int i = 0; i < pci_count() && !p; i++) { const pci_dev_t* d = pci_get(i); if (d->class_code == 0x04 && d->subclass == 0x01) p = d; }
+    if (!p) return -1;
+    if (!p->bar[0].io || !p->bar[1].io || !p->bar[0].base || !p->bar[1].base) { uart_print("[KIRA AC97] controller without I/O port BARs - not supported.\n"); return -2; }
+    a.nam = (uint16_t)p->bar[0].base; a.nabm = (uint16_t)p->bar[1].base; a.pci = p;
+    pci_enable(p, PCI_CMD_IO | PCI_CMD_MASTER | PCI_CMD_INTX_OFF);
+    int cr = codec_up();
+    if (cr) return cr;
     a.out = (uint8_t*)usb_dma_alloc(BUFSZ, &a.out_p, 1);
     a.in = (uint8_t*)usb_dma_alloc(BUFSZ, &a.in_p, 1);
     a.obdl = (uint32_t*)usb_dma_alloc(NBD * 8, &a.obdl_p, 1);
@@ -118,5 +151,6 @@ int ac97_probe(void) {
     card.name = "AC'97"; card.start = out_start; card.pos = out_pos; card.buf = (int16_t*)a.out; card.bytes = BUFSZ;
     card.service = service; card.in_ready = 1; card.in_pos = in_pos; card.in_buf = (const int16_t*)a.in; card.in_bytes = BUFSZ;
     card.in_name = "microphone"; card.print = print;
+    (void)devpm_register("ac97", ac97_sleep_suspend, ac97_sleep_resume, 0);
     return audio_attach(&card);
 }
