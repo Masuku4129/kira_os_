@@ -135,6 +135,16 @@ int main(void)
     CHECK(last_iotlb_cmd & (1ull << 49));              /* read drain, DRD supported */
     CHECK(last_iotlb_cmd & (1ull << 48));              /* write drain, DWD supported */
 
+    /* Root entries are 128 bits: bus N lives in qword 2*N, the high qword of every entry stays zero (bus 0 hid this once). */
+    {
+        struct kira_vtd_domain d5;
+        uint64_t* root = (uint64_t*)unit.root_table;
+        CHECK(kira_vtd_domain_create(&d5, &unit, 0, 5, 1, 0, &plat) == KIRA_VTD_OK);
+        CHECK(root[10] & 1);                              /* bus 5, qword 10 */
+        CHECK(root[1] == 0 && root[3] == 0 && root[11] == 0);
+        CHECK(root[0] & 1);                               /* bus 0 from the first domain */
+    }
+
     /* map -> device can translate; the command is issued after the PTE is written. */
     before = iotlb_count;
     CHECK(kira_vtd_domain_map_4k(&dom, 0x10000, 0x200000, KIRA_VTD_MAP_READ | KIRA_VTD_MAP_WRITE, &plat) == KIRA_VTD_OK);
