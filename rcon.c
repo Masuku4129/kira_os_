@@ -195,11 +195,11 @@ void rconcmd(const char* arg) {
         if (!R.have_key) { uart_print("rcon: сначала задайте пароль: rcon passwd ПАРОЛЬ\n"); return; }
         if (*rest) { unsigned p = 0; for (const char* q = rest; *q >= '0' && *q <= '9'; q++) p = p * 10 + (unsigned)(*q - '0'); if (p == 0 || p > 65535) { uart_print("rcon: порт 1..65535\n"); return; } if (p != R.port && R.listener >= 0) { tcp_unlisten(R.listener); R.listener = -1; } R.port = (uint16_t)p; }
         R.on = 1; conf_save();
-        audit_event(AUD_K_CONFIG, audit_cmd_source(), AUD_R_OK, R.port, 0, 1, "rcon", "rcon on");
+        audit_event(AUD_K_CONFIG, audit_cmd_source(), AUD_R_OK, 0, 0, R.port, "rcon", "rcon on");
         uart_print("rcon: включена, порт "); uart_print_dec(R.port); uart_print("\n");
     } else if (IS("off")) {
         R.on = 0; conf_save();
-        audit_event(AUD_K_CONFIG, audit_cmd_source(), AUD_R_OK, R.port, 0, 0, "rcon", "rcon off");
+        audit_event(AUD_K_CONFIG, audit_cmd_source(), AUD_R_OK, 0, 0, R.port, "rcon", "rcon off");
         uart_print("rcon: выключена\n");
     } else if (IS("status")) {
         uart_print("rcon: "); uart_print(R.on ? "включена" : "выключена"); uart_print(", порт "); uart_print_dec(R.port);

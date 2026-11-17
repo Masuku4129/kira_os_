@@ -566,7 +566,7 @@ ALL = [
         {"host_rcon": [17078, "wrong-password-1", ["status"]]},
         {"host_rcon": [17078, "kira-audit-pass", ["rcon passwd kira-audit-pass-2", "PING"]]},
         {"sleep": 2},
-        {"cmd": "audit 100", "must": [r"boot system OK pid=0 dom=0 arg=0 kernel", r"trust system \w+ pid=0 dom=0 arg=\d+ boot-trust",
+        {"cmd": "audit 100", "must": [r"boot system OK pid=0 dom=0 arg=4 kernel", r"key system OK pid=0 dom=0 arg=0 device-key \| created on first boot", r"config console OK pid=0 dom=0 arg=7077 rcon \| rcon on", r"trust system \w+ pid=0 dom=0 arg=\d+ boot-trust",
                                       r"exec console OK pid=\d+ dom=\d+ arg=\d+ atk-cap", r"cap-deny program DENIED pid=\d+ dom=\d+ arg=1 atk-cap \| syscall \d+",
                                       r"rcon-login rcon DENIED pid=0 dom=0 arg=1 rcon \| wrong password", r"rcon-login rcon OK pid=0 dom=0 arg=0 rcon \| client logged in",
                                       r"rcon-passwd (console|rcon) OK .* rcon \| password changed"],
