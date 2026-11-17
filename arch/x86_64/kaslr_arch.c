@@ -82,7 +82,7 @@ static void fail(int reason) { kaslr_state.reason = reason; }
 uint64_t kaslr_setup(uint64_t info, uint32_t size, uint32_t uefi, uint32_t magic) {
     kaslr_state_t* st = &kaslr_state;
     st->link_base = st->base = (uint64_t)(uintptr_t)kernel_start;
-    st->slide = 0; st->slots = 0; st->entropy_src = 0; st->relocs = 0;
+    st->keep_lo = st->keep_hi = 0; st->slide = 0; st->slots = 0; st->entropy_src = 0; st->relocs = 0;
     st->reason = KASLR_NO_ENV;
 
     uint64_t image = (uint64_t)(uintptr_t)(kernel_end - kernel_start);          // с bss
@@ -104,6 +104,7 @@ uint64_t kaslr_setup(uint64_t info, uint32_t size, uint32_t uefi, uint32_t magic
             fail(KASLR_BAD_BOOTINFO); return 0;
         }
         xlo = info; xhi = info + total;
+        st->keep_lo = xlo; st->keep_hi = xhi;
     }
     if (kbi_validate(blob, blob_size) != 0) { fail(KASLR_BAD_BOOTINFO); return 0; }
     const kbi_header_t* h = (const kbi_header_t*)blob;
@@ -175,7 +176,12 @@ void kaslr_finish(void) {
     // Старый образ - неперемещённая копия кода по известному адресу: стираем (его память потом отдаёт PMM).
     volatile uint8_t* o = (volatile uint8_t*)(uintptr_t)old_base;
     uint64_t len = (uint64_t)(uintptr_t)(kernel_end - kernel_start);
-    for (uint64_t i = 0; i < len; i++) o[i] = 0;
+    uint64_t klo = kaslr_state.keep_lo, khi = kaslr_state.keep_hi;
+    for (uint64_t i = 0; i < len; i++) {
+        uint64_t a = old_base + i;
+        if (a >= klo && a < khi) continue;      // структура загрузчика ещё читается (BootInfo, командная строка); PMM её не выдаёт
+        o[i] = 0;
+    }
 }
 
 void kaslr_log(void) {

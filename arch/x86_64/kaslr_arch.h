@@ -13,6 +13,7 @@ typedef struct {
     uint32_t entropy_src;      // KASLR_SRC_*: что вошло в энтропию
     int32_t  reason;           // KASLR_OK или причина, по которой сдвига нет (kaslr.h)
     uint64_t relocs;           // сколько слов исправлено
+    uint64_t keep_lo, keep_hi; // Multiboot2-структура GRUB может лежать в зазоре внутри старого образа (между rodata и text): её не стираем
 } kaslr_state_t;
 
 const kaslr_state_t* kaslr_info(void);
