@@ -305,7 +305,9 @@ static void em(uint32_t* r, const uint32_t* a, const uint32_t* b) { mont_mul(&ep
 static void epow(uint32_t* r, const uint32_t* a, const char* hexe) { fe_t e; hexnum(e, 8, hexe); mont_pow(&ep, r, a, e, 8); }
 static void e_from_int(uint32_t* r, uint32_t v) { fe_t t; bn_zero(t, 8); t[0] = v; to_m(&ep, r, t); }
 
+static volatile int ed_ready;                                     /* константы кривой считаются один раз и дальше только читаются: проверка (kdrv_sig) и подпись (журнал аудита) идут из разных потоков ядра */
 static int ed_init(void) {
+    if (__atomic_load_n(&ed_ready, __ATOMIC_ACQUIRE)) return 0;
     fe_t p, a, b, t;
     hexnum(p, 8, ED_P);
     if (mont_init(&ep, p, 8)) return -1;
@@ -314,8 +316,10 @@ static int ed_init(void) {
     bn_zero(a, 8); es(ed_d, a, t);                                /* d = -121665/121666 */
     ea(ed_d2, ed_d, ed_d);
     e_from_int(a, 2); epow(ed_i, a, ED_E14);                      /* sqrt(-1) = 2^((p-1)/4) */
+    __atomic_store_n(&ed_ready, 1, __ATOMIC_RELEASE);
     return 0;
 }
+int ed25519_prepare(void) { return ed_init(); }
 
 static void ept_id(ept_t* r) { bn_zero(r->x, 8); bn_copy(r->y, ep.one, 8); bn_copy(r->z, ep.one, 8); bn_zero(r->t, 8); }
 static void ept_add(ept_t* r, const ept_t* p, const ept_t* q) {

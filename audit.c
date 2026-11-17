@@ -244,7 +244,7 @@ static int load_all(void) {
     if (LV.code != AUD_V_OK) { tamper_now = 1; report_violation(&LV, "boot"); }
     uart_print("[KIRA AUDIT] journal online: next record #"); uart_print_dec(ST.next_seq); uart_print(", boot #"); uart_print_dec(boot_id);
     uart_print(", closed segments "); uart_print_dec(ST.nsegs); uart_print(", key id "); { uint8_t id[16]; aud_keyid(PUB, id); put_hex(id, 4, uart_print); }
-    uart_print(unclean ? ", previous run ended without shutdown record" : ", previous run ended cleanly");
+    uart_print(ST.next_seq <= 1 + 3 && boot_id == 1 ? ", first boot of this journal" : unclean ? ", previous run ended without shutdown record" : ", previous run ended cleanly");
     uart_print(LV.code == AUD_V_OK ? ", chain verified OK\n" : ", chain VIOLATED\n");
     return 0;
 }
@@ -262,6 +262,7 @@ static void audit_main(void* arg) {
 }
 
 void audit_init(void) {
+    if (ed25519_prepare() != 0) uart_print("[KIRA AUDIT] Ed25519 constants failed to initialize\n");
     if (!sched_create("audit", audit_main, 0, PRIO_NORMAL)) uart_print("[KIRA AUDIT] cannot start the journal thread\n");
     uart_print("[KIRA AUDIT] tamper-evident journal: hash chain + Ed25519 checkpoints, /var/audit.log (starts when the file system is ready)\n");
 }

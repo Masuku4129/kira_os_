@@ -23,6 +23,8 @@ int ecdsa_verify(int curve, const uint8_t* pub, size_t publen, const uint8_t* di
 int ed25519_verify(const uint8_t pub[32], const uint8_t* msg, size_t mlen, const uint8_t sig[64]);
 /* Подпись Ed25519 (RFC 8032): seed - 32 секретных байта; pub получается из семени; sig - 64 байта. 0 - готово. Не для ключей, которые нужно беречь от
    наблюдателя по времени (см. pk.c). Нужна журналу аудита: ключ устройства создаётся и остаётся на самом устройстве. */
+/* Считает константы Ed25519 заранее (один раз): ядро зовёт это при запуске, пока работает один поток, и дальше проверка и подпись из разных потоков безопасны. */
+int ed25519_prepare(void);
 int ed25519_pubkey(const uint8_t seed[32], uint8_t pub[32]);
 int ed25519_sign(const uint8_t seed[32], const uint8_t* msg, size_t mlen, uint8_t sig[64]);
 #endif
