@@ -165,7 +165,7 @@ static int hw_dma(uint16_t sid, uint64_t iova, int write, uint64_t* pa) {
             if (write ? iotlb[i].w : iotlb[i].r) { *pa = iotlb[i].pa | (iova & 0xFFF); return 0; }
         }
     uint64_t* root = (uint64_t*)(uintptr_t)root_phys;
-    uint64_t re = root[sid >> 8];
+    uint64_t re = root[2u * (sid >> 8)];
     if (!(re & 1)) { record_fault(sid, iova, write, 1); goto out; }
     uint64_t* ctx = (uint64_t*)(uintptr_t)(re & ~0xFFFull);
     uint64_t lo = ctx[(sid & 0xFF) * 2], hi = ctx[(sid & 0xFF) * 2 + 1];
@@ -192,7 +192,7 @@ out:
 static uint16_t sid_of(const pci_dev_t* d) { return (uint16_t)(d->bus << 8 | d->dev << 3 | d->fn); }
 static uint32_t did_of(uint16_t sid) {
     uint64_t* root = (uint64_t*)(uintptr_t)root_phys;
-    uint64_t* ctx = (uint64_t*)(uintptr_t)(root[sid >> 8] & ~0xFFFull);
+    uint64_t* ctx = (uint64_t*)(uintptr_t)(root[2u * (sid >> 8)] & ~0xFFFull);
     return (uint32_t)((ctx[(sid & 0xFF) * 2 + 1] >> 8) & 0xFFFF);
 }
 static void hw_init(void) {
