@@ -41,6 +41,11 @@ void pic_init(void) {
     outb(PIC2_DATA, 0xFF);
 }
 
+/* Сон S3: PIC после пробуждения сброшен. Маски линий (IMR) запоминаются и возвращаются после обычной инициализации. */
+static uint8_t sleep_imr1, sleep_imr2;
+void pic_suspend(void) { sleep_imr1 = inb(PIC1_DATA); sleep_imr2 = inb(PIC2_DATA); }
+void pic_resume(void) { pic_init(); outb(PIC1_DATA, sleep_imr1); outb(PIC2_DATA, sleep_imr2); }
+
 void pic_disable(void) {
     outb(PIC1_DATA, 0xFF);
     outb(PIC2_DATA, 0xFF);

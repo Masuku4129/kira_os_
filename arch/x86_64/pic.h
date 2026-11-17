@@ -7,6 +7,8 @@ typedef void (*irq_handler_t)(void);
 
 void pic_init(void);
 void pic_disable(void);
+void pic_suspend(void);   /* сон S3: запомнить маски линий */
+void pic_resume(void);    /* сон S3: заново проинициализировать и вернуть маски */
 void pic_send_end_of_interrupt(unsigned char irq);
 void pic_unmask_irq(unsigned char irq);
 void pic_mask_irq(unsigned char irq);

@@ -5,7 +5,8 @@
 
 #define PM1_PWRBTN  (1u << 8)
 #define PM1_SLPBTN  (1u << 9)
-#define FADT_PWR_BUTTON_AML (1u << 4)   /* кнопка питания - не фиксированная, а устройство PNP0C0C с Notify */
+#define FADT_PWR_BUTTON_AML (1u << 4)
+#define FADT_SLP_BUTTON_AML (1u << 5)   /* то же для кнопки сна */   /* кнопка питания - не фиксированная, а устройство PNP0C0C с Notify */
 #define EC_OBF 0x01
 #define EC_IBF 0x02
 #define EC_SCI 0x20
@@ -513,6 +514,11 @@ static void enable_job(void* p) {
         (void)wr(AML_SP_IO, S.hw.pm1a_evt, 16, PM1_PWRBTN);       /* старое нажатие не считаем */
         if (rd(AML_SP_IO, S.hw.pm1a_evt + half, 16, &en) == 0) { (void)wr(AML_SP_IO, S.hw.pm1a_evt + half, 16, en | PM1_PWRBTN); S.fixed_pwr_enabled = 1; }
     }
+    if (S.hw.pm1a_evt && S.hw.pm1_evt_len >= 4 && !(S.hw.fadt_flags & FADT_SLP_BUTTON_AML)) {   /* фиксированная кнопка сна есть: событие и пробуждение от неё */
+        unsigned half = S.hw.pm1_evt_len / 2u; uint64_t en;
+        (void)wr(AML_SP_IO, S.hw.pm1a_evt, 16, PM1_SLPBTN);
+        if (rd(AML_SP_IO, S.hw.pm1a_evt + half, 16, &en) == 0) (void)wr(AML_SP_IO, S.hw.pm1a_evt + half, 16, en | PM1_SLPBTN);
+    }
     if (S.gpe_scope) {
         for (aml_node_t* n = aml_first_child(S.gpe_scope); n; n = aml_next_sibling(n)) {
             char nm[5]; aml_node_name(n, nm);
@@ -550,10 +556,11 @@ static void sleep_job(void* p) {
 }
 int acpidev_prepare_sleep(int state) { if (!S.ready) return AML_E_NOTFOUND; if (!gate_take()) return AML_E_BUSY; MJ.arg = state; run_job(sleep_job, 0); int r = MJ.rc; gate_put(); return r; }
 
-static void s5_job(void* p) {
+static void sx_job(void* p) {
     (void)p;
     aml_val_t v;
-    MJ.rc = aml_call_path(S.ctx, 0, "\\_S5", 0, 0, &v);
+    char path[5] = { '\\', '_', 'S', (char)('0' + MJ.arg), 0 };
+    MJ.rc = aml_call_path(S.ctx, 0, path, 0, 0, &v);
     if (MJ.rc) return;
     uint64_t a, b = 0;
     const aml_val_t* e0 = aml_pkg_at(&v, 0);
@@ -562,12 +569,64 @@ static void s5_job(void* p) {
     if (e1) (void)aml_val_int(e1, &b);
     MJ.a = (uint8_t)a; MJ.b = (uint8_t)b;
 }
-int acpidev_s5(uint8_t* a, uint8_t* b) {
+/* Пакет \_Sx (x = 0..5): значения SLP_TYPa/SLP_TYPb, вычисленные интерпретатором (пакет может быть вычисляемым). 0 - получены. */
+int acpidev_sx(int state, uint8_t* a, uint8_t* b) {
     if (!S.ready) return AML_E_NOTFOUND;
+    if (state < 0 || state > 5) return AML_E_ARGS;
     if (!gate_take()) return AML_E_BUSY;
-    run_job(s5_job, 0);
+    MJ.arg = state;
+    run_job(sx_job, 0);
     int r = MJ.rc;
     if (r == 0) { *a = MJ.a; *b = MJ.b; }
+    gate_put();
+    return r;
+}
+int acpidev_s5(uint8_t* a, uint8_t* b) { return acpidev_sx(5, a, b); }
+
+/* После пробуждения: \_BFS(state) и \_WAK(state) (прошивка возвращает устройства платформы в рабочее состояние); питание и крышку перечитать. */
+static void wak_job(void* p) {
+    (void)p;
+    static const char* const names[2] = { "\\_BFS", "\\_WAK" };
+    MJ.rc = 0;
+    for (int i = 0; i < 2; i++) {
+        aml_node_t* n = aml_lookup(S.ctx, 0, names[i]);
+        if (!n || aml_node_type(n) != AML_N_METHOD) continue;
+        aml_val_t a = aml_int((uint64_t)MJ.arg), v;
+        int r = aml_call(S.ctx, n, &a, 1, &v);
+        if (r) MJ.rc = r;
+    }
+    S.power_dirty = 1;
+}
+int acpidev_wake(int state) { if (!S.ready) return AML_E_NOTFOUND; if (!gate_take()) return AML_E_BUSY; MJ.arg = state; run_job(wak_job, 0); int r = MJ.rc; gate_put(); return r; }
+
+/* Источники пробуждения: _PRW устройств (крышка, кнопки, встроенный контроллер). Элемент 0 пакета - номер GPE (число) или пара {устройство GPE, номер};
+   элемент 1 - самое глубокое состояние, из которого устройство будит. GPE включается и очищается. MJ.a - сколько включено. */
+static void prw_job(void* p) {
+    (void)p;
+    unsigned n_on = 0;
+    for (unsigned i = 0; i < S.ndev; i++) {
+        uint8_t k = S.dev[i].kind;
+        if (k != K_LID && k != K_PWRB && k != K_SLPB && k != K_EC) continue;
+        aml_val_t v;
+        if (aml_call_path(S.ctx, S.dev[i].n, "_PRW", 0, 0, &v) != 0 || v.t != AML_V_PKG) continue;
+        const aml_val_t* e0 = aml_pkg_at(&v, 0); const aml_val_t* e1 = aml_pkg_at(&v, 1);
+        uint64_t g = 0, deepest = 0;
+        if (!e0 || !e1 || aml_val_int(e1, &deepest) != 0 || (int)deepest < MJ.arg) continue;
+        if (e0->t == AML_V_PKG) { const aml_val_t* x = aml_pkg_at(e0, 1); if (!x || aml_val_int(x, &g) != 0) continue; }
+        else if (aml_val_int(e0, &g) != 0) continue;
+        if (g > 255) continue;
+        gpe_clear((unsigned)g); gpe_enable((unsigned)g, 1); n_on++;
+    }
+    MJ.a = (uint8_t)(n_on > 255 ? 255 : n_on);
+    MJ.rc = 0;
+}
+/* Перед сном: включить GPE устройств, которые умеют будить из состояния state (по _PRW); сколько - в *count. */
+int acpidev_arm_wake(int state, unsigned* count) {
+    if (!S.ready) return AML_E_NOTFOUND;
+    if (!gate_take()) return AML_E_BUSY;
+    MJ.arg = state;
+    run_job(prw_job, 0);
+    int r = MJ.rc; if (count) *count = MJ.a;
     gate_put();
     return r;
 }

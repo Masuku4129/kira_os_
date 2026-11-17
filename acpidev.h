@@ -40,6 +40,13 @@ int  acpidev_enable_events(void);
 int  acpidev_prepare_sleep(int state);
 /* \_S5: значения SLP_TYP, вычисленные интерпретатором (0 - получены). */
 int  acpidev_s5(uint8_t* a, uint8_t* b);
+/* \_Sx (x = 0..5): значения SLP_TYPa/b пакета, вычисленные интерпретатором (0 - получены); для сна S3 - state 3. */
+int  acpidev_sx(int state, uint8_t* a, uint8_t* b);
+/* После пробуждения: \_BFS(state), затем \_WAK(state); состояние питания обновится при следующем опросе. */
+int  acpidev_wake(int state);
+/* Перед сном: \_PRW устройств-будильников (крышка, кнопки, встроенный контроллер) - их GPE очищаются и включаются; *count - сколько включено.
+   0 - готово; источники, которым нужна более глубокая спячка, чем state, не включаются. */
+int  acpidev_arm_wake(int state, unsigned* count);
 
 /* События для ядра. */
 enum { ACPIDEV_EV_POWER_BUTTON = 1, ACPIDEV_EV_SLEEP_BUTTON = 2, ACPIDEV_EV_LID = 3, ACPIDEV_EV_POWER = 4 };

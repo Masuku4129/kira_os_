@@ -3,6 +3,9 @@
 #include "msi.h"
 #include "pci.h"
 #include "uart.h"
+#ifndef KIRA_HOST_TEST
+#include "devpm.h"
+#endif
 
 /* AHCI (SATA): контроллер в памяти (BAR5, «ABAR»), у каждого порта - список команд, область принятых FIS и таблица
    команды с PRDT. Порядок по спецификации AHCI 1.3: передача от BIOS (BOHC), включение AHCI (GHC.AE), сброс
@@ -67,6 +70,7 @@ typedef struct {
     ahci_ctl_t* c;
     volatile uint8_t* pr;               /* регистры порта */
     int port, lba48, dead;
+    volatile int asleep;                /* сон S3: порт остановлен */
     uint8_t* mem; uint64_t mem_phys;    /* список команд, FIS, таблица команды */
     uint8_t* buf; uint64_t buf_phys;    /* данные */
     uint32_t errors;
@@ -129,7 +133,7 @@ static void recover(ahci_port_t* p) {
 
 /* Одна команда ATA. write: данные из буфера порта на диск. 0 - успех. */
 static int ata_cmd(ahci_port_t* p, uint8_t cmd, uint64_t lba, uint32_t count, uint32_t bytes, int write, uint32_t timeout_ms) {
-    if (p->dead) return -1;
+    if (p->dead || p->asleep) return -1;
     volatile uint32_t* hdr = (volatile uint32_t*)p->mem;                /* заголовок слота 0 */
     uint8_t* ct = p->mem + 0x500;
     for (int i = 0; i < 0x90; i++) ct[i] = 0;
@@ -294,6 +298,62 @@ static void ahci_irq(void* ctx) {
     w32(c->abar, IS, is);
 }
 
+#ifndef KIRA_HOST_TEST
+/* Сон S3. suspend: каждый порт останавливается (ST, FRE = 0 - контроллер перестаёт ходить в память), прерывания порта и контроллера выключаются; кэш записи
+   дисков уже сброшен (blk_flush_all). resume (конфигурацию PCI и MSI вернул хук "pci"): контроллер проходит путь запуска заново - AE, сброс, прерывания, затем
+   каждый порт: адреса списка команд и FIS, раскрутка, связь (COMRESET при необходимости), пуск; IDENTIFY проверяет, что на порту тот же диск (число секторов).
+   Диск, не вернувшийся или заменённый, отключается с записью в журнал. */
+static int ahci_suspend(void* ctx) {
+    ahci_ctl_t* c = (ahci_ctl_t*)ctx;
+    for (int i = 0; i < nports; i++) {                                   /* только состоявшиеся порты: в ports[] за nports лежат следы отброшенных (оптические и пр.) */
+        ahci_port_t* p = &ports[i];
+        if (p->c != c || !p->pr || p->dead) continue;
+        p->asleep = 1;
+        if (port_stop(p)) { uart_print("[KIRA SLEEP] ahci: port "); uart_print(p->dev.name); uart_print(" does not stop; sleep refused.\n"); p->asleep = 0; (void)port_start(p); return -1; }
+        w32(p->pr, P_IE, 0);
+    }
+    w32(c->abar, GHC, r32(c->abar, GHC) & ~GHC_IE);
+    return 0;
+}
+static int ahci_resume(void* ctx) {
+    ahci_ctl_t* c = (ahci_ctl_t*)ctx;
+    volatile uint8_t* ab = c->abar;
+    int bad = 0;
+    if (r32(ab, GHC) == 0xFFFFFFFFu) { uart_print("[KIRA SLEEP] ahci: controller does not answer.\n"); return -1; }
+    w32(ab, GHC, r32(ab, GHC) | GHC_AE);
+    w32(ab, GHC, r32(ab, GHC) | GHC_HR);
+    if (wait_reg(ab, GHC, GHC_HR, 0, 1000)) { uart_print("[KIRA SLEEP] ahci: controller reset timeout.\n"); return -2; }
+    w32(ab, IS, 0xFFFFFFFFu);
+    w32(ab, GHC, c->irq ? GHC_AE | GHC_IE : GHC_AE);
+    blk_udelay(10000);
+    for (int i = 0; i < nports; i++) {                                   /* только состоявшиеся порты: в ports[] за nports лежат следы отброшенных (оптические и пр.) */
+        ahci_port_t* p = &ports[i];
+        if (p->c != c || !p->pr || p->dead) continue;
+        volatile uint8_t* pr = p->pr;
+        if (port_stop(p)) { p->dead = 1; bad++; continue; }
+        w32(pr, P_CLB, (uint32_t)p->mem_phys); w32(pr, P_CLB + 4, (uint32_t)(p->mem_phys >> 32));
+        uint64_t fb = p->mem_phys + 0x400;
+        w32(pr, P_FB, (uint32_t)fb); w32(pr, P_FB + 4, (uint32_t)(fb >> 32));
+        uint32_t cmd = r32(pr, P_CMD);
+        if (cmd & CMD_CPD) cmd |= CMD_POD;
+        if (c->cap & (1u << 27)) cmd |= CMD_SUD;
+        w32(pr, P_CMD, cmd);
+        w32(pr, P_SERR, 0xFFFFFFFFu);
+        w32(pr, P_IE, c->irq ? 0x7800000Fu : 0);
+        if ((r32(pr, P_SSTS) & 0xF) != 3 && wait_reg(pr, P_SSTS, 0xF, 3, 1000) && comreset(p)) { p->dead = 1; bad++; uart_print("[KIRA SLEEP] ahci: no link on "); uart_print(p->dev.name); uart_print(" after sleep.\n"); continue; }
+        w32(pr, P_SERR, 0xFFFFFFFFu);
+        w32(pr, P_IS, 0xFFFFFFFFu);
+        if (port_start(p)) { p->dead = 1; bad++; uart_print("[KIRA SLEEP] ahci: "); uart_print(p->dev.name); uart_print(" stays busy after sleep.\n"); continue; }
+        p->asleep = 0;
+        const uint16_t* id = (const uint16_t*)p->buf;
+        if (ata_cmd(p, 0xEC, 0, 0, 512, 0, 5000)) { p->dead = 1; bad++; uart_print("[KIRA SLEEP] ahci: IDENTIFY failed on "); uart_print(p->dev.name); uart_print(".\n"); continue; }
+        uint64_t sectors = p->lba48 ? ((uint64_t)id[100] | (uint64_t)id[101] << 16 | (uint64_t)id[102] << 32 | (uint64_t)id[103] << 48) : ((uint64_t)id[60] | (uint64_t)id[61] << 16);
+        if (sectors != p->dev.sectors) { p->dead = 1; bad++; uart_print("[KIRA SLEEP] ahci: another disk on "); uart_print(p->dev.name); uart_print(" after sleep; disabled.\n"); }
+    }
+    return bad ? -3 : 0;
+}
+#endif
+
 static void ctl_init(const pci_dev_t* pd, int ci) {
     if (pd->bar[5].io || !pd->bar[5].base || pd->bar[5].size < 0x180) { uart_print("[KIRA AHCI] controller without ABAR: skipped\n"); return; }
     pci_enable(pd, PCI_CMD_MEM | PCI_CMD_MASTER | PCI_CMD_INTX_OFF);
@@ -329,6 +389,13 @@ static void ctl_init(const pci_dev_t* pd, int ci) {
     if ((uint64_t)0x100 + 0x80 * MAXPORT > sz) pi &= (uint32_t)((1ull << ((sz - 0x100) / 0x80)) - 1);
     for (int pn = 0; pn < MAXPORT; pn++) if (pi & (1u << pn)) port_init(c, pn, ci);
     c->used = 1;
+#ifndef KIRA_HOST_TEST
+    {   /* реестр хранит указатель на имя: у каждого контроллера своя статическая строка */
+        static char hn[MAXCTL][8];
+        char* t = hn[ci]; t[0] = 'a'; t[1] = 'h'; t[2] = 'c'; t[3] = 'i'; t[4] = (char)('0' + ci / 10 % 10); t[5] = (char)('0' + ci % 10); t[6] = 0;
+        (void)devpm_register(t, ahci_suspend, ahci_resume, c);
+    }
+#endif
 }
 
 void ahci_probe(void) {

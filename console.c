@@ -36,6 +36,7 @@
 #if defined(__x86_64__)
 #include "kaslr_arch.h"
 #endif
+#include "sleep.h"
 
 void console_init(void) {
     uart_print("[KIRA CONSOLE] Command line ready: type 'help' and press Enter.\n");
@@ -384,7 +385,7 @@ static void cmd_files(const char* a) {
     uart_print("[KIRA FILES] explorer: "); uart_print(w[0][0] ? w[0] : "(as before)"); uart_print(" | "); uart_print(w[1][0] ? w[1] : "(as before)"); uart_print("\n");
 }
 /* Выключение и перезагрузка: сначала опыт и кэши дисков, потом - машина. */
-static void power_prepare(void) {
+void console_power_prepare(void) {
     uart_print("сохраняю опыт и данные дисков...\n");
     experience_save_now();
     (void)bbsave_now(BB_SAVE_SHUTDOWN);                     /* чёрный ящик - до сброса кэшей дисков: они его запишут вместе с остальным */
@@ -431,15 +432,23 @@ static void cmd_dma(const char* a) {
     }
     uart_print("в своём домене: "); uart_print_dec(iso); uart_print(" из "); uart_print_dec((uint64_t)pci_count()); uart_print("\n");
 }
-static void cmd_poweroff(const char* a) { (void)a; power_prepare(); platform_poweroff(); }
+static void cmd_poweroff(const char* a) { (void)a; console_power_prepare(); platform_poweroff(); }
 /* Кнопка питания (ACPI): то же, что команда poweroff. Если выключить не вышло, запрос снимает вызывающий. */
 void console_graceful_poweroff(void) {
     uart_print("[KIRA POWER] power button: saving data and shutting down.\n");
-    power_prepare();
+    console_power_prepare();
     platform_poweroff();
 }
+/* sleep - сон S3 (ACPI): устройства усыпляются, машина засыпает и по сигналу (кнопка, клавиша, сеть - как настроит прошивка) продолжает с того же места. sleep status - состояние и хуки. */
+static void sleep_out(const char* s) { uart_print(s); }
+static void cmd_sleep(const char* a) {
+    while (a && *a == ' ') a++;
+    if (a && a[0] == 's' && a[1] == 't') { sleep_describe(sleep_out); return; }
+    if (a && *a) { uart_print("sleep: сон S3 (устройства усыпляются, машина засыпает, после пробуждения всё продолжается); sleep status - состояние\n"); return; }
+    (void)sleep_enter("команда sleep");
+}
 static void cmd_acpi(const char* a) { platform_acpi_cmd(a); }
-static void cmd_reboot(const char* a) { (void)a; power_prepare(); platform_reboot(); }
+static void cmd_reboot(const char* a) { (void)a; console_power_prepare(); platform_reboot(); }
 static void cmd_wasm(const char* a) {                       /* модуль WebAssembly - в интерпретаторе (Ring 3) */
     while (a && *a == ' ') a++;
     if (!a || *a != '/') { uart_print("wasm /путь/модуль.wasm: программа WebAssembly (одна для x86-64 и ARM64), модули - в /wasm\n"); return; }
@@ -650,6 +659,7 @@ static const cmd_t cmds[] = {
     { "dma",       0,   "изоляция DMA: какие устройства PCI в своём домене IOMMU и сколько обращений остановлено", cmd_dma },
     { "random",    0,   "генератор случайных чисел: источники и проба", cmd_random },
     { "poweroff",  0,   "выключить машину (опыт и диски сохраняются; ACPI S5 / PSCI)", cmd_poweroff },
+    { "sleep",     0,   "сон S3: sleep (уснуть до сигнала пробуждения), sleep status (состояние и хуки устройств)", cmd_sleep },
     { "acpi",      0,   "ACPI: acpi (сводка: устройства, питание, _PRT), acpi tables, acpi dump dsdt|ssdtN, acpi eval ПУТЬ", cmd_acpi },
     { "reboot",    0,   "перезагрузить машину (опыт и диски сохраняются)", cmd_reboot },
     { "wasm",      0,   "wasm /путь.wasm: программа WebAssembly (один файл для x86-64 и ARM64; модули в /wasm)", cmd_wasm },

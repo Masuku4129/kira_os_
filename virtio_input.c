@@ -9,6 +9,9 @@
 #include "sched.h"
 #include "uart.h"
 #include "msi.h"
+#ifndef KIRA_HOST_TEST
+#include "devpm.h"
+#endif
 
 #define VIRTIO_INPUT_DEVICE 0x1052          /* 0x1040 + 18 */
 #define MAX_DEV 4
@@ -33,6 +36,7 @@ typedef struct {
 
 static vin_t devs[MAX_DEV];
 static int ndev, nirq;
+static volatile int asleep;                 /* сон S3: устройства сброшены, поток драйвера ждёт */
 static irqwait_t iw = IRQWAIT_INIT;
 static void irq(void* ctx) { (void)ctx; irqwait_fire(&iw); }
 
@@ -108,6 +112,7 @@ static void event(vin_t* d, const vev_t* e) {
 static void poll_main(void* arg) {
     (void)arg;
     for (;;) {
+        if (asleep) { sched_sleep_ticks(5); continue; }
         uint32_t mark = irqwait_mark(&iw);
         for (int i = 0; i < ndev; i++) {
             vin_t* d = &devs[i];
@@ -164,6 +169,30 @@ static int attach(vin_t* d, const pci_dev_t* p, int* has_irq) {
     return 0;
 }
 
+#ifndef KIRA_HOST_TEST
+/* Сон S3: устройства сбрасываются; после пробуждения очереди возвращаются, буферы событий отдаются устройствам заново, накопленное до EV_SYN забывается. */
+static int vinput_suspend(void* ctx) {
+    (void)ctx;
+    asleep = 1;
+    for (int i = 0; i < ndev; i++) virtio_stop(&devs[i].dev);
+    return 0;
+}
+static int vinput_resume(void* ctx) {
+    (void)ctx;
+    int bad = 0;
+    for (int i = 0; i < ndev; i++) {
+        vin_t* d = &devs[i];
+        if (virtio_resume_begin(&d->dev) || virtio_queue_resume(&d->dev, &d->q)) { virtio_fail(&d->dev); bad++; continue; }
+        d->dx = d->dy = d->moved = d->abs_moved = 0; d->buttons = 0;
+        uint16_t nb = d->q.size < NBUF ? d->q.size : NBUF;
+        for (uint16_t k = 0; k < nb; k++) virtq_post(&d->q, k, d->ev_phys + k * sizeof(vev_t), sizeof(vev_t), 1);
+        virtio_driver_ok(&d->dev);
+        virtq_kick(&d->q);
+    }
+    asleep = 0;
+    return bad ? -1 : 0;
+}
+#endif
 int virtio_input_init(void) {
     for (int i = 0; i < pci_count() && ndev < MAX_DEV; i++) {
         const pci_dev_t* p = pci_get(i);
@@ -177,6 +206,9 @@ int virtio_input_init(void) {
         ndev++; nirq += hi;
     }
     if (!ndev) return 0;
+#ifndef KIRA_HOST_TEST
+    (void)devpm_register("virtio-input", vinput_suspend, vinput_resume, 0);
+#endif
     if (!sched_create("vinput", poll_main, 0, PRIO_CRITICAL)) {
         uart_print("[KIRA INPUT] cannot create virtio-input thread: input from these devices is off.\n");
         return 0;

@@ -147,6 +147,9 @@ echo "== ACPI parser (synthetic XSDT/MADT/HPET/MCFG, corruption cases) =="
 $CC $FLAGS -o $T/acpi tests/acpi_test.c acpi.c
 $T/acpi
 
+echo "== сон S3: реестр хуков устройств (порядок, откат при отказе, журнал) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/devpm tests/devpm_test.c devpm.c
+$T/devpm
 echo "== AML: интерпретатор на настоящих таблицах (iasl) и на DSDT из QEMU, ASAN/UBSan =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/aml tests/aml_test.c aml.c aml_exec.c
 $T/aml

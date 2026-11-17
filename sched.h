@@ -97,6 +97,14 @@ thread_t* sched_create_on(const char* name, void (*entry)(void*), void* arg, thr
 // Вызывается самим ядром после полной инициализации; возвращает 0 при успехе.
 int sched_attach_cpu(void);
 // Учёт времени ядра: такты в холостом потоке и всего с момента подключения; число переключений.
+// Привязка вызывающего потока к ядрам маски (возвращает прежнюю); sched_set_affinity_self просто ставит маску.
+cpumask_t sched_pin_self(cpumask_t m);
+void sched_set_affinity_self(cpumask_t m);
+// Заморозка потоков на время сна: уровень 1 - потоки процессов, 2 - все, кроме owner и холостых. Поток с мьютексом не замораживается.
+void sched_freeze(unsigned level, thread_t* owner);
+int  sched_freeze_settled(void);     // 1 - ни одно ядро не исполняет замороженный поток
+void sched_thaw(void);
+unsigned sched_freeze_level(void);
 int sched_cpu_stats(unsigned cpu, uint64_t* idle_cycles, uint64_t* total_cycles, uint64_t* switches);
 
 // То же, но поток принадлежит процессу: у него своё адресное пространство (cr3).

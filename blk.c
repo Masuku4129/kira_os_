@@ -9,6 +9,7 @@
 #include "msi.h"
 #include "iommu.h"
 #include "heap.h"
+#include "devpm.h"
 
 /* Диски системы. Порядок опроса: virtio-blk (виртуальные машины), NVMe, AHCI (SATA), и только если на шине есть
    IDE-контроллер (или PCI нет вообще) - ATA PIO по старым портам: в режиме AHCI те же диски через порты не видны,
@@ -200,6 +201,25 @@ void blk_probe(void) {
         uart_print(&s->pub == primary ? " - system disk\n" : s->info.kira ? " - Kira data (spare)\n" : s->info.foreign ? " - other system's data, read-only for Kira\n" : " - empty\n");
     }
 }
+
+/* Сон S3: затвор дисков. Хук берёт мьютексы ВСЕХ дисков и держит их до пробуждения: никто не успеет обратиться к драйверу уснувшего устройства,
+   а операция, начатая до сна, дойдёт до конца (мьютекс берётся после неё). Регистрируется последним (ядро), поэтому ко сну выполняется первым,
+   при пробуждении - последним, когда драйверы уже вернули дисков. */
+static int blk_gate_n;
+static int blk_gate_suspend(void* ctx) {
+    (void)ctx;
+    int n = __atomic_load_n(&nslots, __ATOMIC_ACQUIRE);
+    for (int i = 0; i < n; i++) kmutex_lock(&slots[i].mx);
+    blk_gate_n = n;
+    return 0;
+}
+static int blk_gate_resume(void* ctx) {
+    (void)ctx;
+    for (int i = blk_gate_n - 1; i >= 0; i--) kmutex_unlock(&slots[i].mx);
+    blk_gate_n = 0;
+    return 0;
+}
+void blk_sleep_register(void) { (void)devpm_register("blk-gate", blk_gate_suspend, blk_gate_resume, 0); }
 
 int blk_count(void) { return __atomic_load_n(&nslots, __ATOMIC_ACQUIRE); }
 const blk_info_t* blk_info(int i) { return i >= 0 && i < blk_count() ? &slots[i].info : 0; }

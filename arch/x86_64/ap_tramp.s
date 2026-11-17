@@ -3,6 +3,7 @@
 ; Путь: реальный режим -> защищённый 32-бит -> long mode с CR3 загрузочного процессора -> C-функция ядра на своём стеке.
 ; Все адреса внутри блока считаются от ap_tramp_start (блок собран в ELF, но исполняется по TRAMP_BASE).
 %define TRAMP_BASE 0x8000
+%define TRAMP_SEG  (TRAMP_BASE >> 4)
 %define OFF(x) ((x) - ap_tramp_start)
 %define ABS(x) (TRAMP_BASE + OFF(x))
 
@@ -11,8 +12,13 @@ global ap_tramp_start
 global ap_tramp_end
 global ap_tramp_params_off
 
+; Тот же блок служит вектором пробуждения BSP из сна S3 (FACS): прошивка передаёт управление на физический адрес блока, но запись
+; CS:IP у разных прошивок разная (CS = адрес>>4, IP = 0 либо CS = 0, IP = адрес). Первая команда - дальний переход на CS = TRAMP_SEG,
+; он делает запись единой; при запуске по SIPI (CS = TRAMP_SEG, IP = 0) он ничего не меняет.
 ap_tramp_start:
 bits 16
+    jmp TRAMP_SEG:OFF(ap_real)
+ap_real:
     cli
     cld
     mov ax, cs

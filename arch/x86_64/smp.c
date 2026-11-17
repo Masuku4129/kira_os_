@@ -13,6 +13,7 @@
 #include "sched.h"
 #include "spinlock.h"
 #include "proc.h"
+#include "sleep_arch.h"
 
 uint64_t smp_work_checksum(uint64_t iters) {
     uint64_t x = 1, s = 0;
@@ -113,7 +114,9 @@ void smp_ap_main(uint64_t idx) {
     __atomic_store_n(&p->online, 1, __ATOMIC_RELEASE);
     for (;;) {                                  /* стек запуска - холостой поток этого ядра */
         smp_idle_tick_off();
-        __asm__ volatile ("sti; hlt");
+        __asm__ volatile ("cli" : : : "memory");
+        if (sleep_park_pending()) sleep_ap_park();     /* сон S3: встать, пока загрузочное ядро усыпляет машину (ответ придёт по IPI) */
+        __asm__ volatile ("sti; hlt");                  /* sti и hlt - одна неделимая пара: просьба, пришедшая после проверки, разбудит */
     }
 }
 
@@ -244,18 +247,23 @@ unsigned smp_online(void) {
     return n;
 }
 
-static int start_one(percpu_t* p, uint8_t* window) {
-    uint8_t* raw = (uint8_t*)kmalloc(SMP_AP_STACK);          /* блоки кучи выровнены не меньше чем по 16 байт */
-    if (!raw) return -1;
-    uint64_t top = (uint64_t)(uintptr_t)raw + SMP_AP_STACK;
+/* Копия трамплина и блок параметров в окне записи (страница 0x8000). Тот же блок - вектор пробуждения загрузочного ядра из S3. */
+static void tramp_fill(uint8_t* window, uint64_t top, void (*entry)(uint64_t), uint64_t arg) {
     uint8_t* dst = window;                                   /* запись - через окно RW+NX: сама страница 0x8000 остаётся RX (W^X) */
     uint64_t len = (uint64_t)(ap_tramp_end - ap_tramp_start);
     for (uint64_t i = 0; i < len; i++) dst[i] = (uint8_t)ap_tramp_start[i];
     ap_params_t* par = (ap_params_t*)(window + (uint64_t)(uintptr_t)ap_tramp_params_off);
     par->cr3 = vmm_kernel_root();
     par->stack_top = top;
-    par->entry = (uint64_t)(uintptr_t)smp_ap_main;
-    par->arg = p->cpu_id;
+    par->entry = (uint64_t)(uintptr_t)entry;
+    par->arg = arg;
+}
+
+static int start_one(percpu_t* p, uint8_t* window) {
+    uint8_t* raw = (uint8_t*)kmalloc(SMP_AP_STACK);          /* блоки кучи выровнены не меньше чем по 16 байт */
+    if (!raw) return -1;
+    uint64_t top = (uint64_t)(uintptr_t)raw + SMP_AP_STACK;
+    tramp_fill(window, top, smp_ap_main, p->cpu_id);
     sync_ready = 0; sync_req = 0; sync_ack = 0;
     __sync_synchronize();
 
@@ -276,6 +284,56 @@ static int start_one(percpu_t* p, uint8_t* window) {
     for (int i = 0; i < 500 && !__atomic_load_n(&p->online, __ATOMIC_ACQUIRE) && !__atomic_load_n(&p->failed, __ATOMIC_ACQUIRE); i++) delay_us(1000);
     if (__atomic_load_n(&p->failed, __ATOMIC_ACQUIRE)) return -3;
     return __atomic_load_n(&p->online, __ATOMIC_ACQUIRE) ? 0 : -2;
+}
+
+/* ---- Сон S3: трамплин как вектор пробуждения и повторный запуск ядер ---- */
+
+/* Кладёт трамплин на SMP_TRAMP_BASE и заполняет параметры: после INIT-SIPI или после перехода прошивки на этот адрес ядро окажется в entry(arg) в
+   длинном режиме, на стеке с вершиной stack_top, с таблицами страниц ядра. 0 - готово. */
+int smp_tramp_install(uint64_t stack_top, void (*entry)(uint64_t), uint64_t arg) {
+    uint8_t* window = (uint8_t*)vmm_code_window_open(SMP_TRAMP_BASE);
+    if (!window) return -1;
+    tramp_fill(window, stack_top, entry, arg);
+    vmm_code_window_close(window);
+    return 0;
+}
+
+/* Сверка TSC при возврате из сна: у ядра после пробуждения счётчик свой. Загрузочное ядро измеряет расхождение (как при запуске), ядро
+   сдвигает свой счётчик на него: все ядра снова читают одно время. Точность - как при запуске (половина времени обмена). */
+static volatile int64_t sync_fix;
+static volatile uint32_t sync_fix_go;
+
+void smp_resume_sync_ap(void) {
+    tsc_sync_ap();
+    uint64_t limit = clock_tsc_khz() * 200, t0 = rdtsc();
+    while (!__atomic_load_n(&sync_fix_go, __ATOMIC_ACQUIRE)) {
+        if (rdtsc() - t0 > limit) return;
+        __asm__ volatile ("pause");
+    }
+    cpu_wrmsr(0x10, rdtsc() - (uint64_t)sync_fix);
+}
+
+/* Будит ядро idx из S3: INIT-SIPI по трамплину, уже установленному smp_tramp_install (entry = точка пробуждения этого ядра); ждёт, пока ядро
+   дойдёт до сверки TSC, сверяет. 0 - ядро отозвалось, дальше за ним следит вызывающий (его флаг «проснулось»). */
+int smp_ap_wake(unsigned idx) {
+    percpu_t* p = &percpu_table[idx];
+    sync_ready = 0; sync_req = 0; sync_ack = 0; sync_fix_go = 0;
+    __sync_synchronize();
+    apic_send_ipi(p->apic_id, ICR_INIT_ASSERT);
+    delay_us(10000);
+    apic_send_ipi(p->apic_id, ICR_INIT_DEASSERT);
+    for (int attempt = 0; attempt < 2 && !__atomic_load_n(&sync_ready, __ATOMIC_ACQUIRE); attempt++) {
+        apic_send_ipi(p->apic_id, ICR_SIPI(SMP_TRAMP_BASE >> 12));
+        delay_us(300);
+    }
+    for (int i = 0; i < 1000 && !__atomic_load_n(&sync_ready, __ATOMIC_ACQUIRE); i++) delay_us(1000);
+    if (!__atomic_load_n(&sync_ready, __ATOMIC_ACQUIRE)) return -1;
+    uint64_t f = irq_save();
+    tsc_sync_bsp(p);
+    irq_restore(f);
+    sync_fix = p->tsc_skew;
+    __atomic_store_n(&sync_fix_go, 1, __ATOMIC_RELEASE);
+    return 0;
 }
 
 unsigned smp_start(const acpi_info_t* acpi) {

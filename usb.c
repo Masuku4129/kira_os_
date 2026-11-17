@@ -298,6 +298,7 @@ int usb_call(int (*fn)(void*), void* arg) { return fn(arg); }
 #include "uart.h"
 #include "spinlock.h"
 #include "cpu.h"
+#include "devpm.h"
 
 #define USB_MAX_HC 32
 static usb_hc_t hcs[USB_MAX_HC];
@@ -364,6 +365,48 @@ static void run_calls(void) {
     }
 }
 
+/* ---- сон S3 ----
+   Всё, что касается контроллеров, делает поток usb (usb_call): никто другой с ними не работает. suspend: поток перестаёт опрашивать (usb_asleep), каждое устройство
+   отключается программно, как при вытаскивании (клавиатура отпускает клавиши, тома накопителей снимаются, хабы забываются), затем контроллеры останавливаются. Если
+   том накопителя занят (открытые файлы) и снять его нельзя - сон отменяется: после сна устройство нельзя узнать как прежнее, а молча сломанный том хуже отказа.
+   resume: контроллеры запускаются на прежней памяти, поток снова опрашивает порты - устройства подключаются как новые (HID, хабы, накопители с повторным монтированием). */
+static volatile int usb_asleep;
+static int usb_resume_hcs(void) {
+    int bad = 0;
+    for (int k = 0; k < nhc; k++) {
+        if (!hcs[k].resume) continue;
+        int rc = hcs[k].resume(&hcs[k]);
+        if (rc < 0) { bad++; uart_print("[KIRA SLEEP] usb: controller "); uart_print(hcs[k].name); uart_print(" did not come back (code "); uart_print_dec((uint64_t)-rc); uart_print(").\n"); }
+    }
+    return bad;
+}
+static int usb_suspend_fn(void* arg) {
+    (void)arg;
+    usb_asleep = 1;
+    for (int i = 0; i < USB_MAX_DEV; i++) if (devs[i].used && !devs[i].parent) usb_detach(&devs[i]);
+    if (msc_pending()) {
+        uart_print("[KIRA SLEEP] usb: a USB storage volume is busy (files are open): close them, sleep refused.\n");
+        (void)usb_resume_hcs();
+        usb_asleep = 0;
+        return -1;
+    }
+    for (int k = 0; k < nhc; k++) if (hcs[k].suspend && hcs[k].suspend(&hcs[k]) < 0) {
+        uart_print("[KIRA SLEEP] usb: controller "); uart_print(hcs[k].name); uart_print(" does not stop: sleep refused.\n");
+        (void)usb_resume_hcs();
+        usb_asleep = 0;
+        return -2;
+    }
+    return 0;
+}
+static int usb_resume_fn(void* arg) {
+    (void)arg;
+    int bad = usb_resume_hcs();
+    usb_asleep = 0;
+    return bad ? -bad : 0;
+}
+static int usb_sleep_suspend(void* ctx) { (void)ctx; return nhc ? usb_call(usb_suspend_fn, 0) : 0; }
+static int usb_sleep_resume(void* ctx) { (void)ctx; return nhc ? usb_call(usb_resume_fn, 0) : 0; }
+
 static void usb_main(void* arg) {
     (void)arg;
     usb_thr = (thread_t*)sched_current();
@@ -390,6 +433,13 @@ static void usb_main(void* arg) {
     for (int k = 0; k < nhc; k++) hcs[k].ports(&hcs[k]);
     for (;;) {
         run_calls();
+        if (usb_asleep) {                                                /* сон S3: контроллеры остановлены, опрашивать нечего; только запросы (resume) */
+            uint64_t f = spin_lock_irqsave(&qlk);
+            if (!qhead) { usb_idle = 1; sched_wait_and_unlock(&qlk, TIMER_HZ / 20 + 1); irq_restore(f); }
+            else spin_unlock_irqrestore(&qlk, f);
+            usb_idle = 0;
+            continue;
+        }
         uint32_t now = usb_now_ms();
         usb_hid_poll(now);
         hub_poll();
@@ -403,6 +453,9 @@ static void usb_main(void* arg) {
         usb_idle = 0;
     }
 }
+
+/* Хук сна регистрируется из ядра ПОСЛЕ затвора дисков: ко сну он выполняется раньше затвора (тома накопителей снимаются, пока диски ещё открыты), при пробуждении - позже. */
+void usb_sleep_register(void) { (void)devpm_register("usb", usb_sleep_suspend, usb_sleep_resume, 0); }
 
 void usb_init(void) {
     if (!sched_create("usb", usb_main, 0, PRIO_CRITICAL)) uart_print("[KIRA USB] cannot start usb thread.\n");

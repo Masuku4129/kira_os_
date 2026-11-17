@@ -203,6 +203,44 @@ int virtio_queue_setup(virtio_dev_t* v, virtq_t* q, uint16_t index, uint16_t max
     return queue_setup(v, q, index, max_size, 1);
 }
 
+/* ---- Сон S3 ----
+   Перед сном устройство сбрасывается (тишина: ни DMA, ни прерываний); после пробуждения оно в состоянии сброса, и драйвер проходит ту же
+   дорогу, что при запуске, но на УЖЕ выданной памяти: очереди и буферы остаются на тех же адресах (в том числе выданные IOMMU), кольца обнуляются. */
+void virtio_stop(virtio_dev_t* v) { (void)reset(v); }
+
+int virtio_resume_begin(virtio_dev_t* v) {
+    if (reset(v)) return -1;
+    status_set(v, VIRTIO_ST_ACK);
+    status_set(v, VIRTIO_ST_ACK | VIRTIO_ST_DRIVER);
+    MMIO_W32(v->common + R_DFSEL, 0); uint64_t offered = MMIO_R32(v->common + R_DF);
+    MMIO_W32(v->common + R_DFSEL, 1); offered |= (uint64_t)MMIO_R32(v->common + R_DF) << 32;
+    if ((offered & v->features) != v->features) { virtio_fail(v); return -2; }          /* устройство больше не предлагает согласованное */
+    MMIO_W32(v->common + R_GFSEL, 0); MMIO_W32(v->common + R_GF, (uint32_t)v->features);
+    MMIO_W32(v->common + R_GFSEL, 1); MMIO_W32(v->common + R_GF, (uint32_t)(v->features >> 32));
+    status_set(v, VIRTIO_ST_ACK | VIRTIO_ST_DRIVER | VIRTIO_ST_FEATURES_OK);
+    if (!(status_get(v) & VIRTIO_ST_FEATURES_OK)) { virtio_fail(v); return -3; }
+    return 0;
+}
+
+int virtio_queue_resume(virtio_dev_t* v, virtq_t* q) {
+    MMIO_W16(v->common + R_QSEL, q->index);
+    uint16_t dev_max = MMIO_R16(v->common + R_QSIZE);
+    if (dev_max < q->size || MMIO_R16(v->common + R_QEN)) return -1;
+    uint32_t bytes = q->used_off + 6 + 8 * (uint32_t)q->size;
+    for (uint32_t i = 0; i < bytes; i++) q->mem[i] = 0;                                  /* кольца пусты, как при создании */
+    q->last_used = 0; q->avail_idx = 0;
+    MMIO_W16(v->common + R_QSIZE, q->size);
+    MMIO_W16(v->common + R_QMSIX, v->msix_vec);
+    if (v->msix_vec != 0xFFFF && MMIO_R16(v->common + R_QMSIX) != v->msix_vec) return -2;   /* запись MSI-X не принята: без прерываний очередь не вернуть */
+    MMIO_W32(v->common + R_QDESC, (uint32_t)q->mem_phys);              MMIO_W32(v->common + R_QDESC + 4, (uint32_t)(q->mem_phys >> 32));
+    MMIO_W32(v->common + R_QAVAIL, (uint32_t)(q->mem_phys + q->avail_off)); MMIO_W32(v->common + R_QAVAIL + 4, (uint32_t)((q->mem_phys + q->avail_off) >> 32));
+    MMIO_W32(v->common + R_QUSED, (uint32_t)(q->mem_phys + q->used_off));   MMIO_W32(v->common + R_QUSED + 4, (uint32_t)((q->mem_phys + q->used_off) >> 32));
+    uint16_t noff = MMIO_R16(v->common + R_QNOFF);
+    MMIO_W16(v->common + R_QEN, 1);
+    q->notify_addr = v->notify + (uint64_t)noff * v->notify_mult;
+    return 0;
+}
+
 void virtio_driver_ok(virtio_dev_t* v) {
     status_set(v, status_get(v) | VIRTIO_ST_DRIVER_OK);
 }

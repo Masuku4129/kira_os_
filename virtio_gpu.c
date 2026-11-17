@@ -7,6 +7,9 @@
 #include "fb.h"
 #include "uart.h"
 #include "spinlock.h"
+#ifndef KIRA_HOST_TEST
+#include "devpm.h"
+#endif
 
 #define VIRTIO_GPU_DEVICE 0x1050           /* 0x1040 + 16 */
 
@@ -33,6 +36,8 @@ static uint8_t* resp; static uint64_t resp_phys;   /* и ответ (сведе�
 static uint32_t W, H;
 static spinlock_t lk = SPINLOCK_INIT;
 static int up;
+static volatile int asleep;                         /* сон S3: устройство сброшено, кадры не отправляются */
+static uint64_t g_fb_phys;                         /* подложка ресурса (для повторного создания после сна) */
 
 static uint32_t send(uint32_t len, uint32_t rlen) {
     virtq_buf_t b[2] = { { cmd_phys, len, 0 }, { resp_phys, rlen, 1 } };
@@ -45,8 +50,9 @@ static void zero(void* p, unsigned n) { uint8_t* b = (uint8_t*)p; while (n--) *b
 
 /* Изменённая область кадра - устройству: перенос из подложки и показ. Вызывается после сборки кадра. */
 static void gpu_flush(int x, int y, int w, int h) {
-    if (!up || w <= 0 || h <= 0) return;
+    if (!up || asleep || w <= 0 || h <= 0) return;
     uint64_t f = spin_lock_irqsave(&lk);
+    if (asleep) { spin_unlock_irqrestore(&lk, f); return; }
     transfer_t* t = (transfer_t*)cmd; zero(t, sizeof *t);
     t->h.type = CMD_TRANSFER_TO_HOST_2D; t->r = (rect_t){ (uint32_t)x, (uint32_t)y, (uint32_t)w, (uint32_t)h };
     t->off = ((uint64_t)y * W + (uint64_t)x) * 4; t->res = 1;
@@ -58,6 +64,48 @@ static void gpu_flush(int x, int y, int w, int h) {
     if (r != RESP_OK_NODATA) { up = 0; uart_print("[KIRA GPU] virtio-gpu stopped answering: the screen is frozen, the system keeps running.\n"); }
 }
 
+/* Ресурс 2D (подложка - память ядра), её привязка и показ: общий порядок для запуска и для пробуждения. Вызывающий держит замок. */
+static int make_scanout(uint64_t fb_phys) {
+    create_t* c = (create_t*)cmd; zero(c, sizeof *c);
+    c->h.type = CMD_RESOURCE_CREATE_2D; c->res = 1; c->format = FORMAT_B8G8R8X8; c->width = W; c->height = H;
+    if (send(sizeof *c, sizeof(hdr_t)) != RESP_OK_NODATA) return -1;
+    attach_t* a = (attach_t*)cmd; zero(a, sizeof *a);
+    a->h.type = CMD_RESOURCE_ATTACH_BACKING; a->res = 1; a->n = 1; a->addr = fb_phys; a->len = W * H * 4;
+    if (send(sizeof *a, sizeof(hdr_t)) != RESP_OK_NODATA) return -2;
+    scanout_t* s = (scanout_t*)cmd; zero(s, sizeof *s);
+    s->h.type = CMD_SET_SCANOUT; s->r = (rect_t){ 0, 0, W, H }; s->scanout = 0; s->res = 1;
+    if (send(sizeof *s, sizeof(hdr_t)) != RESP_OK_NODATA) return -3;
+    return 0;
+}
+#ifndef KIRA_HOST_TEST
+/* Сон S3: после сброса у устройства нет ни ресурса, ни показа. Возвращаются очередь, ресурс, привязка подложки и показ, затем весь кадр
+   отправляется заново - экран выглядит так же, как до сна. */
+static int vgpu_suspend(void* ctx) {
+    (void)ctx;
+    if (!up) return 0;
+    uint64_t f = spin_lock_irqsave(&lk);
+    asleep = 1;
+    virtio_stop(&dev);
+    spin_unlock_irqrestore(&lk, f);
+    return 0;
+}
+static int vgpu_resume(void* ctx) {
+    (void)ctx;
+    if (!up) return 0;
+    uint64_t f = spin_lock_irqsave(&lk);
+    int rc = 0;
+    if (virtio_resume_begin(&dev) || virtio_queue_resume(&dev, &ctrl)) { virtio_fail(&dev); rc = -1; }
+    else {
+        virtio_driver_ok(&dev);
+        if (make_scanout(g_fb_phys) != 0) { virtio_fail(&dev); rc = -2; }
+        else asleep = 0;
+    }
+    spin_unlock_irqrestore(&lk, f);
+    if (rc) { up = 0; uart_print("[KIRA SLEEP] virtio-gpu did not come back: the screen stays frozen, the system keeps running.\n"); return rc; }
+    gpu_flush(0, 0, (int)W, (int)H);                          /* весь кадр - устройству */
+    return 0;
+}
+#endif
 int virtio_gpu_probe(void) {
     const pci_dev_t* p = pci_find(VIRTIO_VENDOR, VIRTIO_GPU_DEVICE);
     if (!p) return -1;
@@ -86,23 +134,14 @@ int virtio_gpu_probe(void) {
     uint8_t* fbm = (uint8_t*)virtio_dma_alloc(W * H * 4, &fb_phys);   /* подложка: непрерывная, видна устройству */
     if (!fbm || (iso && virtio_dma_grant(&dev, fb_phys, W * H * 4))) { virtio_fail(&dev); return -5; }
 
-    create_t* c = (create_t*)cmd; zero(c, sizeof *c);
-    c->h.type = CMD_RESOURCE_CREATE_2D; c->res = 1; c->format = FORMAT_B8G8R8X8; c->width = W; c->height = H;
-    attach_t* a; scanout_t* s;
-    int ok = send(sizeof *c, sizeof(hdr_t)) == RESP_OK_NODATA;
-    if (ok) {
-        a = (attach_t*)cmd; zero(a, sizeof *a);
-        a->h.type = CMD_RESOURCE_ATTACH_BACKING; a->res = 1; a->n = 1; a->addr = fb_phys; a->len = W * H * 4;
-        ok = send(sizeof *a, sizeof(hdr_t)) == RESP_OK_NODATA;
-    }
-    if (ok) {
-        s = (scanout_t*)cmd; zero(s, sizeof *s);
-        s->h.type = CMD_SET_SCANOUT; s->r = (rect_t){ 0, 0, W, H }; s->scanout = 0; s->res = 1;
-        ok = send(sizeof *s, sizeof(hdr_t)) == RESP_OK_NODATA;
-    }
+    int ok = make_scanout(fb_phys) == 0;
+    g_fb_phys = fb_phys;
     if (!ok) { uart_print("[KIRA GPU] virtio-gpu refused the 2D resource.\n"); virtio_fail(&dev); return -6; }
     up = 1;
     if (fb_attach_linear(fb_phys, fbm, W, H, W * 4, gpu_flush) != 0) { up = 0; return -7; }
+#ifndef KIRA_HOST_TEST
+    (void)devpm_register("virtio-gpu", vgpu_suspend, vgpu_resume, 0);
+#endif
     uart_print("[KIRA GPU] virtio-gpu: "); uart_print_dec(W); uart_print("x"); uart_print_dec(H);
     uart_print(" 2D scanout, frames are sent to the host after each composed frame.\n");
     return 0;

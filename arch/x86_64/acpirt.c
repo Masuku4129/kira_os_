@@ -172,8 +172,8 @@ static void on_event(int ev, int arg, void* u) {
     (void)u;
     switch (ev) {
     case ACPIDEV_EV_POWER_BUTTON: uart_print("[KIRA ACPI] power button pressed: shutting down cleanly.\n"); R.poweroff_req = 1; break;
-    case ACPIDEV_EV_SLEEP_BUTTON: uart_print("[KIRA ACPI] sleep button pressed (suspend is not supported yet: ignored).\n"); break;
-    case ACPIDEV_EV_LID: uart_print(arg ? "[KIRA ACPI] lid opened.\n" : "[KIRA ACPI] lid closed (suspend is not supported yet: the machine keeps running).\n"); break;
+    case ACPIDEV_EV_SLEEP_BUTTON: uart_print("[KIRA ACPI] sleep button pressed: going to sleep (S3).\n"); R.sleep_req = 1; break;       /* кнопка питания не затронута: она по-прежнему выключает */
+    case ACPIDEV_EV_LID: uart_print(arg ? "[KIRA ACPI] lid opened.\n" : "[KIRA ACPI] lid closed: going to sleep (S3).\n"); if (!arg) R.sleep_req = 1; break;
     default: break;
     }
 }
@@ -252,5 +252,19 @@ void acpirt_poll(void) {
     if (R.sci_masked && !R.sci_storm) { R.sci_masked = 0; sci_mask(0); }
 }
 
+/* ---------------- сон S3 ---------------- */
+int acpirt_sx(int state, uint8_t* a, uint8_t* b) { return R.up ? acpidev_sx(state, a, b) : -1; }
+void acpirt_wake(int state) { if (R.up) (void)acpidev_wake(state); }
+int acpirt_arm_wake(int state, unsigned* count) { *count = 0; return R.up ? acpidev_arm_wake(state, count) : -1; }
+int acpirt_take_sleep(void) { return __atomic_exchange_n(&R.sleep_req, 0, __ATOMIC_ACQ_REL); }
+/* После пробуждения контроллер событий ACPI в состоянии сброса: прошивке сообщается режим контроллера прерываний, события и GPE включаются заново,
+   линия SCI размаскируется (шторм и счётчики сбрасываются: до сна они не имеют значения). */
+void acpirt_resume(void) {
+    if (!R.up) return;
+    R.sci_storm = 0; R.sci_win_n = 0; R.sci_win_start = clock_ns();
+    (void)acpidev_pic_mode(irqmode_is_apic());
+    (void)acpidev_enable_events();
+    if (R.sci_wired) { R.sci_masked = 0; sci_mask(0); }
+}
 int acpirt_s5(uint8_t* a, uint8_t* b) { return R.up ? acpidev_s5(a, b) : -1; }
 void acpirt_prepare_sleep(int state) { if (R.up) (void)acpidev_prepare_sleep(state); }

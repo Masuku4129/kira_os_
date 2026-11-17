@@ -685,6 +685,18 @@ static void floor_commit_due(void) {
     }
 }
 
+/* Сон S3: драйвер Ring 3 владеет своим устройством (регистры, DMA), ядро не может ни остановить его, ни восстановить после сна. Возвращает
+   число работающих драйверов и имя первого (name - буфер на 16 байт, может быть 0): сон отказывается, пока такой драйвер есть. */
+unsigned kdrv_active_count(char* name) {
+    unsigned n = 0;
+    for (unsigned i = 0; i < KDRV_SLOTS; i++) {
+        if (!binds[i].dev || binds[i].state == B_FREE) continue;
+        if (!n && name) { unsigned k = 0; for (; k < 15 && binds[i].name[k]; k++) name[k] = binds[i].name[k]; name[k] = 0; }
+        n++;
+    }
+    return n;
+}
+
 void kdrv_poll(void) {
     static int scanned;
     if (!scanned) { scanned = 1; scan(); }

@@ -54,6 +54,10 @@ struct usb_hc {
     void (*pipe_close)(usb_hc_t* hc, usb_pipe_t* p);
     void (*ports)(usb_hc_t* hc);
     void (*release)(usb_hc_t* hc, usb_dev_t* d);
+    /* Сон S3 (необязательные). suspend: все устройства уже отключены программно; контроллер останавливается и сбрасывается (память не трогает).
+       resume: контроллер запускается заново на прежней памяти, порты опросит поток usb (устройства подключатся как после втыкания). < 0 - не вернулся. */
+    int  (*suspend)(usb_hc_t* hc);
+    int  (*resume)(usb_hc_t* hc);
 };
 
 #define USB_MAX_DEV 255     /* адресов на шине - 127; контроллеров несколько */
@@ -82,6 +86,7 @@ void msc_detach(usb_dev_t* d);
 void msc_poll(void);                                   /* отложенное отключение томов */
 void msc_print(void (*out)(const char*));
 int  msc_count(void);
+int  msc_pending(void);                                /* отключённые накопители, чей том ещё занят (снять не удалось) */
 /* Тома FAT накопителей подключает верхний уровень (usbmsc_fs.h): mount возвращает номер тома /usbN или <0, unmount_try - 0, если том снят. */
 typedef struct { int (*mount)(int slot, blk_dev_t* blk, const char* vendor, const char* product); int (*unmount_try)(int vol); } msc_fs_ops_t;
 void msc_set_fs_ops(const msc_fs_ops_t* ops);
@@ -111,6 +116,7 @@ void     usb_log_hex(uint64_t v);
 
 /* Ядро: найти контроллеры на PCI и запустить поток. */
 void usb_init(void);
+void usb_sleep_register(void);   /* сон S3: хук USB (регистрировать после blk_sleep_register) */
 void usb_print(void);            /* команда usb */
 
 /* Контроллеры (uhci.c, xhci.c): 0 - запущен, hc заполнен. */

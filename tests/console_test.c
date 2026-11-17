@@ -141,6 +141,8 @@ uint64_t pmm_alloc_page(void) { return 0; }
 int pmm_free_page(uint64_t p) { (void)p; return -1; }
 int vmm_translate(uint64_t v, uint64_t* p) { (void)v; (void)p; return -1; }
 int immune_verify_self(void) { return 0; }
+int sleep_enter(const char* source) { (void)source; return 0; }
+void sleep_describe(void (*out)(const char*)) { (void)out; }
 uint32_t immune_antibody_count(void) { return 0; }
 uint32_t immune_quarantine_count(void) { return 0; }
 immune_verdict_t immune_classify(const void* b, size_t n) { (void)b; (void)n; return IMMUNE_UNKNOWN; }
