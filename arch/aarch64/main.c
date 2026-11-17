@@ -8,6 +8,7 @@
 #include <stdint.h>
 #include "../../fdt.h"
 #include "../../iommu_smmu.h"
+#include "iommu.h"
 #include "bootinfo.h"
 #include "fb_arm.h"
 #include "timer.h"
@@ -1118,7 +1119,7 @@ static void smmu_from_fdt(const void* fdt) {
         const uint8_t* io = (const uint8_t*)fdt_prop(fdt, n, "iommus", &pl);
         if (io && pl >= 4 && fdt_u32(io) == ph) foreign++;
     }
-    iommu_smmu_register(base, !dma_noncoherent(fdt), foreign, maps, nm);
+    iommu_smmu_register(base, !dma_noncoherent(fdt), foreign, maps, nm, its ? its + 0x10040 : v2m ? v2m + 0x40 : 0);   /* адрес, куда устройства пишут сообщения прерываний */
 }
 
 static void arm_pci_init(const void* fdt) {
@@ -1465,7 +1466,8 @@ void arm_main(uint64_t dtb, uint64_t entry_el, uint64_t loader_tag) {
     kprintf("[KIRA ARM64] cores with a working timer interrupt: %u of %u (idle cores then switch their tick off)\n", (uint64_t)ticking, (uint64_t)started);
     clock_init(cnt_freq / 1000);
     arm_pci_init(fdt);
-    smmu_from_fdt(fdt);      /* SMMUv3 (если есть): регистры и карта потоков; включает его iommu_init при опросе дисков */
+    smmu_from_fdt(fdt);      /* SMMUv3 (если есть): регистры и карта потоков */
+    (void)iommu_init();      /* включить SMMU до первого драйвера с DMA (virtio-rng ниже читает энтропию раньше опроса дисков); без SMMU поведение прежнее */
     rng_init();              /* генератор случайных чисел: RNDR, virtio-rng, времена прерываний */
     immune_init();
     watchdog_init();
@@ -1508,6 +1510,7 @@ void arm_main(uint64_t dtb, uint64_t entry_el, uint64_t loader_tag) {
         fssvc_poll();                                            /* запросы к порту kira.fs */
         gfxctl_poll();                                           /* запросы к порту kira.gfx */
         kdrv_poll();                                             /* драйверы Ring 3 */
+        (void)iommu_fault_poll();                                /* нарушения DMA, записанные SMMU: строка в журнал, без остановки ядра */
         life_tick();
         watchdog_feed();
         sched_sleep_ticks(1);

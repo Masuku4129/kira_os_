@@ -2,7 +2,7 @@
 #define KIRA_SMMU_DOM_H
 /* ARM SMMUv3, чистая логика: записи таблицы потоков (STE), дескриптор контекста (CD), таблицы страниц первой стадии (формат VMSAv8-64,
    гранула 4 КБ, 4 уровня), команды очереди и разбор записей очереди событий. Первая стадия выбрана потому, что она есть везде (в QEMU 8.2 второй
-   стадии нет); права: только чтение или чтение+запись (запись без чтения первая стадия выразить не может). Железо и ядро - iommu_smmu.c. Проверка на хосте: tests/smmu_dom_test.c. */
+   стадии нет); права: только чтение или чтение+запись (плюс признак окна MMIO) (запись без чтения первая стадия выразить не может). Железо и ядро - iommu_smmu.c. Проверка на хосте: tests/smmu_dom_test.c. */
 #include <stdint.h>
 #include <stddef.h>
 
@@ -27,6 +27,7 @@ typedef struct {
 } smmu_mem_t;
 #define SMMU_MAP_R 1u
 #define SMMU_MAP_W 2u
+#define SMMU_MAP_DEV 4u      /* страница - окно MMIO (память устройства nGnRE, не кэшируется): дверной звонок MSI */
 #define SMMU_IPA_BITS 48
 int  smmu_pt_map(uint64_t* root, uint64_t ipa, uint64_t phys, unsigned rw, unsigned oas, const smmu_mem_t* m);
 int  smmu_pt_unmap(uint64_t* root, uint64_t ipa, const smmu_mem_t* m);
