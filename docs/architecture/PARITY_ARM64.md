@@ -27,7 +27,7 @@
 | IPv6 | SLAAC, ND, ping6, UDP/TCP (net6) | SLAAC, DAD, ND, ping6 проверены; программа net6 против серверов хозяина на ARM64 НЕ проверена | ipv6 |
 | Диск | virtio-blk, ATA, AHCI, NVMe | virtio-blk, NVMe; AHCI собран, сценария нет; ATA нет на платформе | gicv3, gicv2 |
 | USB-накопитель FAT32 | да | да | usb, dma-nc |
-| IOMMU | VT-d, AMD-Vi (в т.ч. virtio-net) | SMMUv3 для virtio-blk; virtio-net под SMMU НЕ сделан | smmu |
+| IOMMU | VT-d, AMD-Vi (в т.ч. virtio-net) | SMMUv3 (первая стадия) для всех virtio-устройств ядра: blk, net, rng, gpu, input; e1000/NVMe/xHCI под SMMU не проверены; некогерентные платформы - SMMU выключен | smmu, smmu-all, smmu-fallback, smmu-nc, smmu-uefi |
 | Звук | HDA, AC'97, SB16 | HDA | gui |
 | kcc, сборочные задания, драйверы Ring 3 | да | да | cc, drv, drvman |
 | WebAssembly, Python, ksh | да | да | isolation, parity |

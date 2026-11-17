@@ -20,7 +20,7 @@ int main(void) {
     uint64_t cd[8];
     CHECK(smmu_cd_s1(cd, 0x40001000ull, 0x1234, 4) == 0);
     CHECK((cd[0] & 0x3F) == 16 && (cd[0] >> 6 & 3) == 0 && (cd[0] >> 31 & 1) && (cd[0] >> 30 & 1) && (cd[0] >> 32 & 7) == 4 && (cd[0] >> 41 & 1) && (cd[0] >> 48) == 0x1234);
-    CHECK((cd[1] & 0x000FFFFFFFFFFFF0ull) == 0x40001000ull && cd[3] == 0xFF00ull && !cd[2]);
+    CHECK((cd[1] & 0x000FFFFFFFFFFFF0ull) == 0x40001000ull && cd[3] == 0xFF04ull && !cd[2]);
     CHECK(smmu_cd_s1(cd, 0x40001800ull, 1, 4) == SMMU_D_ARG && smmu_cd_s1(cd, 0x1000, 1, 6) == SMMU_D_ARG && smmu_cd_s1(cd, 1ull << 48, 1, 4) == SMMU_D_ARG);
     pool_t pool = { .limit = 2000 }; smmu_mem_t m = { &pool, palloc, prel, pvirt };
     uint64_t rp; uint64_t* root = palloc(&pool, &rp); uint64_t ph; unsigned rw;
@@ -37,6 +37,12 @@ int main(void) {
     /* Дескриптор листа: атрибуты и запрет исполнения. */
     uint64_t* l0 = root; uint64_t* t = l0; for (int lv = 0; lv < 3; lv++) { uint64_t e = t[(0x8000ull >> (12 + 9 * (3 - lv))) & 511]; t = pvirt(&pool, e & 0x0000FFFFFFFFF000ull); }
     uint64_t leaf = t[8]; CHECK((leaf & 3) == 3 && (leaf >> 10 & 1) && (leaf >> 54 & 1) && (leaf >> 53 & 1) && (leaf >> 7 & 1) && (leaf >> 6 & 1) && (leaf >> 8 & 3) == 3 && (leaf >> 2 & 7) == 1 && (leaf >> 11 & 1));
+    /* Окно MMIO (дверной звонок MSI): атрибут устройства nGnRE, внешняя общность, чтение/запись; признак не смешивается с правами. */
+    CHECK(smmu_pt_map(root, 0xB000, 0x08090000ull, SMMU_MAP_R | SMMU_MAP_W | SMMU_MAP_DEV, 5, &m) == 0 && smmu_pt_lookup(root, 0xB000, &ph, &rw, &m) == 0 && ph == 0x08090000ull && rw == 3);
+    t = l0; for (int lv = 0; lv < 3; lv++) { uint64_t e2 = t[(0xB000ull >> (12 + 9 * (3 - lv))) & 511]; t = pvirt(&pool, e2 & 0x0000FFFFFFFFF000ull); }
+    leaf = t[0xB]; CHECK((leaf & 3) == 3 && (leaf >> 2 & 7) == 0 && (leaf >> 8 & 3) == 2 && (leaf >> 10 & 1) && (leaf >> 53 & 1) && (leaf >> 54 & 1) && !(leaf >> 7 & 1));
+    CHECK(smmu_pt_map(root, 0xC000, 0x1000, SMMU_MAP_DEV, 5, &m) == SMMU_D_ARG);                                                          /* один признак MMIO без прав - отказ */
+    CHECK(smmu_pt_map(root, 0xD000, 0x1000, 8, 5, &m) == SMMU_D_ARG);                                                                      /* лишние биты отвергаются */
     smmu_pt_free(root, rp, &m); CHECK(pool.live == 0);
     pool.n = 0; pool.live = 0; pool.limit = 2; root = palloc(&pool, &rp);
     CHECK(smmu_pt_map(root, 0x1000, 0x2000, 3, 5, &m) == SMMU_D_NOMEM); smmu_pt_free(root, rp, &m); CHECK(pool.live == 0);

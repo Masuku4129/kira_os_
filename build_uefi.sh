@@ -36,8 +36,42 @@ EFI_CFLAGS=(
     -isystem "$EFI_INC" -isystem "$EFI_INC/x86_64"
 )
 
-"$CC" "${EFI_CFLAGS[@]}" -c "$ROOT/arch/x86_64/uefi/loader.c" \
-    -o "$tmp/loader.o"
+# Доверенный режим (KIRA_SECURE=1, docs/SECURE_BOOT.md): в загрузчик вшивается открытый ключ выпуска, и он не передаёт управление ядру
+# без валидной подписи манифеста KIRA.SIG. По умолчанию (режим разработки) загрузчик устроен как раньше и ничего не проверяет.
+#   KIRA_BOOT_PUBKEY=файл      открытый ключ Ed25519, 32 байта (python3 tools/kirasig.py keygen): обязателен
+#   KIRA_MIN_IMAGE_VERSION=N   нижний порог номера выпуска (защита от отката), по умолчанию 0
+#   KIRA_REQUIRE_SB=0          не требовать включённый Secure Boot прошивки (по умолчанию 1)
+#   KIRA_REQUIRE_TPM=1         не загружать без измерения в TPM (по умолчанию 0)
+SECURE_CFLAGS=()
+SECURE_OBJS=()
+if [[ "${KIRA_SECURE:-0}" == 1 ]]; then
+    if [[ -z "${KIRA_BOOT_PUBKEY:-}" || ! -s "$KIRA_BOOT_PUBKEY" ]]; then
+        echo "UEFI build: KIRA_SECURE=1 requires KIRA_BOOT_PUBKEY=<32-byte Ed25519 public key> (python3 tools/kirasig.py keygen)" >&2
+        exit 1
+    fi
+    if [[ "$(wc -c < "$KIRA_BOOT_PUBKEY")" -ne 32 ]]; then
+        echo "UEFI build: KIRA_BOOT_PUBKEY must be exactly 32 bytes" >&2
+        exit 1
+    fi
+    python3 "$ROOT/tools/kirasig.py" cheader "$KIRA_BOOT_PUBKEY" "$tmp/kira_bootkey.h"
+    SECURE_CFLAGS=(-DKIRA_SECURE_BOOT=1 -I"$tmp"
+        -DKIRA_MIN_IMAGE_VERSION="${KIRA_MIN_IMAGE_VERSION:-0}u"
+        -DKIRA_REQUIRE_SB="${KIRA_REQUIRE_SB:-1}" -DKIRA_REQUIRE_TPM="${KIRA_REQUIRE_TPM:-0}")
+    # Криптография - те же исходники, что в ядре (pk.c, crypto.c, sha256.c): общий проверенный код, без libc. Предупреждения этих файлов
+    # ловят их собственные хост-тесты, поэтому здесь они собираются без -Werror.
+    SHARED_CFLAGS=()
+    for flag in "${EFI_CFLAGS[@]}"; do
+        [[ "$flag" == -Werror ]] || SHARED_CFLAGS+=("$flag")
+    done
+    for src in bootsig pk crypto sha256; do
+        "$CC" "${SHARED_CFLAGS[@]}" -I"$ROOT" -c "$ROOT/$src.c" -o "$tmp/$src.o"
+        SECURE_OBJS+=("$tmp/$src.o")
+    done
+    echo "UEFI build: TRUSTED mode (release key embedded, min image version ${KIRA_MIN_IMAGE_VERSION:-0})"
+fi
+
+"$CC" "${EFI_CFLAGS[@]}" -I"$ROOT" -I"$ROOT/arch/x86_64/uefi" "${SECURE_CFLAGS[@]}" \
+    -c "$ROOT/arch/x86_64/uefi/loader.c" -o "$tmp/loader.o"
 "$CC" "${EFI_CFLAGS[@]}" -I"$ROOT" -I"$ROOT/arch/x86_64/uefi" \
     -c "$ROOT/arch/x86_64/uefi/uefi_kbi.c" -o "$tmp/uefi-kbi.o"
 # The UEFI adapter validates the handoff with the same canonical validator
@@ -47,7 +81,7 @@ EFI_CFLAGS=(
     -o "$tmp/bootinfo.o"
 
 "$LD" -nostdlib -z defs -znocombreloc -T "$LDS" -shared -Bsymbolic \
-    "$CRT" "$tmp/loader.o" "$tmp/uefi-kbi.o" "$tmp/bootinfo.o" \
+    "$CRT" "$tmp/loader.o" "$tmp/uefi-kbi.o" "$tmp/bootinfo.o" "${SECURE_OBJS[@]}" \
     -L"$EFI_LIB" -lefi -lgnuefi -o "$tmp/loader.so"
 
 # GNU-EFI's startup relocator handles R_X86_64_RELATIVE entries, not lazy

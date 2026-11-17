@@ -1325,3 +1325,83 @@ ALL.append(sc("mind-build-propose", "Разум предлагает задан�
     {"log_forbid": NO_ERR + [r"\[KIRA PROC\] pid \d+ 'kcc'", r"\[USER pid \d+\] \[BUILD\]", r"\[LOCAL\]", r"разрешён (человеком|подписью)"]},
     {"responsive": "status", "within": 5},
 ], smp=2, mem="1G"))
+
+
+# ---------- А2. Доверенная загрузка по UEFI Secure Boot (docs/SECURE_BOOT.md) ----------
+# Прошивка OVMF с включённым Secure Boot (ключи PK/KEK/db создаёт ci/sb_fixture.py на лету, в ci-out/secureboot, в git их нет) проверяет подпись
+# BOOTX64.EFI; загрузчик проверяет подписанный манифест KIRA.SIG и хэш ядра. ESP - диск AHCI на плате q35 с SMM (так требует OVMF secboot).
+# Сценарии отказа не доходят до приглашения (no_prompt): они ждут строку причины и проверяют, что ядро НЕ стартовало.
+_SB = dict(machine="q35,smm=on", smp=2, mem="1G", needs=["secureboot"])
+_SB_NO_KERNEL = [r"\[KIRA OS\] Kernel core starting", r"\[KIRA UEFI\] Common BootInfo accepted", r"\[KIRA CONSOLE\] Command line ready",
+                 r"KIRA UEFI: handing off to kernel", r"trusted boot: signature verified"]
+
+ALL.append(sc("secureboot-ok", "Secure Boot включён, образ подписан: прошивка проверила загрузчик, загрузчик - манифест и хэш ядра, ядро сообщает состояние цепочки", [
+    {"log": BOOT_LOG},
+    {"log": [r"\[KIRA BOOT\] Secure Boot: enabled \(firmware verified the signature of this loader\)",
+             r"\[KIRA BOOT\] trusted mode: the kernel must be signed with the release key embedded in this loader",
+             r"\[KIRA BOOT\] kernel KIRA\.ELF: SHA-256 and size match the signed manifest",
+             r"\[KIRA BOOT\] TPM: not present, boot is not measured",
+             r"\[KIRA BOOT\] trusted boot: signature verified, handing off to the kernel",
+             # строки самого ядра: состояние пришло из заголовка BootInfo, а не из предположения
+             r"\[KIRA BOOT\] Secure Boot: enabled\r?\n",
+             r"\[KIRA BOOT\] Image signature: verified by the loader \(boot files match the signed manifest\), release 3\r?\n",
+             r"\[KIRA BOOT\] Measured boot \(TPM PCR 9\): no",
+             r"\[KIRA BOOT\] Trusted boot: YES"]},
+    {"cmd": "test mem", "must": [r"heap: PASS", r"PMM: PASS", r"VMM: PASS"]},
+    {"log_forbid": NO_ERR + [r"TRUSTED BOOT REFUSED", r"Trust chain: the loader reports none"]},
+], secureboot={"image": "good", "vars": "secboot"}, boot_timeout=240, **_SB))
+
+ALL.append(sc("secureboot-tamper-loader", "загрузчик изменён на 1 байт после подписи: прошивка с Secure Boot его отвергает, загрузчик и ядро не запускаются", [
+    {"expect": r"Access Denied", "timeout": 120},
+    {"sleep": 10},
+    {"log_forbid": _SB_NO_KERNEL + [r"KIRA OS UEFI loader", r"\[KIRA BOOT\]"]},
+], secureboot={"image": "tamper-loader", "vars": "secboot"}, no_prompt=True, **_SB))
+
+ALL.append(sc("secureboot-unsigned-loader", "загрузчик без подписи ключа db: прошивка с Secure Boot его отвергает", [
+    {"expect": r"Access Denied", "timeout": 120},
+    {"sleep": 10},
+    {"log_forbid": _SB_NO_KERNEL + [r"KIRA OS UEFI loader", r"\[KIRA BOOT\]"]},
+], secureboot={"image": "unsigned-loader", "vars": "secboot"}, no_prompt=True, **_SB))
+
+ALL.append(sc("secureboot-tamper-kernel", "подпись загрузчика верна, ядро изменено на 1 байт: загрузчик отказывается и пишет причину на экран и в COM1, ядро не стартует", [
+    {"expect": r"\[KIRA BOOT\] Secure Boot: enabled \(firmware verified the signature of this loader\)", "timeout": 120},
+    {"expect": r"\[KIRA BOOT\] TRUSTED BOOT REFUSED: the kernel is NOT started", "timeout": 120},
+    {"expect": r"\[KIRA BOOT\]   object: \\EFI\\KIRA\\KIRA\.ELF", "timeout": 20},
+    {"expect": r"\[KIRA BOOT\]   reason: file was modified: SHA-256 differs from the signed manifest", "timeout": 20},
+    {"sleep": 8},
+    {"log": [r"KIRA BOOT: TRUSTED BOOT REFUSED: the kernel is NOT started"]},         # то же сообщение на экране (консоль вывода прошивки)
+    {"log_forbid": _SB_NO_KERNEL},
+], secureboot={"image": "tamper-kernel", "vars": "secboot"}, no_prompt=True, **_SB))
+
+ALL.append(sc("secureboot-no-manifest", "подписанный загрузчик, но манифеста KIRA.SIG нет: загрузка отклонена, а не продолжена без проверки", [
+    {"expect": r"\[KIRA BOOT\] TRUSTED BOOT REFUSED: the kernel is NOT started", "timeout": 120},
+    {"expect": r"\[KIRA BOOT\]   reason: signed manifest is missing: an unsigned image is not booted", "timeout": 20},
+    {"sleep": 8},
+    {"log_forbid": _SB_NO_KERNEL},
+], secureboot={"image": "no-manifest", "vars": "secboot"}, no_prompt=True, **_SB))
+
+ALL.append(sc("secureboot-rollback", "манифест выпуска 3, а загрузчик допускает выпуски не ниже 5: откат отклонён (поле номера выпуска для А3)", [
+    {"expect": r"\[KIRA BOOT\] TRUSTED BOOT REFUSED: the kernel is NOT started", "timeout": 120},
+    {"expect": r"\[KIRA BOOT\]   reason: image version is older than the allowed minimum \(rollback refused\)", "timeout": 20},
+    {"sleep": 8},
+    {"log_forbid": _SB_NO_KERNEL},
+], secureboot={"image": "rollback", "vars": "secboot"}, no_prompt=True, **_SB))
+
+ALL.append(sc("secureboot-required", "прошивка без ключей (Secure Boot выключен), а загрузчик доверенный: цепочка не начинается с прошивки, загрузка отклонена", [
+    {"expect": r"\[KIRA BOOT\] Secure Boot: disabled", "timeout": 120},
+    {"expect": r"\[KIRA BOOT\] TRUSTED BOOT REFUSED: the kernel is NOT started", "timeout": 120},
+    {"expect": r"\[KIRA BOOT\]   reason: Secure Boot is not enabled with enrolled keys", "timeout": 20},
+    {"sleep": 8},
+    {"log_forbid": _SB_NO_KERNEL},
+], secureboot={"image": "good", "vars": "plain"}, no_prompt=True, **_SB))
+
+# Измеряемая загрузка (этап 2): эмулируемый TPM 2.0 (swtpm). Загрузчик вносит манифест и ядро в PCR 9 и печатает значение, прочитанное из самого TPM;
+# проверка независимая: ожидаемое значение хост считает по файлам образа (ci/sb_fixture.py: H(PCR || H(данные)) по порядку).
+ALL.append(sc("secureboot-measured", "доверенная загрузка с эмулируемым TPM 2.0: PCR 9 равен расчёту по манифесту и ядру, ядро сообщает, что загрузка измерена", [
+    {"log": BOOT_LOG},
+    {"log": [r"\[KIRA BOOT\] TPM: PCR 9 \(SHA-256\) = <<pcr9>>\r?\n",
+             r"\[KIRA BOOT\] TPM: boot payload measured into PCR 9",
+             r"\[KIRA BOOT\] Measured boot \(TPM PCR 9\): yes",
+             r"\[KIRA BOOT\] Trusted boot: YES"]},
+    {"log_forbid": NO_ERR + [r"TRUSTED BOOT REFUSED", r"TPM: measurement failed", r"TPM: PCR 9 could not be read back"]},
+], secureboot={"image": "good", "vars": "secboot", "tpm": True}, boot_timeout=240, **dict(_SB, needs=["secureboot", "swtpm"])))

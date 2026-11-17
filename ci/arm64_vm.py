@@ -15,7 +15,8 @@ SC = [
     dict(name="arm64-gicv3", m="virt,gic-version=3", cpu="cortex-a72", smp=4, mem="1G", disk="virtio-blk-pci",
          must=[r"GICv3", r"Processors online: 4 of 4 \(PSCI via hvc\)", r"working timer interrupt: 4 of 4", r"entered at EL1", r"RAM: 1024 MB",
                r"\[KIRA PCI\] ECAM at .*BAR\(s\) assigned", r"virtio-blk", r"\[KIRA FS\] KiraFS mounted", r"\[KIRA MIND\] Mind online", r"\[KIRA SYSCALL\] SVC from EL0",
-               r"\[KIRA GIC\] ITS at .*PCI interrupts by message", r"virtio-blk, .*completion by MSI-X interrupt"],
+               r"\[KIRA GIC\] ITS at .*PCI interrupts by message", r"virtio-blk, .*completion by MSI-X interrupt",
+               r"No SMMUv3 in the device tree: DMA isolation is not available, devices keep unrestricted DMA"],
          net=True,
          cmds=[("smp", [r"core 3: MPIDR 0x0+3, online, ticks [1-9]"]),
                ("mem", [r"RAM 0x0+40000000 \.\. 0x0+80000000 \(1024 MB\)", r"kernel heap: \d+ bytes"]),
@@ -209,7 +210,54 @@ SC = [
     dict(name="arm64-smmu", m="virt,gic-version=3,iommu=smmuv3", cpu="cortex-a72", smp=2, mem="1G", disk="virtio-blk-pci,disable-legacy=on,iommu_platform=on",
          must=[r"SMMUv3 translation enabled", r"pci 0:1\.0 passthrough: unrestricted DMA, NOT isolated", r"pci 0:1\.0 isolated: own translation domain",
                r"virtio-blk: enforcement check passed", r"Disk virtio-blk, .*DMA isolated by IOMMU", r"\[KIRA FS\] KiraFS mounted"],
-         cmds=[("write /smmu.txt kira-smmu", []), ("cat /smmu.txt", [r"kira-smmu"]), ("disk", [r"\[системный\]"]), ("df", [r"KiraFS"])]),
+         cmds=[("write /smmu.txt kira-smmu", []), ("cat /smmu.txt", [r"kira-smmu"]), ("disk", [r"\[системный\]", r"прерываний устройств \(MSI\): [1-9]"]), ("df", [r"KiraFS"]),
+               ("dma", [r"IOMMU включена", r"pci 0:1\.0 1af4:1042 изолировано, остановлено обращений [1-9]"])]),
+    # Все устройства virtio ядра под SMMUv3: диск, сеть, энтропия, экран и ввод - у каждого свой домен (таблица страниц ядра, выданы только кольца и буферы),
+    # принуждение проверено до включения (обращение к невыданной памяти остановлено и записано как событие SMMU), система работает: диск, DHCP + ping, rng, кадры экрана.
+    # virtio-input (клавиатура и планшет): под SMMU принуждение подтверждается (очередь состояния при невыданной памяти даёт событие SMMU) - в отличие от VT-d в QEMU.
+    dict(name="arm64-smmu-all", m="virt,gic-version=3,iommu=smmuv3", cpu="cortex-a72", smp=2, mem="1G", gui=True,
+         disk="virtio-blk-pci,disable-legacy=on,iommu_platform=on", net="virtio", rng=True, viprops=",disable-legacy=on,iommu_platform=on",
+         nicprops=",disable-legacy=on,iommu_platform=on", ready_timeout=90,
+         must=[r"SMMUv3 translation enabled", r"virtio-rng: enforcement check passed", r"virtio-blk: enforcement check passed", r"Disk virtio-blk, .*DMA isolated by IOMMU",
+               r"virtio-gpu: enforcement check passed", r"\[KIRA GPU\] virtio-gpu: \d+x\d+ 2D scanout", r"virtio-net: enforcement check passed", r"\[KIRA NET\] virtio-net: MAC 52:54:00",
+               r"virtio-input: enforcement check passed.*\n.*Virtio Keyboard", r"virtio-input: enforcement check passed.*\n.*Virtio Tablet"],
+         forbid=[r"DMA fault", r"NOT isolated: ", r"NOT confirmed", r"did not start", r"stopped answering"],
+         cmds=[("@sleep 4", []),
+               ("random", [r"источники - .*virtio-rng", r"засеян аппаратным источником", r"проба: [0-9a-f]{32}"]),
+               ("net", [r"карта virtio-net, канал есть", r"адрес 10\.0\.2\.15"]),
+               ("ping 10.0.2.2 3", [r"получено [1-3]"]),
+               ("write /smmu.txt kira-smmu-all", []), ("cat /smmu.txt", [r"kira-smmu-all"]), ("disk", [r"\[системный\]", r"прерываний устройств \(MSI\): [1-9]"]),
+               ("dma", [r"IOMMU включена", r"pci 0:\d+\.0 1af4:1042 изолировано, остановлено обращений [1-9]", r"pci 0:\d+\.0 1af4:1041 изолировано, остановлено обращений [1-9]",
+                        r"pci 0:\d+\.0 1af4:1044 изолировано, остановлено обращений [1-9]", r"pci 0:\d+\.0 1af4:1050 изолировано, остановлено обращений [1-9]",
+                        r"pci 0:\d+\.0 1af4:1052 изолировано, остановлено обращений [1-9]", r"в своём домене: 6 из "]),
+               ("@shot smmu-all", [])]),
+    # SMMUv3 есть, но устройства не просят платформенный доступ (нет iommu_platform): их DMA идёт мимо SMMU, принуждение подтвердить нельзя -
+    # ядро честно пишет «NOT isolated», снимает домен, и устройства работают как раньше (сквозной режим с записью в журнал).
+    dict(name="arm64-smmu-fallback", m="virt,gic-version=3,iommu=smmuv3", cpu="cortex-a72", smp=2, mem="1G", disk="virtio-blk-pci", net="virtio", rng=True,
+         must=[r"SMMUv3 translation enabled", r"virtio-rng: device does not negotiate ACCESS_PLATFORM \(its DMA bypasses the IOMMU\): NOT isolated",
+               r"virtio-blk: device does not negotiate ACCESS_PLATFORM \(its DMA bypasses the IOMMU\): NOT isolated", r"pci 0:\d+\.0 back to passthrough: unrestricted DMA, NOT isolated",
+               r"\[KIRA FS\] KiraFS mounted"],
+         cmds=[("@sleep 4", []), ("net", [r"канал есть", r"адрес 10\.0\.2\.15"]), ("ping 10.0.2.2 3", [r"получено [1-3]"]),
+               ("write /fb.txt kira-passthrough", []), ("cat /fb.txt", [r"kira-passthrough"]),
+               ("dma", [r"IOMMU включена", r"в своём домене: 0 из "])]),
+    # SMMUv3 + устройства без согласованности кэша (kira.dma=noncoherent): обходчик таблиц SMMU и DMA устройств не видят кэш процессора, а очистки кэша для таблиц
+    # в ядре нет - поэтому SMMU не включается (честно сообщается), устройства работают через пул DMA без кэша. QEMU согласован всегда: настоящую
+    # некогерентность (очистка кэша для таблиц SMMU, пул, домены) здесь проверить нельзя - это «подтвердить на железе» (docs/BACKLOG.md).
+    dict(name="arm64-smmu-nc", m="virt,gic-version=3,iommu=smmuv3", cpu="cortex-a72", smp=2, mem="1G", disk="virtio-blk-pci,disable-legacy=on,iommu_platform=on", net="virtio",
+         nicprops=",disable-legacy=on,iommu_platform=on", extra=["-append", "kira.dma=noncoherent"],
+         must=[r"DMA: devices are NOT cache-coherent: \d+ MB pool at 0x[0-9A-Fa-f]+", r"SMMUv3: DMA is not cache-coherent on this platform, SMMU left off", r"\[KIRA FS\] KiraFS mounted"],
+         forbid=[r"SMMUv3 translation enabled", r"isolated: own translation domain"],
+         cmds=[("@sleep 4", []), ("net", [r"канал есть", r"адрес 10\.0\.2\.15"]), ("ping 10.0.2.2 3", [r"получено [1-3]"]),
+               ("write /nc.txt kira-smmu-nc", []), ("cat /nc.txt", [r"kira-smmu-nc"]), ("dma", [r"IOMMU нет", r"в своём домене: 0 из "])]),
+    # То же при загрузке как на железе: прошивка AAVMF -> ISO -> BOOTAA64.EFI -> ядро (дерево устройств с iommu-map отдаёт прошивка, а не QEMU -kernel).
+    dict(name="arm64-smmu-uefi", m="virt,gic-version=3,acpi=off,iommu=smmuv3", cpu="cortex-a72", smp=2, mem="1G", uefi=True, ready_timeout=240, net="virtio",
+         disk="virtio-blk-pci,disable-legacy=on,iommu_platform=on", nicprops=",disable-legacy=on,iommu_platform=on",
+         must=[r"\[KIRA BOOT\] loaded by the Kira UEFI loader", r"SMMUv3 translation enabled", r"virtio-blk: enforcement check passed", r"Disk virtio-blk, .*DMA isolated by IOMMU",
+               r"virtio-net: enforcement check passed", r"\[KIRA FS\] KiraFS mounted"],
+         forbid=[r"DMA fault", r"NOT isolated: ", r"NOT confirmed"],
+         cmds=[("@sleep 4", []), ("net", [r"канал есть", r"адрес 10\.0\.2\.15"]), ("ping 10.0.2.2 3", [r"получено [1-3]"]),
+               ("write /u.txt kira-smmu-uefi", []), ("cat /u.txt", [r"kira-smmu-uefi"]),
+               ("disk", [r"прерываний устройств \(MSI\): [1-9]"]), ("dma", [r"IOMMU включена", r"pci 0:\d+\.0 1af4:1042 изолировано", r"pci 0:\d+\.0 1af4:1041 изолировано"])]),
     dict(name="arm64-power", m="virt,gic-version=3", cpu="cortex-a72", smp=2, mem="512M", disk="virtio-blk-pci",
          must=[r"Processors online: 2 of 2"],
          cmds=[("write /reboot.txt kira-before-reboot", []),
@@ -425,10 +473,10 @@ def run(sc, out):
         nic = "virtio-net-pci" if sc["net"] == "virtio" else "e1000"
         tls = os.path.abspath(os.path.join(os.path.dirname(__file__), "https_once.py"))
         if sc.get("netdev"):                        # своя настройка сети QEMU user (например IPv6)
-            args += ["-netdev", "user,id=n0," + sc["netdev"], "-device", f"{nic},netdev=n0"]
+            args += ["-netdev", "user,id=n0," + sc["netdev"], "-device", f"{nic},netdev=n0{sc.get('nicprops', '')}"]
         else:
           args += ["-netdev", f"user,id=n0,guestfwd=tcp:10.0.2.100:80-cmd:python3 {srv},guestfwd=tcp:10.0.2.100:443-cmd:python3 {tls} --chain {os.path.abspath("ci-out/tlschain")},guestfwd=tcp:10.0.2.100:8443-cmd:python3 {tls} --self {os.path.abspath("ci-out/tlschain")},hostfwd=tcp:127.0.0.1:18081-:8080,hostfwd=udp:127.0.0.1:18083-:9000",
-                 "-device", f"{nic},netdev=n0"]
+                 "-device", f"{nic},netdev=n0{sc.get('nicprops', '')}"]
     else:
         args += ["-nic", "none"]
     qmp_path = os.path.join(d, "qmp.sock")
@@ -437,13 +485,16 @@ def run(sc, out):
         fl = os.path.join(d, "flash.img"); shutil.copyfile("ci-out/flash.img", fl)
         args += ["-drive", f"if=none,id=stick,format=raw,file={fl}"]
     args += sc.get("extra", [])
+    if sc.get("rng"):                               # источник энтропии virtio-rng (свойства - как у остальных устройств сценария)
+        args += ["-device", "virtio-rng-pci" + sc.get("viprops", "")]
     if sc.get("gui") or sc.get("qmp"):
         if os.path.exists(qmp_path): os.unlink(qmp_path)
     if sc.get("qmp") and not sc.get("gui"):
         args += ["-qmp", f"unix:{qmp_path},server=on,wait=off"]
     if sc.get("gui"):
         args += ["-audiodev", "none,id=snd0", "-device", "intel-hda", "-device", "hda-duplex,audiodev=snd0"]
-        args += ["-device", "virtio-gpu-pci", "-device", "virtio-keyboard-pci", "-device", "virtio-tablet-pci",
+        vp = sc.get("viprops", "")                  # viprops: ",disable-legacy=on,iommu_platform=on" - устройства видят память только через SMMU
+        args += ["-device", "virtio-gpu-pci" + vp, "-device", "virtio-keyboard-pci" + vp, "-device", "virtio-tablet-pci" + vp,
                  "-qmp", f"unix:{qmp_path},server=on,wait=off"]
     stop_dns = None
     if sc.get("net"):
@@ -560,7 +611,7 @@ def run(sc, out):
                     if err: break
             if not err:
                 text = log.decode(errors="replace")
-                forbid = [x for x in NO_ERR if not (sc.get("fault") and x == r"exception on core") and x not in sc.get("allow", [])]
+                forbid = [x for x in NO_ERR if not (sc.get("fault") and x == r"exception on core") and x not in sc.get("allow", [])] + sc.get("forbid", [])
                 for rx in forbid:
                     if re.search(rx, text): err = f"в журнале «{rx}»"; break
     finally:

@@ -26,10 +26,11 @@ typedef struct {
     uint64_t* cd; uint64_t cd_pa;                     /* дескриптор контекста: одна страница на домен */
     smap_t maps[SM_MAX_MAPS]; uint32_t nmaps;
     uint32_t faults, logged;
+    uint8_t quiet;                                    /* проверка принуждения нарочно вызывает отказ: он считается, но не пишется в журнал */
 } sdom_t;
 
 static struct {
-    uint64_t base; int coherent; unsigned foreign; smmu_rid_map_t maps[SMMU_MAX_RID_MAPS]; unsigned nmaps; int registered;
+    uint64_t base, doorbell; int coherent; unsigned foreign; smmu_rid_map_t maps[SMMU_MAX_RID_MAPS]; unsigned nmaps; int registered;
     int active;
     struct kira_smmu smmu;
     struct kira_smmu_platform plat;
@@ -99,8 +100,8 @@ static void ste_write(uint32_t sid, const uint64_t v[SMMU_STE_WORDS]) {
     __asm__ volatile ("dsb sy" : : : "memory");
 }
 
-void iommu_smmu_register(uint64_t base, int coherent, unsigned foreign, const smmu_rid_map_t* maps, unsigned n) {
-    S.base = base; S.coherent = coherent; S.foreign = foreign;
+void iommu_smmu_register(uint64_t base, int coherent, unsigned foreign, const smmu_rid_map_t* maps, unsigned n, uint64_t msi_doorbell) {
+    S.base = base; S.doorbell = msi_doorbell; S.coherent = coherent; S.foreign = foreign;
     S.nmaps = n > SMMU_MAX_RID_MAPS ? SMMU_MAX_RID_MAPS : n;
     for (unsigned i = 0; i < S.nmaps; i++) S.maps[i] = maps[i];
     S.registered = base != 0;
@@ -129,6 +130,10 @@ int iommu_init(void) {
     if (!(idr0 & 2u) || !(idr0 & (2u << 2)) || !(idr5 & (1u << 4)) || S.oas > 5) {
         uart_print("[KIRA IOMMU] SMMUv3 without stage-1 translation, AArch64 tables or 4 KB granule (IDR0 "); uart_print_hex(idr0);
         uart_print(", IDR5 "); uart_print_hex(idr5); uart_print("): SMMU left off.\n");
+        return 0;
+    }
+    if (!(idr0 & (1u << 4))) {                                    /* IDR0.COHACC: без него SMMU читает таблицы мимо кэша процессора, а очистки кэша здесь нет */
+        uart_print("[KIRA IOMMU] SMMUv3 does not walk tables coherently with the CPU caches (IDR0.COHACC=0): SMMU left off, devices keep unrestricted DMA.\n");
         return 0;
     }
     for (int i = 0; i < pci_count(); i++) {                       /* поток вне таблицы при включённом SMMU отвергается: не включаем, если такой есть */
@@ -190,7 +195,11 @@ int iommu_isolate_device(const pci_dev_t* d) {
             zero(x, sizeof *x);
             x->used = 1; x->bus = d->bus; x->dev = d->dev; x->fn = d->fn; x->sid = (uint32_t)sid; x->root = root; x->root_pa = rpa; x->cd = cd; x->cd_pa = cpa;
             uint64_t ste[SMMU_STE_WORDS], cdv[SMMU_CD_WORDS];
-            if (smmu_cd_s1(cdv, rpa, (uint16_t)(sid + 1), S.oas) != 0 || smmu_ste_s1(ste, cpa) != 0) { t_free(0, cd, cpa); t_free(0, root, rpa); zero(x, sizeof *x); rc = IOMMU_E_HW; }
+            /* Дверной звонок MSI: устройство пишет сообщение прерывания по этому адресу, он идёт через SMMU как любой другой. Одна страница, только она, как окно MMIO. */
+            int bell = S.doorbell ? smmu_pt_map(root, S.doorbell & ~0xFFFull, S.doorbell & ~0xFFFull, SMMU_MAP_R | SMMU_MAP_W | SMMU_MAP_DEV, S.oas, &MEM) : 0;
+            if (bell || smmu_cd_s1(cdv, rpa, (uint16_t)(sid + 1), S.oas) != 0 || smmu_ste_s1(ste, cpa) != 0) {
+                smmu_pt_free(root, rpa, &MEM); t_free(0, cd, cpa); zero(x, sizeof *x); rc = bell == SMMU_D_NOMEM ? IOMMU_E_NOMEM : IOMMU_E_HW;
+            }
             else {
                 for (int i = 0; i < SMMU_CD_WORDS; i++) cd[i] = cdv[i];
                 __asm__ volatile ("dsb sy" : : : "memory");
@@ -326,7 +335,7 @@ int iommu_fault_poll(void) {
     for (uint32_t i = 0; i < n; i++) {
         f = spin_lock_irqsave(&S.lock);
         sdom_t* x = dom_find(out[i].sid);
-        int skip = x && x->logged >= SM_LOG_PER_DEVICE;
+        int skip = x && (x->quiet || x->logged >= SM_LOG_PER_DEVICE);
         if (x && !skip) x->logged++;
         spin_unlock_irqrestore(&S.lock, f);
         if (skip) continue;
@@ -336,6 +345,16 @@ int iommu_fault_poll(void) {
     if (dropped) { uart_print("[KIRA IOMMU] "); uart_print_dec(dropped); uart_print(" more fault record(s) not listed\n"); }
     __atomic_store_n(&S.polling, 0, __ATOMIC_RELEASE);
     return total;
+}
+
+void iommu_expect_fault(const pci_dev_t* d, int on) {
+    if (!d || !S.active) return;
+    int64_t sid = sid_of(d);
+    if (sid < 0) return;
+    uint64_t f = spin_lock_irqsave(&S.lock);
+    sdom_t* x = dom_find((uint32_t)sid);
+    if (x) x->quiet = on ? 1 : 0;
+    spin_unlock_irqrestore(&S.lock, f);
 }
 
 uint32_t iommu_fault_count(const pci_dev_t* d) {

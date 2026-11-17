@@ -45,6 +45,8 @@ kapi kstack.h
 0 boot/*
 0 bootinfo*
 0 bootmap.*
+0 bootsig.*   # подписанный манифест загрузки: чистая часть, общая для UEFI-загрузчика, ядра и хост-тестов
+3 boottrust.*   # состояние доверенной загрузки из BootInfo: хранит и печатает, сам не проверяет
 0 arch/x86_64/bios/*
 0 arch/x86_64/uefi/*
 0 arch/aarch64/uefi/*

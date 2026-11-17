@@ -23,7 +23,7 @@ int smmu_cd_s1(uint64_t c[8], uint64_t root, uint16_t asid, unsigned oas) {
     if ((root & 0xFFF) || root >> 48 || oas > 5) return SMMU_D_ARG;
     for (int i = 0; i < 8; i++) c[i] = 0;
     c[1] = root & 0x000FFFFFFFFFFFF0ull;                       /* TTB0 */
-    c[3] = 0xFFull << 8;                                       /* MAIR: атрибут 1 - обычная память, write-back */
+    c[3] = 0xFFull << 8 | 0x04ull;                             /* MAIR: атрибут 0 - устройство nGnRE (окна MMIO, например дверной звонок MSI), атрибут 1 - обычная память, write-back */
     c[0] = 16ull                                               /* T0SZ: вход 48 бит */
          | 1ull << 8 | 1ull << 10 | 3ull << 12                 /* таблицы: write-back, общие */
          | 1ull << 30                                          /* EPD1: вторая таблица не используется */
@@ -40,6 +40,8 @@ int smmu_cd_s1(uint64_t c[8], uint64_t root, uint16_t asid, unsigned oas) {
 #define D_TABLE 2ull                                 /* биты 1:0 = 11: на уровнях 0-2 - таблица, на уровне 3 - страница */
 #define D_ADDR  0x0000FFFFFFFFF000ull
 #define D_ATTR1 (1ull << 2)                          /* AttrIndx 1 = MAIR[1] = обычная память write-back */
+#define D_ATTR0 0ull                                 /* AttrIndx 0 = MAIR[0] = устройство nGnRE */
+#define D_SH_OS (2ull << 8)
 #define D_AP_USER (1ull << 6)                        /* AP[1]: доступ без привилегий - так ходят запросы устройств */
 #define D_AP_RO (1ull << 7)                          /* AP[2]: только чтение */
 #define D_SH_IS (3ull << 8)
@@ -50,7 +52,7 @@ static unsigned idx(uint64_t ipa, int level) { return (unsigned)((ipa >> (12 + 9
 static const unsigned oas_bits[6] = { 32, 36, 40, 42, 44, 48 };
 
 int smmu_pt_map(uint64_t* root, uint64_t ipa, uint64_t phys, unsigned rw, unsigned oas, const smmu_mem_t* m) {
-    if (!root || !m || ((ipa | phys) & 0xFFF) || ipa >> SMMU_IPA_BITS || oas > 5 || phys >> oas_bits[oas] || !(rw & 3) || rw & ~3u) return SMMU_D_ARG;
+    if (!root || !m || ((ipa | phys) & 0xFFF) || ipa >> SMMU_IPA_BITS || oas > 5 || phys >> oas_bits[oas] || !(rw & 3) || rw & ~7u) return SMMU_D_ARG;
     uint64_t* t = root;
     for (int level = 0; level < 3; level++) {
         uint64_t* e = &t[idx(ipa, level)];
@@ -65,7 +67,8 @@ int smmu_pt_map(uint64_t* root, uint64_t ipa, uint64_t phys, unsigned rw, unsign
     if (*e & D_VALID) return SMMU_D_EXIST;
     uint64_t ap = D_AP_USER | (rw & SMMU_MAP_W ? 0 : D_AP_RO);                      /* запись разрешена только с MAP_W; чтение есть всегда */
     __atomic_thread_fence(__ATOMIC_RELEASE);
-    *e = (phys & D_ADDR) | D_VALID | D_TABLE | D_ATTR1 | ap | D_SH_IS | D_AF | D_NG | D_XN;
+    uint64_t mem = rw & SMMU_MAP_DEV ? (D_ATTR0 | D_SH_OS) : (D_ATTR1 | D_SH_IS);      /* окно MMIO - как устройство, остальное - обычная память */
+    *e = (phys & D_ADDR) | D_VALID | D_TABLE | mem | ap | D_AF | D_NG | D_XN;
     return 0;
 }
 static uint64_t* leaf_of(uint64_t* root, uint64_t ipa, const smmu_mem_t* m) {

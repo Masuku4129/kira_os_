@@ -38,6 +38,16 @@ int main(void) {
     h->arch=KBI_ARCH_X86_64; h->boot_mode=KBI_BOOT_UEFI;
 
     h->flags=0x80000000u; CHECK(kbi_validate(b,sizeof b)==-4); h->flags=0;
+
+    /* Сведения о доверенной загрузке: только известные биты, только от загрузчика UEFI, номер выпуска - только при проверенной подписи */
+    h->trust_flags=KBI_TRUST_SB_KNOWN|KBI_TRUST_SB_ENABLED; CHECK(kbi_validate(b,sizeof b)==0);
+    h->trust_flags=0x80000000u; CHECK(kbi_validate(b,sizeof b)==-4);
+    h->trust_flags=KBI_TRUST_SIG_VERIFIED; CHECK(kbi_validate(b,sizeof b)==-4);              /* подпись проверена, но загрузчик не принуждающий */
+    h->trust_flags=KBI_TRUST_SIG_VERIFIED|KBI_TRUST_ENFORCING; h->image_version=7; CHECK(kbi_validate(b,sizeof b)==0);
+    h->trust_flags=KBI_TRUST_SB_ENABLED; CHECK(kbi_validate(b,sizeof b)==-4);                /* номер выпуска без проверенной подписи */
+    h->trust_flags=KBI_TRUST_SIG_VERIFIED|KBI_TRUST_ENFORCING;
+    h->boot_mode=KBI_BOOT_MULTIBOOT2; CHECK(kbi_validate(b,sizeof b)==-4); h->boot_mode=KBI_BOOT_UEFI;   /* BIOS/GRUB не вправе заявлять доверие */
+    h->trust_flags=0; h->image_version=0; CHECK(kbi_validate(b,sizeof b)==0);
     h->flags=KBI_F_FDT; h->fdt_phys=0x1003;
     CHECK(kbi_validate(b,sizeof b)==-9); h->flags=0; h->fdt_phys=0;
 

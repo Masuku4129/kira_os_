@@ -17,7 +17,11 @@ COMMON="-ffreestanding -fno-omit-frame-pointer -fno-pic -fno-pie -fno-stack-prot
 # поэтому прерванному потоку не нужно сохранять их при входе в прерывание.
 CFLAGS="$COMMON -mno-mmx -mno-sse -mno-sse2 -I. -Iarch/x86_64"
 
+<<<<<<< HEAD
 C_SOURCES="syscall.c percpu.c mem.c sched.c console.c kernel.c pmm.c vmm.c heap.c keyboard.c timer.c mind.c mindnet.c wallpaper.c zstd.c cbor.c json.c cas.c sysseal.c mind_sys.c rtc.c watchdog.c immune.c sha256.c uart.c clock.c klog.c bbring.c bbsave.c gfx2d.c font8x16.c fb.c fbcon.c display.c wm.c input.c acpi.c proc.c caps.c elf.c trust.c life.c progs.c fsrv.c ata.c store.c experience.c gfxsrv.c gfxui.c icons.c brainfx.c apps.c explorer.c fm.c dock.c usbhid.c usb.c usbhub.c usbmsc.c uhci.c xhci.c kfs.c fat.c part.c vfs.c ahci.c nvme.c uaccess.c devhealth.c kpar.c fscmd.c buildcmd.c mind_build_core.c mind_build_grant.c pci.c virtio.c virtio_blk.c virtio_gpu.c virtio_input.c e1000.c virtio_net.c net.c ip6.c ipfrag.c rcon.c irqwait.c kdrv.c kdrv_fmt.c kdrv_blk.c hda.c ac97.c sb16.c audio.c blk.c bootmap.c bootinfo.c bootinfo_mb2.c bootinfo_uefi.c mbinfo.c earlycon.c crashdump.c uheap.c userlog.c hwprofile.c ramext.c kmutex.c linebuf.c corefault.c iommu_vtd.c iommu.c iommu_amd.c drivers/iommu/amd_vi.c drivers/iommu/intel_vtd.c drivers/iommu/vtd_domain.c crypto.c pk.c kdrv_sig.c kdrv_state.c rng.c virtio_rng.c scale.c kobj.c fssvc.c ksvc.c gfxctl.c futex.c wx.c framegov.c wire.c usbmsc_fs.c aml.c aml_exec.c acpidev.c devpm.c sleep.c"
+=======
+C_SOURCES="syscall.c percpu.c mem.c sched.c console.c kernel.c pmm.c vmm.c heap.c keyboard.c timer.c mind.c mindnet.c wallpaper.c zstd.c cbor.c json.c cas.c sysseal.c mind_sys.c rtc.c watchdog.c immune.c sha256.c uart.c clock.c klog.c bbring.c bbsave.c gfx2d.c font8x16.c fb.c fbcon.c display.c wm.c input.c acpi.c proc.c caps.c elf.c trust.c life.c progs.c fsrv.c ata.c store.c experience.c gfxsrv.c gfxui.c icons.c brainfx.c apps.c explorer.c fm.c dock.c usbhid.c usb.c usbhub.c usbmsc.c uhci.c xhci.c kfs.c fat.c part.c vfs.c ahci.c nvme.c uaccess.c devhealth.c kpar.c fscmd.c buildcmd.c mind_build_core.c mind_build_grant.c pci.c virtio.c virtio_blk.c virtio_gpu.c virtio_input.c e1000.c virtio_net.c net.c ip6.c ipfrag.c rcon.c irqwait.c kdrv.c kdrv_fmt.c kdrv_blk.c hda.c ac97.c sb16.c audio.c blk.c bootmap.c bootinfo.c bootinfo_mb2.c bootinfo_uefi.c boottrust.c mbinfo.c earlycon.c crashdump.c uheap.c userlog.c hwprofile.c ramext.c kmutex.c linebuf.c corefault.c iommu_vtd.c iommu.c iommu_amd.c drivers/iommu/amd_vi.c drivers/iommu/intel_vtd.c drivers/iommu/vtd_domain.c crypto.c pk.c kdrv_sig.c kdrv_state.c rng.c virtio_rng.c scale.c kobj.c fssvc.c ksvc.c gfxctl.c futex.c wx.c framegov.c wire.c usbmsc_fs.c aml.c aml_exec.c acpidev.c"
+>>>>>>> ui/spatial-desktop-2026-11-15
 # Код, зависящий от процессора x86-64 (вход в ядро, прерывания, APIC, ядра, FPU, системные вызовы): arch/x86_64
 ARCH=arch/x86_64
 ARCH_SOURCES="$ARCH/gdt.c $ARCH/idt.c $ARCH/pic.c $ARCH/apic.c $ARCH/ioapic.c $ARCH/irqmode.c $ARCH/fpu.c $ARCH/syscall_arch.c $ARCH/exceptions.c $ARCH/smp.c $ARCH/percpu_arch.c $ARCH/proc_arch.c $ARCH/uaccess_arch.c $ARCH/msi_arch.c $ARCH/power.c $ARCH/rng_arch.c $ARCH/acpirt.c $ARCH/acpirt_cmd.c $ARCH/sleep.c"
@@ -253,7 +257,7 @@ UEFI_DIR=
 if command -v mcopy >/dev/null 2>&1 && [ -s /usr/include/efi/efi.h -o -n "${EFI_INCLUDE:-}" ]; then
     echo "[*] Собственный UEFI-загрузчик (без GRUB): kira-uefi.img"
     _u=$(mktemp -d)
-    if bash ./build_uefi.sh "$_u" >/dev/null 2>"$_u/err"; then
+    if KIRA_SECURE=0 bash ./build_uefi.sh "$_u" >/dev/null 2>"$_u/err"; then   # образ разработки всегда с обычным загрузчиком: доверенный режим - отдельная цель ниже
         if [[ -s "$_u/EFI/KIRA/INITRD.IMG" ]]; then
             python3 tools/mkuefi.py "$_u/EFI/BOOT/BOOTX64.EFI" "$_u/EFI/KIRA/KIRA.ELF" kira-uefi.img 64 "$_u/EFI/KIRA/INITRD.IMG"
         else
@@ -273,6 +277,23 @@ elif [ -s prebuilt/BOOTX64.EFI ] && command -v mcopy >/dev/null 2>&1; then
     else
         echo "[!] prebuilt/BOOTX64.EFI устарел или изменён (исходники загрузчика другие): UEFI-вход в образ не войдёт. Пересоберите на x86-64 (build_uefi.sh) и обновите prebuilt."
     fi
+fi
+
+# Доверенный режим (А2, docs/SECURE_BOOT.md) - ОТДЕЛЬНАЯ цель, ежедневную сборку не меняет: KIRA_SECURE=1 ./build_clang.sh --no-run
+# собирает ещё и kira-secure.img (загрузчик с вшитым ключом выпуска, подпись db, манифест KIRA.SIG). Нужны ключи вне репозитория:
+#   KIRA_BOOT_PUBKEY (32 байта) и KIRA_RELEASE_KEY (PEM Ed25519) - python3 tools/kirasig.py keygen; KIRA_DB_KEY и KIRA_DB_CERT - ключ db прошивки;
+#   KIRA_IMAGE_VERSION - номер выпуска (по умолчанию 1); при желании KIRA_MIN_IMAGE_VERSION, KIRA_REQUIRE_SB=0, KIRA_REQUIRE_TPM=1.
+if [ "${KIRA_SECURE:-0}" = 1 ]; then
+    echo "[*] Доверенный режим: kira-secure.img"
+    for _v in KIRA_BOOT_PUBKEY KIRA_RELEASE_KEY KIRA_DB_KEY KIRA_DB_CERT; do
+        [ -s "${!_v:-/nonexistent}" ] || { echo "[!] KIRA_SECURE=1: не задан или не найден файл $_v (см. docs/SECURE_BOOT.md)"; exit 1; }
+    done
+    _s=$(mktemp -d)
+    KIRA_SECURE=1 bash ./build_uefi.sh "$_s" >/dev/null 2>"$_s/err" || { echo "[!] доверенный загрузчик не собран:"; tail -3 "$_s/err"; exit 1; }
+    _i=(); [ -s "${KIRA_INITRD:-initrd.img}" ] && _i=(--initrd "${KIRA_INITRD:-initrd.img}")
+    tools/sbsign_image.sh --loader "$_s/EFI/BOOT/BOOTX64.EFI" --kernel kira.bin "${_i[@]}" --release-key "$KIRA_RELEASE_KEY" \
+        --version "${KIRA_IMAGE_VERSION:-1}" --db-key "$KIRA_DB_KEY" --db-cert "$KIRA_DB_CERT" --out kira-secure.img || exit 1
+    rm -rf "$_s"
 fi
 
 echo "[*] ISO..."
