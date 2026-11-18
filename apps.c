@@ -708,33 +708,157 @@ void app_monitor_draw(surface_t* s, const mind_view_t* v, uint32_t threads) {
     ui_statusbar(s, s->h - TH_BAR_H, sl, TH_TEXT_DIM, sr);
 }
 
-/* ---------------- Проводник: две панели ---------------- */
+/* ---------------- Проводник ---------------- */
+/* Сверху вниз: панель инструментов; слева боковая панель (места, ветка, устройства); две панели со строкой пути
+   (кликабельные части), шапкой колонок (сортировка щелчком) и списком; внизу строка состояния. Геометрия общая для
+   рисования и проверки попадания мыши. Стиль и обоснование - docs/UI_DESIGN.md. */
 
-#define PX(p)    (TH_GAP + (p) * (PW + TH_GAP))
-#define PW       ((APP_FILES_W - 3 * TH_GAP) / 2)
-#define PY       38
-#define STAT_Y   (APP_FILES_H - 2 * TH_BAR_H)
-#define KEYS_Y   (APP_FILES_H - TH_BAR_H)
-#define PH       (STAT_Y - 6 - PY)
-#define ROW_H    18
-#define ROW0     46              /* первая строка списка от верха панели */
-#define BTN_W    104
-#define BTN_Y    5
+#define TB_Y     6
+#define TB_H     TH_BAR_H
+#define SIDE_X   TH_S2
+#define SIDE_W   148
+#define PY       36
+#define STAT_Y   (APP_FILES_H - TH_BAR_H)
+#define PH       (STAT_Y - TH_S2 - PY)
+#define PX0      (SIDE_X + SIDE_W + TH_S2)
+#define PW       ((APP_FILES_W - PX0 - TH_S2 - TH_S2) / 2)
+#define PX(p)    (PX0 + (p) * (PW + TH_S2))
+#define CRUMB_H  24                      /* строка пути */
+#define HEAD_H   22                      /* шапка колонок */
+#define ROW0     (CRUMB_H + HEAD_H)      /* первая строка списка от верха панели */
+#define ROW_H    TH_ROW_H
+#define COL_T    68                      /* ширина колонки «Тип» */
+#define COL_S    76                      /* ширина колонки «Размер» */
+#define SB_W     8                       /* дорожка полосы прокрутки */
 
-static const ui_key_t fkeys[9] = {
-    { "F1", "Помощь", TH_BLUE }, { "F2", "Имя", TH_CYAN }, { "F3", "Вид", TH_CYAN }, { "F4", "Закреп.", TH_PURPLE },
-    { "F5", "Копия", TH_GREEN }, { "F6", "Перенос", TH_GREEN }, { "F7", "Каталог", TH_AMBER }, { "F8", "Удалить", TH_RED },
-    { "F9", "Служеб.", TH_BLUE },
+typedef struct { const char* label; int w; int cmd; } tool_t;   /* cmd 0 - разделитель */
+static const tool_t tools[] = {
+    { "\xE2\x86\x90", 28, FM_CMD_BACK }, { "\xE2\x86\x92", 28, FM_CMD_FWD }, { "\xE2\x86\x91", 28, FM_CMD_UP }, { 0, 0, 0 },
+    { "Обновить", 80, FM_CMD_REFRESH }, { "Новая папка", 104, FM_CMD_MKDIR }, { 0, 0, 0 },
+    { "Копировать", 96, FM_CMD_COPY }, { "Вырезать", 80, FM_CMD_CUT }, { "Вставить", 80, FM_CMD_PASTE }, { "Удалить", 72, FM_CMD_DELETE }, { 0, 0, 0 },
+    { "Служебные", 88, FM_CMD_HIDDEN },
 };
+#define NTOOLS ((int)(sizeof tools / sizeof tools[0]))
+
+static int tool_x(int i) {
+    int x = TH_S2;
+    for (int k = 0; k < i; k++) x += tools[k].label ? tools[k].w + TH_S1 : TH_S2;
+    return x;
+}
+
+static int tool_state(const exp_view_t* e, int cmd) {          /* UI_ST_DISABLED, если команда сейчас бессмысленна */
+    const fm_panel_t* P = &e->fm.p[e->fm.active];
+    int real = P->n && P->cur < (int)P->n && P->e[P->cur].kind != FM_KIND_UP;
+    switch (cmd) {
+    case FM_CMD_BACK: return P->nback ? UI_ST_NORMAL : UI_ST_DISABLED;
+    case FM_CMD_FWD: return P->nfwd ? UI_ST_NORMAL : UI_ST_DISABLED;
+    case FM_CMD_UP: return P->path[0] == '/' && !P->path[1] ? UI_ST_DISABLED : UI_ST_NORMAL;
+    case FM_CMD_COPY: case FM_CMD_CUT: case FM_CMD_DELETE: return real ? UI_ST_NORMAL : UI_ST_DISABLED;
+    case FM_CMD_PASTE: return e->fm.nclip ? UI_ST_NORMAL : UI_ST_DISABLED;
+    case FM_CMD_HIDDEN: return e->fm.show_hidden ? UI_ST_SELECTED : UI_ST_NORMAL;
+    default: return UI_ST_NORMAL;
+    }
+}
+
+/* ---- боковая панель ---- */
+enum { SI_HEAD, SI_PLACE, SI_TREE, SI_DEV };
+typedef struct { char label[24]; char path[FM_PATH]; int level, kind; } side_item_t;
+#define SIDE_MAX 40
+
+static void side_add(side_item_t* it, int* n, const char* label, const char* path, int level, int kind) {
+    if (*n >= SIDE_MAX) return;
+    side_item_t* x = &it[(*n)++];
+    int p = 0; while (label[p] && p < 23) { x->label[p] = label[p]; p++; } x->label[p] = 0;
+    p = 0; while (path[p] && p < FM_PATH - 1) { x->path[p] = path[p]; p++; } x->path[p] = 0;
+    x->level = level; x->kind = kind;
+}
+
+static int side_build(const exp_view_t* e, side_item_t* it) {
+    int n = 0;
+    const fm_panel_t* P = &e->fm.p[e->fm.active];
+    side_add(it, &n, "Места", "", 0, SI_HEAD);
+    side_add(it, &n, "Корень", "/", 0, SI_PLACE);
+    side_add(it, &n, "Данные", "/data", 0, SI_PLACE);
+    side_add(it, &n, "Программы", "/bin", 0, SI_PLACE);
+    side_add(it, &n, "Дерево", "", 0, SI_HEAD);
+    int depth = fm_path_depth(P->path);                          /* путь от корня: каждый уровень на шаг правее */
+    for (int k = 0; k <= depth && n < SIDE_MAX - 8; k++) {
+        char pre[FM_PATH]; if (fm_path_prefix(P->path, k, pre, sizeof pre)) break;
+        const char* base = pre; for (const char* q = pre; *q; q++) if (*q == '/' && q[1]) base = q + 1;
+        side_add(it, &n, k == 0 ? "/" : base, pre, k > 5 ? 5 : k, SI_TREE);
+    }
+    int kids = 0;                                                 /* подпапки текущего каталога - из уже прочитанного списка */
+    for (uint32_t i = 0; i < P->n && kids < 8 && n < SIDE_MAX - 6; i++) {
+        const fm_ent_t* r = &P->e[i];
+        if (!r->dir || r->kind == FM_KIND_UP) continue;
+        char full[FM_PATH]; int q = cat(full, 0, P->path); if (q > 1) q = cat(full, q, "/"); cat(full, q, r->name);
+        side_add(it, &n, r->name, full, (depth + 1 > 5 ? 5 : depth + 1), SI_TREE);
+        kids++;
+    }
+    if (e->nvol) {
+        side_add(it, &n, "Устройства", "", 0, SI_HEAD);
+        for (uint32_t k = 0; k < e->nvol && k < EXP_VOLS; k++) {
+            char full[16]; int q = cat(full, 0, "/"); cat(full, q, e->vol[k].name);
+            side_add(it, &n, e->vol[k].label[0] ? e->vol[k].label : e->vol[k].name, full, 0, SI_DEV);
+        }
+    }
+    return n;
+}
+
+int app_files_side_path(const exp_view_t* e, int row, char* out, int cap) {
+    side_item_t it[SIDE_MAX]; int n = side_build(e, it);
+    if (row < 0 || row >= n || it[row].kind == SI_HEAD || !it[row].path[0]) return -1;
+    int p = 0; while (it[row].path[p] && p + 1 < cap) { out[p] = it[row].path[p]; p++; } out[p] = 0;
+    return 0;
+}
+
+static int same_path(const char* a, const char* b) { while (*a && *a == *b) { a++; b++; } return *a == *b; }
+#define SIDE_ROW_Y(i) (PY + TH_S1 + (i) * TH_ROW_H)
+
+/* ---- строка пути: части между «/» ---- */
+static int crumb_layout(const char* path, int maxw, int* xs, int* ws, int cap) {
+    /* части: «/», затем каждый каталог; ширина части = текст + отступ; если не помещаются - левые отбрасываются */
+    int depth = fm_path_depth(path), n = depth + 1, w[40], tot = 0, first = 0;
+    if (n > 40) return 0;
+    for (int k = 0; k < n; k++) {
+        char pre[FM_PATH]; fm_path_prefix(path, k, pre, sizeof pre);
+        const char* base = pre; for (const char* q = pre; *q; q++) if (*q == '/' && q[1]) base = q + 1;
+        w[k] = (k == 0 ? 8 : gfx_text_width(base)) + 2 * TH_S1 + (k ? 8 : 0);
+        tot += w[k];
+    }
+    while (first < n - 1 && tot > maxw) { tot -= w[first]; first++; }
+    int x = 0, m = 0;
+    for (int k = first; k < n && m < cap; k++, m++) { xs[m] = x; ws[m] = w[k]; x += w[k]; }
+    return m ? (first << 8) | m : 0;                              /* первая видимая часть и их число */
+}
+
+int app_files_crumb_path(const exp_view_t* e, int panel, int k, char* out, int cap) {
+    return fm_path_prefix(e->fm.p[panel].path, k, out, cap);
+}
 
 int app_files_hit(const exp_view_t* e, int x, int y, app_hit_t* h) {
     h->kind = APP_HIT_NONE; h->panel = 0; h->row = 0;
+    if (e->fm.mode == FM_MODE_MENU) {                            /* меню перехватывает мышь: пункт или «мимо» */
+        int id[FM_MENU_MAX]; const char* lb[FM_MENU_MAX]; unsigned off;
+        int n = fm_menu_build(&e->fm, id, lb, &off);
+        int mx, my; app_files_menu_pos(e, &mx, &my);
+        int i = ui_menu_hit(mx, my, APP_MENU_W, lb, n, x, y);
+        if (i >= 0 && id[i] != FM_CMD_NONE && !((off >> i) & 1)) { h->kind = APP_HIT_MENU; h->row = i; }
+        return h->kind;
+    }
     if (e->fm.mode != FM_MODE_NORMAL) return h->kind;
-    if (y >= KEYS_Y) { int i = ui_keybar_hit(APP_FILES_W, 9, x); if (i >= 0) { h->kind = APP_HIT_KEY; h->row = i; } return h->kind; }
-    if (y >= BTN_Y && y < BTN_Y + 26) {
-        int rx = APP_FILES_W - TH_GAP - BTN_W;
-        if (x >= rx && x < rx + BTN_W) h->kind = APP_HIT_REFRESH;
-        else if (x >= rx - 8 - BTN_W && x < rx - 8) h->kind = APP_HIT_HIDDEN;
+    if (y >= TB_Y && y < TB_Y + TB_H) {
+        for (int i = 0; i < NTOOLS; i++) {
+            if (!tools[i].label) continue;
+            int tx = tool_x(i);
+            if (x >= tx && x < tx + tools[i].w) { if (tool_state(e, tools[i].cmd) != UI_ST_DISABLED) { h->kind = APP_HIT_TOOL; h->row = tools[i].cmd; } return h->kind; }
+        }
+        return h->kind;
+    }
+    if (x >= SIDE_X && x < SIDE_X + SIDE_W && y >= PY && y < PY + PH) {
+        side_item_t it[SIDE_MAX]; int n = side_build(e, it);
+        int i = (y - PY - TH_S1) / TH_ROW_H;
+        if (y >= PY + TH_S1 && i >= 0 && i < n && it[i].kind != SI_HEAD) { h->kind = APP_HIT_SIDE; h->row = i; }
         return h->kind;
     }
     for (int p = 0; p < 2; p++) {
@@ -742,18 +866,42 @@ int app_files_hit(const exp_view_t* e, int x, int y, app_hit_t* h) {
         if (x < px || x >= px + PW || y < PY || y >= PY + PH) continue;
         const fm_panel_t* P = &e->fm.p[p];
         h->panel = p; h->kind = APP_HIT_PANEL;
-        if (x >= px + PW - 12 && y >= PY + ROW0 && y < PY + ROW0 + FM_ROWS * ROW_H && (int)P->n > FM_ROWS) {   /* полоса прокрутки */
-            int th = FM_ROWS * ROW_H * FM_ROWS / (int)P->n; if (th < 14) th = 14;
+        if (y < PY + CRUMB_H) {                                  /* строка пути: щелчок по части */
+            int xs[40], ws[40]; int lay = crumb_layout(P->path, PW - 2 * TH_S2, xs, ws, 40);
+            int first = lay >> 8, m = lay & 255;
+            for (int j = 0; j < m; j++) if (x >= px + TH_S2 + xs[j] && x < px + TH_S2 + xs[j] + ws[j]) { h->kind = APP_HIT_CRUMB; h->row = first + j; }
+            return h->kind;
+        }
+        if (y < PY + ROW0) {                                     /* шапка колонок */
+            int tx = px + PW - SB_W - COL_T, sx = tx - COL_S;
+            h->kind = APP_HIT_HEAD; h->row = x >= tx ? FM_SORT_TYPE : x >= sx ? FM_SORT_SIZE : FM_SORT_NAME;
+            return h->kind;
+        }
+        if (x >= px + PW - SB_W && (int)P->n > FM_ROWS) {        /* полоса прокрутки */
+            int th = FM_ROWS * ROW_H * FM_ROWS / (int)P->n; if (th < 16) th = 16;
             int ty = PY + ROW0 + (FM_ROWS * ROW_H - th) * P->top / ((int)P->n - FM_ROWS);
             h->kind = APP_HIT_SCROLL; h->row = y < ty ? -1 : y >= ty + th ? 1 : 0;
             return h->kind;
         }
-        if (y < PY + ROW0) return h->kind;
         int i = P->top + (y - PY - ROW0) / ROW_H;
         if ((y - PY - ROW0) / ROW_H < FM_ROWS && i < (int)P->n) { h->kind = APP_HIT_ROW; h->row = i; }
         return h->kind;
     }
     return h->kind;
+}
+
+/* Где рисовать меню: у места щелчка, но целиком в окне; открытое с клавиатуры - под строкой курсора активной панели. */
+void app_files_menu_pos(const exp_view_t* e, int* x, int* y) {
+    int id[FM_MENU_MAX]; const char* lb[FM_MENU_MAX]; unsigned off;
+    int n = fm_menu_build(&e->fm, id, lb, &off), mh = ui_menu_height(lb, n);
+    const fm_panel_t* P = &e->fm.p[e->fm.active];
+    int mx = e->fm.menu_x, my = e->fm.menu_y;
+    if (mx < 0) { mx = PX(e->fm.active) + 40; my = PY + ROW0 + (P->cur - P->top + 1) * ROW_H; }
+    if (mx + APP_MENU_W > APP_FILES_W - TH_S1) mx = APP_FILES_W - TH_S1 - APP_MENU_W;
+    if (my + mh > APP_FILES_H - TH_BAR_H) my = APP_FILES_H - TH_BAR_H - mh;
+    if (mx < TH_S1) mx = TH_S1;
+    if (my < TH_S1) my = TH_S1;
+    *x = mx; *y = my;
 }
 
 static int hit_eq(const app_hit_t* a, int kind, int panel, int row) { return a && a->kind == kind && a->panel == panel && a->row == row; }
@@ -788,18 +936,19 @@ static const char* kind_name(int k, int vol) {
     }
 }
 
+/* Значки монохромные (единый набор); цвет значка - цвет текста. Программа /bin сохраняет свой значок, но без цвета. */
 static void kind_icon(int k, int vol, const char* name, int* icon, uint32_t* col) {
-    *icon = ICON_FILE; *col = TH_TEXT_DIM;
+    (void)vol;
+    *icon = ICON_FILE; *col = TH_FG_DIM;
     switch (k) {
-    case FM_KIND_DIR: *icon = ICON_FOLDER; *col = vol ? TH_GREEN : TH_AMBER; break;
-    case FM_KIND_UP: *icon = ICON_FOLDER; *col = TH_TEXT_FAINT; break;
-    case FM_KIND_PROG:                                       /* у каждой программы /bin свой значок; неизвестная - общий */
-        *icon = ICON_TERMINAL; *col = TH_GREEN;
-        if (name && app_info(name)) { *icon = dock_icon(name); *col = dock_color(name); }
+    case FM_KIND_DIR: *icon = ICON_FOLDER; *col = TH_FG; break;
+    case FM_KIND_UP: *icon = ICON_FOLDER; *col = TH_FG_FAINT; break;
+    case FM_KIND_PROG:
+        *icon = ICON_TERMINAL;
+        if (name && app_info(name)) *icon = dock_icon(name);
         break;
-    case FM_KIND_IMG: *icon = ICON_BRUSH; *col = TH_PINK; break;
-    case FM_KIND_TEXT: *icon = ICON_FILE; *col = TH_CYAN; break;
-    case FM_KIND_WASM: *icon = ICON_CUBE; *col = TH_PURPLE; break;
+    case FM_KIND_IMG: *icon = ICON_BRUSH; break;
+    case FM_KIND_WASM: *icon = ICON_CUBE; break;
     default: break;
     }
 }
@@ -817,154 +966,165 @@ static void draw_panel(surface_t* s, const exp_view_t* e, int p, const app_hit_t
     const fm_panel_t* P = &e->fm.p[p];
     int px = PX(p), act = e->fm.active == p;
     char t[200];
-    ui_card(s, px, PY, PW, PH, 0, 0);
-    if (act) ui_round_frame(s, px, PY, PW, PH, TH_RADIUS, TH_CYAN, 190);
-    if (drop_panel == p) ui_round_frame(s, px + 1, PY + 1, PW - 2, PH - 2, TH_RADIUS - 1, TH_GREEN, 255);
-    ui_round_rect(s, px + 6, PY + 5, PW - 12, 22, 6, act ? ui_mix(TH_CARD, TH_CYAN, 40) : TH_TRACK, 255);
-    icon_draw(s, px + 20, PY + 16, 14, ICON_FOLDER, act ? TH_CYAN : TH_TEXT_FAINT, 0);
-    path_fit(s, px + 34, PY + 8, P->path, PW - 46, act ? TH_TEXT : TH_TEXT_DIM);
-    gfx_text(s, px + 26, PY + 28, "Имя", TH_TEXT_FAINT, -1);
-    gfx_text(s, px + PW - 14 - 56 - 8 - gfx_text_width("Размер"), PY + 28, "Размер", TH_TEXT_FAINT, -1);
-    gfx_text(s, px + PW - 14 - 56 + 2, PY + 28, "Тип", TH_TEXT_FAINT, -1);
-    gfx_rect(s, px + 8, PY + ROW0 - 4, PW - 16, 1, TH_CARD_EDGE);
-    if (!P->n) gfx_text(s, px + 16, PY + ROW0 + 4, e->mounted ? "пусто" : "диска нет", TH_TEXT_FAINT, -1);
+    gfx_rect(s, px, PY, PW, PH, TH_SURF_CONTENT);
+    /* строка пути: части кликабельны, последняя (текущий каталог) выделена */
+    gfx_rect(s, px, PY, PW, CRUMB_H, TH_SURF_HEAD);
+    int xs[40], ws[40]; int lay = crumb_layout(P->path, PW - 2 * TH_S2, xs, ws, 40);
+    int first = lay >> 8, m = lay & 255, depth = fm_path_depth(P->path);
+    for (int j = 0; j < m; j++) {
+        int k = first + j, cx = px + TH_S2 + xs[j];
+        char pre[FM_PATH]; fm_path_prefix(P->path, k, pre, sizeof pre);
+        const char* base = pre; for (const char* q = pre; *q; q++) if (*q == '/' && q[1]) base = q + 1;
+        int hov = hit_eq(hover, APP_HIT_CRUMB, p, k);
+        if (hov) gfx_rect(s, cx, PY + 2, ws[j] - 2, CRUMB_H - 4, ui_state_bg(UI_ST_HOVER, TH_SURF_HEAD));
+        if (k) gfx_text(s, cx, PY + 4, "\xE2\x80\xBA", TH_FG_FAINT, -1);                 /* › между частями */
+        gfx_text(s, cx + (k ? 8 : 0) + TH_S1, PY + 4, k == 0 ? "/" : base, k == depth ? TH_FG : TH_FG_DIM, -1);
+    }
+    /* шапка колонок */
+    int tx = px + PW - SB_W - COL_T, sx = tx - COL_S;
+    int sc = P->sort_col, sd = P->sort_desc ? -1 : 1;
+    ui_col_header(s, px, PY + CRUMB_H, sx - px, HEAD_H, "Имя", sc == FM_SORT_NAME ? sd : 0, hit_eq(hover, APP_HIT_HEAD, p, FM_SORT_NAME));
+    ui_col_header(s, sx, PY + CRUMB_H, COL_S, HEAD_H, "Размер", sc == FM_SORT_SIZE ? sd : 0, hit_eq(hover, APP_HIT_HEAD, p, FM_SORT_SIZE));
+    ui_col_header(s, tx, PY + CRUMB_H, COL_T + SB_W, HEAD_H, "Тип", sc == FM_SORT_TYPE ? sd : 0, hit_eq(hover, APP_HIT_HEAD, p, FM_SORT_TYPE));
+    if (!P->n) gfx_text(s, px + TH_S2, PY + ROW0 + 4, e->mounted ? "пусто" : "диска нет", TH_FG_FAINT, -1);
     for (int i = 0; i < FM_ROWS && P->top + i < (int)P->n; i++) {
         int idx = P->top + i;
         const fm_ent_t* r = &P->e[idx];
         int y = PY + ROW0 + i * ROW_H;
         int vol = vol_of(e, P, r);
-        if (idx == P->cur) {
-            ui_round_rect(s, px + 4, y, PW - 18, ROW_H - 1, 5, TH_CYAN, act ? 66 : 24);
-            if (act) ui_round_frame(s, px + 4, y, PW - 18, ROW_H - 1, 5, TH_CYAN, 150);
-        } else if (hit_eq(hover, APP_HIT_ROW, p, idx)) ui_round_rect(s, px + 4, y, PW - 18, ROW_H - 1, 5, TH_CYAN, 16);
-        else if (i & 1) ui_round_rect(s, px + 4, y, PW - 18, ROW_H - 1, 5, TH_ROW_ALT, 255);
-        if (r->mark) gfx_rect(s, px + 5, y + 2, 3, ROW_H - 5, TH_AMBER);
+        int cur = idx == P->cur;
+        ui_list_row(s, px, y, PW - SB_W, ROW_H, cur || r->mark, act && cur, hit_eq(hover, APP_HIT_ROW, p, idx), i & 1);
         int icon; uint32_t ic; kind_icon(r->kind, vol >= 0, r->name, &icon, &ic);
-        icon_draw(s, px + 20, y + 9, 14, icon, ic, 0);
-        uint32_t nc = r->mark ? TH_AMBER : r->kind == FM_KIND_UP ? TH_TEXT_DIM : r->dir ? TH_TEXT : TH_TEXT_DIM;
-        if (idx == P->cur) nc = r->mark ? TH_AMBER : TH_TEXT;
-        int sizew = 66, namew = PW - 26 - 8 - 56 - sizew - 14;
+        icon_draw(s, px + 16, y + ROW_H / 2, 14, icon, ic, 0);
+        uint32_t nc = r->kind == FM_KIND_UP ? TH_FG_DIM : cur || r->mark ? TH_FG : r->dir ? TH_FG : TH_FG_DIM;
+        int namew = sx - px - 28 - TH_S1;
         const char* shown = r->kind == FM_KIND_PROG ? app_label(r->name) : r->name;   /* /bin: русское название, сортировка и запуск - по системному имени */
         int nl = gfx_text_width(shown); if (nl > namew) nl = namew;
-        ui_text_fit(s, px + 32, y + 1, shown, namew, nc);
+        ui_text_fit(s, px + 28, y + 2, shown, namew, nc);
         if (r->kind == FM_KIND_PROG && shown != r->name) {                   /* системное имя тускло рядом, пока помещается */
             int lw = namew - nl - 8;
-            if (lw > 0 && gfx_text_width(r->name) <= lw) gfx_text(s, px + 32 + nl + 8, y + 1, r->name, TH_TEXT_FAINT, -1);
+            if (lw > 0 && gfx_text_width(r->name) <= lw) gfx_text(s, px + 28 + nl + 8, y + 2, r->name, TH_FG_FAINT, -1);
         }
         if (vol >= 0) {                                                      /* метка флешки после имени */
             int lw = namew - nl - 8;
-            if (lw > 24) ui_text_fit(s, px + 32 + nl + 8, y + 1, e->vol[vol].label, lw, TH_GREEN);
+            if (lw > 24) ui_text_fit(s, px + 28 + nl + 8, y + 2, e->vol[vol].label, lw, TH_FG_DIM);
             fmt_size(t, (uint64_t)e->vol[vol].total_kb * 1024);
         } else if (r->dir) t[0] = 0;
         else fmt_size(t, r->size);
-        if (t[0]) gfx_text(s, px + PW - 14 - 56 - 8 - gfx_text_width(t), y + 1, t, TH_TEXT_FAINT, -1);
-        gfx_text(s, px + PW - 14 - 56 + 2, y + 1, kind_name(r->kind, vol >= 0), vol >= 0 ? TH_GREEN : ic == TH_TEXT_DIM ? TH_TEXT_FAINT : ic, -1);
+        if (t[0]) gfx_text(s, tx - TH_S2 - gfx_text_width(t), y + 2, t, TH_FG_DIM, -1);
+        gfx_text(s, tx + TH_S2, y + 2, kind_name(r->kind, vol >= 0), TH_FG_FAINT, -1);
+        if (r->mark) gfx_text(s, px + PW - SB_W - 12, y + 2, "\xE2\x97\x8F", TH_ACCENT, -1);     /* ● отмечено */
     }
-    if ((int)P->n > FM_ROWS) {                                               /* полоса прокрутки */
-        int th = FM_ROWS * ROW_H * FM_ROWS / (int)P->n; if (th < 14) th = 14;
-        int ty = PY + ROW0 + (FM_ROWS * ROW_H - th) * P->top / ((int)P->n - FM_ROWS);
-        ui_round_rect(s, px + PW - 9, PY + ROW0, 4, FM_ROWS * ROW_H, 2, TH_TRACK, 255);
-        ui_round_rect(s, px + PW - 9, ty, 4, th, 2, act ? TH_CYAN : TH_TEXT_FAINT, 255);
-    }
-    int fy = PY + PH - 20;
-    gfx_rect(s, px + 8, fy - 3, PW - 16, 1, TH_CARD_EDGE);
-    int q = cat_u(t, 0, P->n > 0 && P->e[0].kind == FM_KIND_UP ? P->n - 1 : P->n);
-    q = cat(t, q, " объектов"); if (P->trunc) q = cat(t, q, "+");
-    if (P->hidden && !e->fm.show_hidden) { q = cat(t, q, " · скрыто "); q = cat_u(t, q, P->hidden); }
-    gfx_text(s, px + 12, fy, t, TH_TEXT_FAINT, -1);
-    if (P->nmark) {
-        char z[24]; fmt_size(z, P->mark_bytes);
-        q = cat(t, 0, "отмечено "); q = cat_u(t, q, P->nmark); q = cat(t, q, " · "); cat(t, q, z);
-        gfx_text(s, px + PW - 12 - gfx_text_width(t), fy, t, TH_AMBER, -1);
+    ui_scrollbar(s, px + PW - SB_W + 1, PY + ROW0, FM_ROWS * ROW_H, (int)P->n, FM_ROWS, P->top, act);
+    gfx_rect(s, px, PY, PW, 1, TH_EDGE); gfx_rect(s, px, PY + PH - 1, PW, 1, TH_EDGE);
+    gfx_rect(s, px, PY, 1, PH, TH_EDGE); gfx_rect(s, px + PW - 1, PY, 1, PH, TH_EDGE);
+    if (act) ui_focus_ring(s, px, PY, PW, PH);                              /* у активной панели клавиатурный фокус виден рамкой */
+    if (drop_panel == p) ui_focus_ring(s, px + 2, PY + 2, PW - 4, PH - 4);
+}
+
+static void draw_side(surface_t* s, const exp_view_t* e, const app_hit_t* hover) {
+    side_item_t it[SIDE_MAX]; int n = side_build(e, it);
+    const fm_panel_t* P = &e->fm.p[e->fm.active];
+    gfx_rect(s, SIDE_X, PY, SIDE_W, PH, TH_SURF_BAR);
+    gfx_rect(s, SIDE_X + SIDE_W - 1, PY, 1, PH, TH_EDGE);
+    for (int i = 0; i < n; i++) {
+        int y = SIDE_ROW_Y(i);
+        if (y + TH_ROW_H > PY + PH) break;
+        if (it[i].kind == SI_HEAD) { gfx_text(s, SIDE_X + TH_S2, y + 2, it[i].label, TH_FG_FAINT, -1); continue; }
+        int cur = it[i].path[0] && same_path(it[i].path, P->path);
+        int hov = hit_eq(hover, APP_HIT_SIDE, 0, i);
+        if (cur) { gfx_rect(s, SIDE_X, y, SIDE_W - 1, TH_ROW_H, ui_state_bg(UI_ST_SELECTED, TH_SURF_BAR)); gfx_rect(s, SIDE_X, y, 3, TH_ROW_H, TH_ACCENT); }
+        else if (hov) gfx_rect(s, SIDE_X, y, SIDE_W - 1, TH_ROW_H, ui_state_bg(UI_ST_HOVER, TH_SURF_BAR));
+        int ind = TH_S2 + (it[i].kind == SI_TREE ? it[i].level * 6 : 0);
+        icon_draw(s, SIDE_X + ind + 7, y + TH_ROW_H / 2, 12, it[i].kind == SI_DEV ? ICON_CHIP : ICON_FOLDER, cur ? TH_FG : TH_FG_DIM, 0);
+        ui_text_fit(s, SIDE_X + ind + 18, y + 2, it[i].label, SIDE_W - ind - 22, cur ? TH_FG : TH_FG_DIM);
     }
 }
 
-static void draw_dialog_frame(surface_t* s, int w, int h, const char* title, uint32_t accent, int* x, int* y) {
-    *x = (APP_FILES_W - w) / 2; *y = 130;
-    ui_glow(s, *x, *y, w, h, TH_RADIUS, 5, accent, 150);
-    ui_round_rect(s, *x, *y, w, h, TH_RADIUS, TH_PANEL1, 255);
-    ui_round_rect(s, *x, *y, w, 30, TH_RADIUS, TH_PANEL0, 255);
-    gfx_rect(s, *x + 1, *y + TH_RADIUS, w - 2, 30 - TH_RADIUS, TH_PANEL0);
-    ui_round_frame(s, *x, *y, w, h, TH_RADIUS, ui_mix(TH_BORDER, accent, 160), 255);
-    gfx_rect(s, *x + 14, *y + 9, 3, 13, accent);
-    ui_text_bold(s, *x + 24, *y + 7, title, TH_TEXT);
+static void draw_dialog(surface_t* s, const fm_t* f);
+
+static void draw_menu(surface_t* s, const exp_view_t* e) {
+    int id[FM_MENU_MAX]; const char* lb[FM_MENU_MAX]; unsigned off;
+    int n = fm_menu_build(&e->fm, id, lb, &off);
+    int mx, my; app_files_menu_pos(e, &mx, &my);
+    ui_menu(s, mx, my, APP_MENU_W, lb, n, e->fm.menu_sel, off);
 }
 
 static void draw_help(surface_t* s) {
     static const char* const ln[] = {
-        "Tab / ← →    - другая панель", "↑ ↓ PgUp PgDn Home End - курсор", "Enter        - войти / открыть, Backspace - вверх",
-        "Insert, пробел - отметить", "Esc          - снять отметки", "F2 имя  F3 вид  F4 закрепить программу /bin",
-        "F5 копия  F6 перенос - в каталог другой панели", "F7 новый каталог  F8 / Del удалить", "F9 служебные файлы  F10 свернуть окно",
-        "мышь: щелчок - выбор, двойной - открыть,", "перетащить файл на другую панель - копия",
+        "Стрелки, PgUp/PgDn, Home/End - выбор строки", "Enter - открыть, Backspace или Alt+↑ - вверх",
+        "Alt+← / Alt+→ - назад / вперёд по истории", "Tab - другая панель, пробел или Insert - отметить",
+        "Ctrl+A - выделить всё, Esc - снять отметки", "Ctrl+C / Ctrl+X / Ctrl+V - копировать, вырезать, вставить",
+        "F2 - переименовать, F7 - новая папка", "Del или F8 - удалить (с подтверждением)",
+        "F5 / F6 - копия / перенос в другую панель", "F3 - просмотр, F4 - закрепить программу /bin",
+        "F9 - служебные файлы, Shift+F10 - меню",
+        "Мышь: щелчок - выбор, двойной - открыть,", "правая кнопка - меню, щелчок по шапке - сортировка,",
+        "перетащить на другую панель - копия",
     };
-    int n = (int)(sizeof ln / sizeof ln[0]), x, y;
-    draw_dialog_frame(s, 440, 56 + n * 18, "Клавиши Проводника", TH_BLUE, &x, &y);
-    for (int i = 0; i < n; i++) gfx_text(s, x + 18, y + 42 + i * 18, ln[i], TH_TEXT_DIM, -1);
+    int n = (int)(sizeof ln / sizeof ln[0]);
+    int w = 440, h = 56 + n * 18, x = (APP_FILES_W - w) / 2, y = 60;
+    ui_dialog_frame(s, x, y, w, h, "Клавиши Проводника", 0);
+    for (int i = 0; i < n; i++) gfx_text(s, x + 18, y + 42 + i * 18, ln[i], TH_FG_DIM, -1);
 }
 
 static void draw_dialog(surface_t* s, const fm_t* f) {
-    int x, y;
+    int x, y, w = 440;
     if (f->mode == FM_MODE_HELP) { draw_help(s); return; }
+    x = (APP_FILES_W - w) / 2; y = 130;
     if (f->mode == FM_MODE_INPUT) {
-        draw_dialog_frame(s, 420, 124, f->dlg_title, TH_CYAN, &x, &y);
-        gfx_text(s, x + 18, y + 40, f->dlg_text, TH_TEXT_DIM, -1);
-        ui_round_rect(s, x + 16, y + 62, 388, 28, 7, TH_TRACK, 255);
-        ui_round_frame(s, x + 16, y + 62, 388, 28, 7, TH_CYAN, 200);
-        ui_text_fit(s, x + 24, y + 68, f->input, 360 - 8, TH_TEXT);
-        int cw = gfx_text_width(f->input); if (cw > 352) cw = 352;
-        gfx_rect(s, x + 24 + cw, y + 68, 2, 16, TH_CYAN);
-        gfx_text(s, x + 18, y + 98, "Enter - принять · Esc - отмена", TH_TEXT_FAINT, -1);
+        ui_dialog_frame(s, x, y, w, 124, f->dlg_title, 0);
+        gfx_text(s, x + 18, y + 40, f->dlg_text, TH_FG_DIM, -1);
+        ui_input(s, x + 16, y + 62, w - 32, 28, f->input, 1);
+        gfx_text(s, x + 18, y + 98, "Enter - принять · Esc - отмена", TH_FG_FAINT, -1);
     } else if (f->mode == FM_MODE_CONFIRM) {
-        draw_dialog_frame(s, 440, 112, f->dlg_title, TH_RED, &x, &y);
-        text_wrap(s, x + 18, y + 40, f->dlg_text, 404, 2, 18, TH_TEXT);
-        ui_button(s, x + 18, y + 72, 150, 26, "Enter - да, удалить", TH_RED, 0, 1);
-        ui_button(s, x + 178, y + 72, 120, 26, "Esc - нет", TH_CYAN, 0, 0);
+        ui_dialog_frame(s, x, y, w, 112, f->dlg_title, 1);                         /* опасное действие: красная кромка */
+        text_wrap(s, x + 18, y + 40, f->dlg_text, 404, 2, 18, TH_FG);
+        ui_button(s, x + 18, y + 72, 176, 26, "Enter - да, удалить", TH_ALARM, 0, 1);
+        ui_button(s, x + 204, y + 72, 120, 26, "Esc - нет", TH_ACCENT, 0, 0);
     } else if (f->mode == FM_MODE_BUSY) {
-        draw_dialog_frame(s, 440, 128, f->dlg_title, TH_GREEN, &x, &y);
+        ui_dialog_frame(s, x, y, w, 128, f->dlg_title, 0);
         char t[128]; int p = cat(t, 0, f->prog_name); (void)p;
-        ui_text_fit(s, x + 18, y + 40, t, 404, TH_TEXT);
+        ui_text_fit(s, x + 18, y + 40, t, 404, TH_FG);
         int pct = -1;
         if (f->prog_total) pct = (int)(f->prog_done * 100 / f->prog_total);
         else if (f->prog_files_total) pct = (int)((uint64_t)f->prog_files * 100 / f->prog_files_total);
-        ui_round_rect(s, x + 18, y + 64, 404, 14, 6, TH_TRACK, 255);
-        if (pct >= 0) {
-            int fw = 404 * (pct > 100 ? 100 : pct) / 100;
-            if (fw >= 8) { ui_round_rect(s, x + 18, y + 64, fw, 14, 6, ui_mix(TH_CYAN, TH_PURPLE, (unsigned)pct * 255 / 100), 255); }
-        }
+        gfx_rect(s, x + 18, y + 64, 404, 14, TH_SURF_TRACK);
+        if (pct >= 0) gfx_rect(s, x + 18, y + 64, 404 * (pct > 100 ? 100 : pct) / 100, 14, TH_ACCENT);
         char a[24], b[24];
         p = 0;
         if (f->prog_total) { fmt_size(a, f->prog_done); fmt_size(b, f->prog_total); p = cat(t, p, a); p = cat(t, p, " из "); p = cat(t, p, b); p = cat(t, p, " · "); }
         p = cat(t, p, "объектов "); p = cat_u(t, p, f->prog_files);
         if (f->prog_files_total) { p = cat(t, p, " из "); p = cat_u(t, p, f->prog_files_total); }
         if (pct >= 0) { p = cat(t, p, " · "); p = cat_u(t, p, (uint64_t)(pct > 100 ? 100 : pct)); cat(t, p, "%"); }
-        gfx_text(s, x + 18, y + 86, t, TH_TEXT_DIM, -1);
-        gfx_text(s, x + 18, y + 104, "Esc - прервать", TH_TEXT_FAINT, -1);
+        gfx_text(s, x + 18, y + 86, t, TH_FG_DIM, -1);
+        gfx_text(s, x + 18, y + 104, "Esc - прервать", TH_FG_FAINT, -1);
     }
 }
 
 void app_files_draw(surface_t* s, const exp_view_t* e, const app_hit_t* hover, int drop_panel, const char* status, int pinned) {
-    gfx_fill(s, TH_CONTENT);
-    char t[200]; int p;
-    icon_draw(s, 24, 18, 20, ICON_FOLDER, TH_AMBER, 0);
-    if (e->mounted) {
-        char a[24], b[24]; app_fmt_kb(a, e->total_kb - e->free_kb); app_fmt_kb(b, e->total_kb);
-        p = cat(t, 0, "KiraFS · занято "); p = cat(t, p, a); p = cat(t, p, " из "); p = cat(t, p, b);
-        p = cat(t, p, " · объектов "); p = cat_u(t, p, e->files);
-        if (e->nvol) { p = cat(t, p, " · флешек "); p = cat_u(t, p, e->nvol); if (e->rovol) { p = cat(t, p, " · только чтение "); cat_u(t, p, e->rovol); } }
-    } else cat(t, 0, "Диск с KiraFS не подключён: проводнику нечего показать");
-    ui_text_fit(s, 42, 10, t, APP_FILES_W - 42 - 2 * BTN_W - 40, e->mounted ? TH_TEXT_DIM : TH_AMBER);
-    int rx = APP_FILES_W - TH_GAP - BTN_W;
-    ui_button(s, rx, BTN_Y, BTN_W, 26, "обновить", TH_CYAN, hover && hover->kind == APP_HIT_REFRESH, 0);
-    ui_button(s, rx - 8 - BTN_W, BTN_Y, BTN_W, 26, e->fm.show_hidden ? "служеб.: да" : "служеб.: нет", TH_BLUE, hover && hover->kind == APP_HIT_HIDDEN, e->fm.show_hidden);
+    (void)pinned;
+    gfx_fill(s, TH_SURF_CONTENT);
+    int p;
+    /* панель инструментов */
+    gfx_rect(s, 0, 0, s->w, PY - 2, TH_SURF_HEAD); gfx_rect(s, 0, PY - 3, s->w, 1, TH_EDGE);
+    for (int i = 0; i < NTOOLS; i++) {
+        int tx = tool_x(i);
+        if (!tools[i].label) { gfx_rect(s, tx + 3, TB_Y + 3, 1, TB_H - 6, TH_EDGE); continue; }
+        int st = tool_state(e, tools[i].cmd);
+        if (st == UI_ST_NORMAL && hover && hover->kind == APP_HIT_TOOL && hover->row == tools[i].cmd) st = UI_ST_HOVER;
+        ui_toolbtn(s, tx, TB_Y, tools[i].w, TB_H, tools[i].label, st, 0);
+    }
+    draw_side(s, e, hover);
     draw_panel(s, e, 0, hover, drop_panel);
     draw_panel(s, e, 1, hover, drop_panel);
 
-    /* полоса состояния: итог операции или сведения о строке под курсором */
+    /* строка состояния: итог операции или сведения о строке; справа - число элементов, выделено, свободно */
     const fm_t* f = &e->fm;
     const fm_panel_t* P = &f->p[f->active];
-    const char* left = ""; uint32_t lc = TH_TEXT_DIM; char info[256];
-    if (f->msg[0]) { left = f->msg; lc = f->msg_err ? TH_RED : TH_GREEN; }
-    else if (status && status[0]) { left = status; lc = TH_GREEN; }
+    const char* left = ""; uint32_t lc = TH_FG_DIM; char info[256];
+    if (f->msg[0]) { left = f->msg; lc = f->msg_err ? TH_ALARM : TH_OK; }
+    else if (status && status[0]) { left = status; lc = TH_OK; }
+    else if (!e->mounted) { left = "Диск с KiraFS не подключён: проводнику нечего показать"; lc = TH_WARN; }
     else if (P->n && P->cur < (int)P->n) {
         const fm_ent_t* r = &P->e[P->cur];
         p = cat(info, 0, r->kind == FM_KIND_UP ? "вверх, в родительский каталог" : r->name);   /* системное имя */
@@ -975,15 +1135,16 @@ void app_files_draw(surface_t* s, const exp_view_t* e, const app_hit_t* hover, i
         }
         left = info;
     }
-    char right[64]; p = cat(right, 0, f->active ? "правая панель" : "левая панель");
-    if (!f->show_hidden && P->hidden) { p = cat(right, p, " · скрыто "); cat_u(right, p, P->hidden); }
+    char right[160];
+    uint32_t cnt = P->n > 0 && P->e[0].kind == FM_KIND_UP ? P->n - 1 : P->n;
+    p = cat_u(right, 0, cnt); p = cat(right, p, cnt % 10 == 1 && cnt % 100 != 11 ? " элемент" : cnt % 10 >= 2 && cnt % 10 <= 4 && (cnt % 100 < 10 || cnt % 100 >= 20) ? " элемента" : " элементов");
+    if (P->trunc) p = cat(right, p, "+");
+    if (P->nmark) { char z[24]; fmt_size(z, P->mark_bytes); p = cat(right, p, " · выделено "); p = cat_u(right, p, P->nmark); p = cat(right, p, " ("); p = cat(right, p, z); p = cat(right, p, ")"); }
+    if (!f->show_hidden && P->hidden) { p = cat(right, p, " · скрыто "); p = cat_u(right, p, P->hidden); }
+    if (e->mounted) { char z[24]; app_fmt_kb(z, e->free_kb); p = cat(right, p, " · свободно "); cat(right, p, z); }
     ui_statusbar(s, STAT_Y, left, lc, right);
-
-    ui_key_t k[9];
-    for (int i = 0; i < 9; i++) k[i] = fkeys[i];
-    if (pinned) k[3].label = "Открепить";
-    ui_keybar(s, KEYS_Y, k, 9, hover && hover->kind == APP_HIT_KEY ? hover->row : -1);
-    if (f->mode != FM_MODE_NORMAL) draw_dialog(s, f);
+    if (f->mode == FM_MODE_MENU) draw_menu(s, e);
+    else if (f->mode != FM_MODE_NORMAL) draw_dialog(s, f);
 }
 
 /* ---------------- Настройки ---------------- */

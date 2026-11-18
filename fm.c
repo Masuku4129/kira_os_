@@ -808,6 +808,32 @@ static void menu_key(fm_t* f, const fm_io_t* io, int key) {
     else if (key == KEY_END) { int k = menu_first(f, FM_MENU_MAX - 1, -1); if (k >= 0) f->menu_sel = k; }
 }
 
+/* Состояние одной строкой для стенда и отладки: по нему сценарии проверяют навигацию без снимков экрана. */
+void fm_state_line(const fm_t* f, char* out, int cap) {
+    static const char* const mode[] = { "normal", "input", "confirm", "busy", "help", "menu" };
+    static const char* const sortn[] = { "name", "size", "type" };
+    int p = ap(out, 0, cap, "[KIRA FILES] state: active="); p = ap(out, p, cap, f->active ? "R" : "L");
+    p = ap(out, p, cap, " mode="); p = ap(out, p, cap, mode[f->mode >= 0 && f->mode <= FM_MODE_MENU ? f->mode : 0]);
+    for (int i = 0; i < 2; i++) {
+        const fm_panel_t* P = &f->p[i];
+        p = ap(out, p, cap, i ? " R{path=" : " L{path="); p = ap(out, p, cap, P->path);
+        p = ap(out, p, cap, " cur="); p = ap(out, p, cap, P->n && P->cur < (int32_t)P->n ? P->e[P->cur].name : "-");
+        p = ap(out, p, cap, " n="); p = apu(out, p, cap, P->n);
+        p = ap(out, p, cap, " marks="); p = apu(out, p, cap, P->nmark);
+        p = ap(out, p, cap, " sort="); p = ap(out, p, cap, sortn[P->sort_col >= 0 && P->sort_col < FM_SORT_COLS ? P->sort_col : 0]);
+        p = ap(out, p, cap, P->sort_desc ? ":desc" : ":asc");
+        p = ap(out, p, cap, " back="); p = apu(out, p, cap, P->nback);
+        p = ap(out, p, cap, " fwd="); p = apu(out, p, cap, P->nfwd); p = ap(out, p, cap, "}");
+    }
+    p = ap(out, p, cap, " clip="); p = apu(out, p, cap, f->nclip); if (f->nclip) p = ap(out, p, cap, f->clip_cut ? "(cut)" : "(copy)");
+    p = ap(out, p, cap, " menu="); if (f->mode == FM_MODE_MENU) p = apu(out, p, cap, (uint64_t)f->menu_sel); else p = ap(out, p, cap, "-");
+    p = ap(out, p, cap, " hidden="); p = ap(out, p, cap, f->show_hidden ? "1" : "0");
+    if (f->mode == FM_MODE_CONFIRM || f->mode == FM_MODE_INPUT) { p = ap(out, p, cap, " dialog=\""); p = ap(out, p, cap, f->dlg_title); p = ap(out, p, cap, "\""); }
+    if (f->mode == FM_MODE_INPUT) { p = ap(out, p, cap, " input=\""); p = ap(out, p, cap, f->input); p = ap(out, p, cap, "\""); }
+    if (f->msg[0]) { p = ap(out, p, cap, f->msg_err ? " error=\"" : " msg=\""); p = ap(out, p, cap, f->msg); p = ap(out, p, cap, "\""); }
+    ap(out, p, cap, "\n");
+}
+
 /* ---------------- клавиши ---------------- */
 
 void fm_key(fm_t* f, const fm_io_t* io, int key, int ch) { fm_key_m(f, io, key, ch, 0); }

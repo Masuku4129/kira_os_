@@ -11,7 +11,7 @@
 #define FM_NAME   60
 #define FM_PATH   128
 #define FM_MARKS  64         /* отметок в панели */
-#define FM_ROWS   18         /* строк списка на экране */
+#define FM_ROWS   20         /* строк списка на экране */
 #define FM_TREE   512        /* объектов одного каталога при копировании и удалении дерева */
 #define FM_HIST   8          /* глубина истории переходов (назад/вперёд) на панель */
 #define FM_CHUNK  65536      /* порция чтения при копировании */
@@ -89,6 +89,7 @@ int  fm_menu_build(const fm_t* f, int* id, const char** label, unsigned* off);
 /* Чистая логика пути и списка (проверяется на хосте). */
 int  fm_path_depth(const char* path);                                    /* число частей пути: "/" - 0, "/a/b" - 2 */
 int  fm_path_prefix(const char* path, int k, char* out, int cap);        /* путь до k-й части включительно (k=0 - "/"); 0 - успех */
+void fm_state_line(const fm_t* f, char* out, int cap);                  /* строка "[KIRA FILES] state: ..." (с \n) */
 void fm_sort(fm_ent_t* e, uint32_t n, int col, int desc);                /* каталоги первыми, внутри - по колонке */
 void fm_page(fm_t* f, int panel, int dir);                               /* щелчок по полосе прокрутки: страница вверх/вниз */
 void fm_set_hidden(fm_t* f, const fm_io_t* io, int on);

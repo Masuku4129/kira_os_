@@ -14,13 +14,14 @@
 
 #define QN 64
 enum { EV_KEY, EV_MOUSE, EV_PAGE, EV_GOTO };
-typedef struct { int type, a, b, c; char path[FM_PATH]; } ev_t;
+typedef struct { int type, a, b, c, d; char path[FM_PATH]; } ev_t;   /* d: место щелчка (x в младших 16 битах, y - в старших) */
 typedef struct { char path[64]; char data[256]; unsigned len; int used; } wreq_t;
 
 static spinlock_t lk = SPINLOCK_INIT;
 static thread_t* worker;
 static int waiting;
 static int req_refresh = 1;
+static int req_state;                /* 1 - напечатать строку состояния (fmstate) */
 static ev_t q[QN];
 static unsigned qh, qt;
 static exp_view_t V;                 /* опубликованный снимок (под lk) */
@@ -114,7 +115,7 @@ static void worker_main(void* arg) {
     (void)arg;
     for (;;) {
         uint64_t f = spin_lock_irqsave(&lk);
-        while (qt == qh && !req_refresh && !wq[0].used && !wq[1].used && !wq[2].used && !wq[3].used && dock_read) {
+        while (qt == qh && !req_refresh && !req_state && !wq[0].used && !wq[1].used && !wq[2].used && !wq[3].used && dock_read) {
             waiting = 1;
             sched_wait_and_unlock(&lk, ~0ULL);
             irq_restore(f);
@@ -122,8 +123,8 @@ static void worker_main(void* arg) {
         }
         waiting = 0;
         static ev_t ev;
-        int have = pop_event(&ev), refresh = req_refresh;
-        req_refresh = 0;
+        int have = pop_event(&ev), refresh = req_refresh, want_state = req_state;
+        req_refresh = 0; req_state = 0;
         wreq_t w[4];
         for (int i = 0; i < 4; i++) { w[i] = wq[i]; wq[i].used = 0; }
         spin_unlock_irqrestore(&lk, f);
@@ -148,9 +149,9 @@ static void worker_main(void* arg) {
         int info = refresh;
         if (have) {
             if (ev.type == EV_KEY) {
-                fm_key(&W.fm, &KIO, ev.a, ev.b);
+                fm_key_m(&W.fm, &KIO, ev.a, ev.b, ev.c);
                 if (ev.a == KEY_ENTER || ev.a == KEY_F5 || ev.a == KEY_F6 || ev.a == KEY_F7 || ev.a == KEY_DELETE) info = 1;
-            } else if (ev.type == EV_MOUSE) { fm_mouse(&W.fm, &KIO, ev.a, ev.b, ev.c); info = 1; }
+            } else if (ev.type == EV_MOUSE) { fm_mouse_at(&W.fm, &KIO, ev.a, ev.b, ev.c, (int16_t)(ev.d & 0xFFFF), (int16_t)((unsigned)ev.d >> 16)); info = 1; }
             else if (ev.type == EV_PAGE) fm_page(&W.fm, ev.b, ev.c);
             else if (ev.type == EV_GOTO) {
                 int pn = ev.b < 0 ? W.fm.active : ev.b;
@@ -161,6 +162,7 @@ static void worker_main(void* arg) {
         }
         if (refresh) fm_reload(&W.fm, &KIO);
         if (info) rebuild_info();
+        if (want_state) { char line[480]; fm_state_line(&W.fm, line, sizeof line); uart_print(line); }
         f = spin_lock_irqsave(&lk);
         publish_locked();
         spin_unlock_irqrestore(&lk, f);
@@ -176,11 +178,11 @@ void explorer_init(void) {
     if (!worker) uart_print("[KIRA FILES] cannot start explorer thread.\n");
 }
 
-static void push(int type, int a, int b, int c, const char* path) {
+static void push(int type, int a, int b, int c, int d, const char* path) {
     uint64_t f = spin_lock_irqsave(&lk);
     if (qh - qt < QN) {
         ev_t* e = &q[qh % QN];
-        e->type = type; e->a = a; e->b = b; e->c = c;
+        e->type = type; e->a = a; e->b = b; e->c = c; e->d = d;
         scpy(e->path, path ? path : "", FM_PATH);
         qh++;
     }
@@ -188,10 +190,17 @@ static void push(int type, int a, int b, int c, const char* path) {
     spin_unlock_irqrestore(&lk, f);
 }
 
-void explorer_key(int key, int ch) { push(EV_KEY, key, ch, 0, 0); }
-void explorer_mouse(int kind, int panel, int row) { push(EV_MOUSE, kind, panel, row, 0); }
-void explorer_page(int panel, int dir) { push(EV_PAGE, 0, panel, dir, 0); }
-void explorer_goto(int panel, const char* path) { push(EV_GOTO, 0, panel, 0, path); }
+void explorer_key(int key, int ch, int mods) { push(EV_KEY, key, ch, mods, 0, 0); }
+void explorer_mouse(int kind, int panel, int row) { push(EV_MOUSE, kind, panel, row, -1, 0); }
+void explorer_menu(int panel, int row, int x, int y) { push(EV_MOUSE, FM_MOUSE_RCLICK, panel, row, (int)(((unsigned)y << 16) | ((unsigned)x & 0xFFFF)), 0); }
+void explorer_page(int panel, int dir) { push(EV_PAGE, 0, panel, dir, 0, 0); }
+void explorer_goto(int panel, const char* path) { push(EV_GOTO, 0, panel, 0, 0, path); }
+void explorer_state_log(void) {
+    uint64_t f = spin_lock_irqsave(&lk);
+    req_state = 1;
+    kick();
+    spin_unlock_irqrestore(&lk, f);
+}
 
 int explorer_write(const char* path, const void* data, unsigned len) {
     if (len > sizeof wq[0].data) return -1;

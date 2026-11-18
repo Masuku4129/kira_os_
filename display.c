@@ -273,16 +273,30 @@ static void on_input(int id, int type, int x, int y, unsigned buttons) {
         int press = type == 4 && (buttons & 1) && !(files_btn & 1);
         int release = type == 4 && !(buttons & 1) && (files_btn & 1);
         int old_drop = files_drop, drop = -1;
-        if (type == 4) files_btn = buttons;
         if (type == 3 && drag.on && (buttons & 1)) {                    /* тащат: над другой панелью - подсветка цели */
             int dx = x - drag.x, dy = y - drag.y;
             if ((dx * dx + dy * dy > 64) && h.kind != APP_HIT_NONE && h.kind <= APP_HIT_SCROLL && h.panel != drag.panel) drop = h.panel;
             files_drop = drop;
         }
+        int rpress = type == 4 && (buttons & 2) && !(files_btn & 2);        /* правая кнопка: контекстное меню */
+        if (type == 4) files_btn = buttons;
+        if (rpress) {
+            if (h.kind == APP_HIT_ROW || h.kind == APP_HIT_PANEL) explorer_menu(h.panel, h.kind == APP_HIT_ROW ? h.row : -1, x, y);
+            else if (ev.fm.mode == FM_MODE_MENU) explorer_mouse(FM_MOUSE_CLICK, 0, -1);
+        }
+        if (press && ev.fm.mode == FM_MODE_MENU) {                           /* меню открыто: щелчок по пункту выполняет, мимо - закрывает */
+            if (h.kind == APP_HIT_MENU) explorer_mouse(FM_MOUSE_MENUPICK, 0, h.row);
+            else explorer_mouse(FM_MOUSE_CLICK, 0, -1);
+            press = 0;
+        }
         if (press) {
             files_status[0] = 0;
             uint64_t now = clock_ns();
-            if (h.kind == APP_HIT_ROW) {
+            if (h.kind == APP_HIT_TOOL) explorer_mouse(FM_MOUSE_CMD, -1, h.row);
+            else if (h.kind == APP_HIT_HEAD) explorer_mouse(FM_MOUSE_SORT, h.panel, h.row);
+            else if (h.kind == APP_HIT_CRUMB) { char pth[FM_PATH]; if (app_files_crumb_path(&ev, h.panel, h.row, pth, sizeof pth) == 0) explorer_goto(h.panel, pth); }
+            else if (h.kind == APP_HIT_SIDE) { char pth[FM_PATH]; if (app_files_side_path(&ev, h.row, pth, sizeof pth) == 0) explorer_goto(-1, pth); }
+            else if (h.kind == APP_HIT_ROW) {
                 int dbl = h.panel == files_click_panel && h.row == files_click_row && now - files_click_ns < 450000000ULL;
                 explorer_mouse(dbl ? FM_MOUSE_DOUBLE : FM_MOUSE_CLICK, h.panel, h.row);
                 files_click_panel = dbl ? -1 : h.panel; files_click_row = h.row; files_click_ns = now;
@@ -290,8 +304,8 @@ static void on_input(int id, int type, int x, int y, unsigned buttons) {
             } else if (h.kind == APP_HIT_PANEL) explorer_mouse(FM_MOUSE_CLICK, h.panel, -1);
             else if (h.kind == APP_HIT_SCROLL) explorer_page(h.panel, h.row < 0 ? -1 : 1);
             else if (h.kind == APP_HIT_REFRESH) explorer_refresh();
-            else if (h.kind == APP_HIT_HIDDEN) explorer_key(KEY_F9, 0);
-            else if (h.kind == APP_HIT_KEY) explorer_key(KEY_F1 + h.row, 0);
+            else if (h.kind == APP_HIT_HIDDEN) explorer_key(KEY_F9, 0, 0);
+            else if (h.kind == APP_HIT_KEY) explorer_key(KEY_F1 + h.row, 0, 0);
         }
         if (release) {
             if (drag.on && files_drop >= 0) explorer_mouse(FM_MOUSE_DROP, drag.panel, drag.row);
@@ -685,7 +699,7 @@ static void display_main(void* arg) {
             int own = w_files >= 0 && wm_visible(w_files) && wm_top() == w_files;
             __atomic_store_n(&files_focus, own || wm_launcher_active(), __ATOMIC_RELEASE);
             input_event_t ke;
-            while (own && input_pop(&ke)) if (ke.type == INPUT_KEY_DOWN && !(ke.key >= KEY_LSHIFT && ke.key <= KEY_CAPS)) explorer_key(ke.key, ke.ch);   // модификаторы - не команды
+            while (own && input_pop(&ke)) if (ke.type == INPUT_KEY_DOWN && !(ke.key >= KEY_LSHIFT && ke.key <= KEY_CAPS)) explorer_key(ke.key, ke.ch, ke.mods);   // модификаторы - не команды
         }
         if (__atomic_load_n(&rq_pending, __ATOMIC_ACQUIRE)) {      // команда «files»: открыть Проводник на этих путях
             char l[FM_PATH], r[FM_PATH];
@@ -866,6 +880,8 @@ void display_request_files(const char* left, const char* right) {
     __atomic_store_n(&rq_pending, 1, __ATOMIC_RELEASE);
     spin_unlock_irqrestore(&rq_lk, fl);
 }
+
+void display_files_state(void) { explorer_state_log(); }
 
 int display_kbd_owner(void) { return __atomic_load_n(&files_focus, __ATOMIC_ACQUIRE); }
 

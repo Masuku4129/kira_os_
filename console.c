@@ -389,6 +389,12 @@ static void cmd_files(const char* a) {
     if (shell && shell->request_files) shell->request_files(w[0], w[1]);
     uart_print("[KIRA FILES] explorer: "); uart_print(w[0][0] ? w[0] : "(as before)"); uart_print(" | "); uart_print(w[1][0] ? w[1] : "(as before)"); uart_print("\n");
 }
+/* fmstate: Проводник печатает своё состояние одной строкой (панели, курсор, выделение, сортировка, буфер, меню). */
+static void cmd_fmstate(const char* a) {
+    (void)a;
+    if (shell && shell->files_state) shell->files_state();
+    else uart_print("[KIRA FILES] state: explorer is not available\n");
+}
 /* Выключение и перезагрузка: сначала опыт и кэши дисков, потом - машина. */
 void console_power_prepare(void) {
     uart_print("сохраняю опыт и данные дисков...\n");
@@ -663,6 +669,7 @@ static const cmd_t cmds[] = {
     { "3d",        'g', "окно 3D (программа cube3d из /bin)", cmd_3d },
     { "plasma",    'a', "приложение Ring 3: плазма", cmd_plasma },
     { "files",     0,   "Проводник: files [левый_каталог [правый_каталог]] - две панели, F5 копия, F6 перенос, F7 каталог, F8 удалить", cmd_files },
+    { "fmstate",   0,   "Проводник: строка состояния (панели, курсор, выделение, сортировка, буфер обмена, меню) - для проверки", cmd_fmstate },
     { "edit",      0,   "приложение Ring 3: текстовый редактор (F2 - сохранить, F3 - другой файл, F4 - новый)", cmd_edit },
     { "record",    0,   "запись со входа звука: record [мс] - уровень", audiocmd_record },
     { "volume",    0,   "громкость звука: volume [0..100]", cmd_volume },
