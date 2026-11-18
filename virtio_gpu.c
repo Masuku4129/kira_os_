@@ -132,12 +132,14 @@ int virtio_gpu_probe(void) {
 
     uint64_t fb_phys;
     uint8_t* fbm = (uint8_t*)virtio_dma_alloc(W * H * 4, &fb_phys);   /* подложка: непрерывная, видна устройству */
+    int fb_uncached = virtio_dma_last_uncached();
     if (!fbm || (iso && virtio_dma_grant(&dev, fb_phys, W * H * 4))) { virtio_fail(&dev); return -5; }
 
     int ok = make_scanout(fb_phys) == 0;
     g_fb_phys = fb_phys;
     if (!ok) { uart_print("[KIRA GPU] virtio-gpu refused the 2D resource.\n"); virtio_fail(&dev); return -6; }
     up = 1;
+    fb_set_direct_ok(!fb_uncached);                           /* ОЗУ с кэшем: кадр собирается прямо в подложку, второй экран и копирование не нужны */
     if (fb_attach_linear(fb_phys, fbm, W, H, W * 4, gpu_flush) != 0) { up = 0; return -7; }
 #ifndef KIRA_HOST_TEST
     (void)devpm_register("virtio-gpu", vgpu_suspend, vgpu_resume, 0);

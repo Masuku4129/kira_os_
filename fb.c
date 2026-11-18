@@ -165,6 +165,10 @@ static void fb_sleep_register(void) { (void)devpm_register("framebuffer", fb_sle
 static void fb_sleep_register(void) { }
 #endif
 
+static int direct;
+static int fb_direct_ok;                           /* ставит драйвер экрана перед fb_attach_linear: память кадра кэшируемая и устройство видит её согласованно */
+void fb_set_direct_ok(int ok) { fb_direct_ok = ok; }                                  /* 1 - кадр собирается прямо в память, которую читает устройство (виртуальный экран в ОЗУ): заднего буфера и копирования нет */
+
 void fb_present_rect(int x, int y, int w, int h) {
     if (!ready) return;
     int x0 = x < 0 ? 0 : x, y0 = y < 0 ? 0 : y;
@@ -185,6 +189,7 @@ void fb_present_rect(int x, int y, int w, int h) {
         if (y1 > dy1) dy1 = y1;
         spin_unlock_irqrestore(&dlk, f);
     }
+    if (direct) return;                           // кадр уже лежит там, где его читает устройство
     x0 &= ~1;                                     // выравнивание по 8 байт для rep movsq
     for (int j = y0; j < y1; j++) {
         copy_row(front + (uint64_t)j * info.pitch_bytes + (uint64_t)x0 * 4,
@@ -204,6 +209,18 @@ uint64_t fb_frame_done(void) {
 
 int fb_attach_linear(uint64_t phys, void* fr, uint32_t w, uint32_t h, uint32_t pitch, void (*flush)(int, int, int, int)) {
     if (ready || w < 320 || h < 200 || pitch < w * 4) return -1;
+    if (flush && (pitch & 3) == 0 && fb_direct_ok) {     /* память устройства - обычная кэшируемая ОЗУ: рисуем в неё сразу, без второго экрана и прохода копирования на каждый кадр */
+        fmt = (fbpix_fmt_t){ 4, 16, 8, 8, 8, 0, 8 };
+        native = 1; direct = 1;
+        front = (uint8_t*)fr;
+        info.phys = phys; info.width = w; info.height = h; info.pitch_bytes = pitch; info.bpp = 32;
+        info.write_combining = 0; info.back_phys = phys; info.back_bytes = pitch * h;
+        back.px = (uint32_t*)fr; back.w = (int)w; back.h = (int)h; back.pitch = (int)(pitch / 4);
+        gfx_fill(&back, 0x000000);
+        flush_hook = flush;
+        ready = 1;
+        return 0;
+    }
     fmt = (fbpix_fmt_t){ 4, 16, 8, 8, 8, 0, 8 };
     native = 1;
     front = (uint8_t*)fr;

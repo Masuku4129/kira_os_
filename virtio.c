@@ -48,7 +48,10 @@ static void zero(void* p, size_t n) { volatile uint8_t* q = (volatile uint8_t*)p
 static void barrier(void) { __sync_synchronize(); }
 
 void* platform_dma_pool(uint32_t bytes, uint64_t* phys, int below_4g) __attribute__((weak));   /* ARM64: пул без кэша для плат без согласованности */
+static int last_uncached;
+int virtio_dma_last_uncached(void) { return last_uncached; }
 void* virtio_dma_alloc(uint32_t bytes, uint64_t* phys) {
+    last_uncached = 0;
 #ifdef KIRA_HOST_TEST
     void* p = aligned_alloc(4096, (bytes + 4095) & ~4095u);
     if (!p) return 0;
@@ -57,7 +60,7 @@ void* virtio_dma_alloc(uint32_t bytes, uint64_t* phys) {
     *phys = (uint64_t)(uintptr_t)p;
     return p;
 #else
-    if (platform_dma_pool) { void* q = platform_dma_pool(bytes, phys, 0); if (q) return q; }
+    if (platform_dma_pool) { void* q = platform_dma_pool(bytes, phys, 0); if (q) { last_uncached = 1; return q; } }
     uint32_t pages = (bytes + 4095) / 4096;
     uint64_t pa = pmm_alloc_contiguous(pages);
     if (!pa) return 0;

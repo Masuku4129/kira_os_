@@ -775,6 +775,25 @@ def run(sc, args):
                     else: vm.drain(0)
                 vm.log += f"[HOST] mouse: sent {sent} move events in {secs * args.timeout_scale} s\n".encode()
                 vm.pump(0.5)
+            elif "open_window" in st:                 # окно запускается через меню по F9 (печатается часть имени метки); не вышло с первого раза (медленная эмуляция теряет клавиши) - Esc и снова
+                ow = st["open_window"]
+                for attempt in range(4):
+                    vm.qmp_cmd({"execute": "send-key", "arguments": {"keys": [{"type": "qcode", "data": "f9"}]}})
+                    vm.pump(1.5)
+                    for ch in ow["launcher"]:
+                        vm.qmp_cmd({"execute": "send-key", "arguments": {"keys": [{"type": "qcode", "data": ch}]}})
+                        time.sleep(0.15)
+                    vm.pump(0.5)
+                    vm.qmp_cmd({"execute": "send-key", "arguments": {"keys": [{"type": "qcode", "data": "ret"}]}})
+                    vm.pump(4.0)
+                    wins, cur = wm_windows(vm)
+                    if any(ow["title"] in w["title"] and w["state"] == "shown" for w in wins):
+                        break
+                    vm.qmp_cmd({"execute": "send-key", "arguments": {"keys": [{"type": "qcode", "data": "esc"}]}})
+                    vm.pump(1.0)
+                else:
+                    raise Fail(f"open_window: окно «{ow['title']}» не открылось за 4 попытки")
+                result["checks"].append({"open_window": ow["title"], "attempts": attempt + 1, "ok": True})
             elif "drag" in st:                        # перетаскивание окна за заголовок потоком движений мыши (PS/2: смещения): окно берётся по подстроке заголовка из списка [WMWIN] (команда fb)
                 d = st["drag"]
                 wins, cur = wm_windows(vm)
@@ -782,7 +801,12 @@ def run(sc, args):
                 if not pick:
                     raise Fail(f"drag: нет показанного окна «{d['window']}»; окна: {[(w['title'], w['state']) for w in wins]}")
                 w0 = pick[0]
-                gx, gy = w0["x"] + w0["w"] // 2, w0["y"] + 18                       # середина заголовка (кнопки окна слева, подзаголовок справа)
+                gy = w0["y"] + 18
+                cand = [w0["x"] + w0["w"] // 2] + list(range(w0["x"] + 90, w0["x"] + w0["w"] - 90, 25))   # заголовок: середина, иначе любое место без кнопок слева и подзаголовка справа
+                free = [x for x in cand if not any(o["id"] != w0["id"] and o["state"] == "shown" and o["x"] <= x < o["x"] + o["w"] and o["y"] <= gy < o["y"] + o["h"] for o in wins)]
+                if not free:
+                    raise Fail(f"drag: заголовок окна «{w0['title']}» целиком перекрыт другими окнами")
+                gx = free[0]
                 ptr_move(vm, cur[0], cur[1], gx, gy)
                 vm.pump(0.4)
                 vm.qmp_cmd({"execute": "input-send-event", "arguments": {"events": [{"type": "btn", "data": {"down": True, "button": "left"}}]}})

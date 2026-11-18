@@ -77,6 +77,7 @@ int  virtio_iommu_check_q(virtio_dev_t* v, uint16_t qidx, int device_writes);   
 
 /* Непрерывная память для DMA (обнулена). Возвращает указатель; *phys - адрес для устройства. 0 - нет памяти. */
 void* virtio_dma_alloc(uint32_t bytes, uint64_t* phys);
+int   virtio_dma_last_uncached(void);                      /* 1 - последний блок выдан из пула без кэша (плата без согласованности): процессору он медленный, рисовать в нём кадр нельзя */
 
 /* Блочное устройство virtio-blk. NULL - такого устройства нет или оно не поднялось. */
 struct blk_dev;
