@@ -354,29 +354,149 @@ void ui_text_fit(surface_t* s, int x, int y, const char* t, int maxw, uint32_t c
     gfx_text(s, x, y, buf, col, -1);
 }
 
+/* Плоская карточка: поверхность и тонкая рамка. title - подпись сверху (акцентная полоса не рисуется: цвет только для состояний). */
 void ui_card(surface_t* s, int x, int y, int w, int h, const char* title, uint32_t accent) {
-    ui_round_rect(s, x, y, w, h, TH_RADIUS, TH_CARD, 255);
-    ui_round_frame(s, x, y, w, h, TH_RADIUS, TH_CARD_EDGE, 255);
+    (void)accent;
+    ui_round_rect(s, x, y, w, h, TH_RADIUS, TH_SURF_WIN, 255);
+    ui_round_frame(s, x, y, w, h, TH_RADIUS, TH_EDGE, 255);
     if (title) {
-        gfx_rect(s, x + 12, y + 11, 3, 12, accent);
-        gfx_text(s, x + 21, y + 9, title, TH_TEXT_FAINT, -1);
-        if (h > 44 && w > 40) ui_vgrad(s, x + 12, y + 29, w - 24, 1, accent, TH_CARD_EDGE);
+        gfx_text(s, x + TH_S3, y + TH_S2, title, TH_FG_DIM, -1);
+        if (h > 44 && w > 40) gfx_rect(s, x + TH_S2, y + 28, w - 2 * TH_S2, 1, TH_EDGE);
     }
 }
 
-void ui_button(surface_t* s, int x, int y, int w, int h, const char* label, uint32_t color, int hover, int on) {
-    ui_round_rect(s, x, y, w, h, 8, on ? ui_mix(TH_CARD, color, 70) : hover ? ui_mix(TH_CARD, color, 45) : TH_TRACK, 255);
-    ui_round_frame(s, x, y, w, h, 8, on ? color : hover ? ui_mix(TH_CARD_EDGE, color, 140) : TH_CARD_EDGE, 255);
-    int tw = gfx_text_width(label);
-    gfx_text(s, x + (w - tw) / 2, y + (h - 16) / 2, label, on || hover ? TH_TEXT : TH_TEXT_DIM, -1);
+/* ---- общие состояния элементов (docs/UI_DESIGN.md, раздел 2) ---- */
+
+uint32_t ui_state_bg(int st, uint32_t base) {
+    switch (st) {
+    case UI_ST_HOVER:    return ui_mix(base, TH_FG, 14);
+    case UI_ST_PRESSED:  return ui_mix(base, TH_FG, 30);
+    case UI_ST_SELECTED: return ui_mix(base, TH_ACCENT, 56);
+    default:             return base;
+    }
 }
 
+uint32_t ui_state_fg(int st) { return st == UI_ST_DISABLED ? TH_FG_FAINT : st == UI_ST_NORMAL ? TH_FG_DIM : TH_FG; }
+
+void ui_focus_ring(surface_t* s, int x, int y, int w, int h) {
+    gfx_rect(s, x, y, w, 2, TH_ACCENT); gfx_rect(s, x, y + h - 2, w, 2, TH_ACCENT);
+    gfx_rect(s, x, y, 2, h, TH_ACCENT); gfx_rect(s, x + w - 2, y, 2, h, TH_ACCENT);
+}
+
+/* Кнопка. color - смысл: TH_ACCENT (обычная) или цвет состояния (TH_ALARM для опасного действия); hover/on - 0/1. */
+void ui_button(surface_t* s, int x, int y, int w, int h, const char* label, uint32_t color, int hover, int on) {
+    int st = on ? UI_ST_SELECTED : hover ? UI_ST_HOVER : UI_ST_NORMAL;
+    uint32_t edge = (color == TH_ALARM || color == TH_WARN || color == TH_OK) ? color : TH_EDGE;
+    ui_round_rect(s, x, y, w, h, TH_RADIUS, ui_state_bg(st, TH_SURF_TRACK), 255);
+    ui_round_frame(s, x, y, w, h, TH_RADIUS, on ? (edge == TH_EDGE ? TH_ACCENT : edge) : edge, 255);
+    int tw = gfx_text_width(label);
+    gfx_text(s, x + (w - tw) / 2, y + (h - 16) / 2, label, on || hover ? TH_FG : TH_FG_DIM, -1);
+}
+
+/* Кнопка панели инструментов: плоская, без рамки до наведения; focus - клавиатурный фокус (рамка). */
+void ui_toolbtn(surface_t* s, int x, int y, int w, int h, const char* label, int st, int focus) {
+    if (st != UI_ST_NORMAL && st != UI_ST_DISABLED) ui_round_rect(s, x, y, w, h, TH_RADIUS, ui_state_bg(st, TH_SURF_HEAD), 255);
+    if (st == UI_ST_NORMAL || st == UI_ST_DISABLED) ui_round_frame(s, x, y, w, h, TH_RADIUS, TH_EDGE, 255);
+    int tw = gfx_text_width(label);
+    gfx_text(s, x + (w - tw) / 2, y + (h - 16) / 2, label, ui_state_fg(st == UI_ST_NORMAL ? UI_ST_HOVER : st), -1);
+    if (focus) ui_focus_ring(s, x, y, w, h);
+}
+
+/* Шапка колонки таблицы: подпись и стрелка сортировки (dir: 0 нет, 1 по возрастанию, -1 по убыванию). */
+void ui_col_header(surface_t* s, int x, int y, int w, int h, const char* label, int dir, int hover) {
+    gfx_rect(s, x, y, w, h, hover ? ui_state_bg(UI_ST_HOVER, TH_SURF_HEAD) : TH_SURF_HEAD);
+    gfx_rect(s, x, y + h - 1, w, 1, TH_EDGE);
+    ui_text_fit(s, x + TH_S2, y + (h - 16) / 2, label, w - 2 * TH_S2 - (dir ? 12 : 0), dir ? TH_FG : TH_FG_DIM);
+    if (dir) {                                                 /* стрелка 7x4: вверх - по возрастанию */
+        int ax = x + w - TH_S2 - 8, ay = y + h / 2 - 2;
+        for (int r = 0; r < 4; r++) {
+            int half = dir > 0 ? r : 3 - r;
+            gfx_rect(s, ax + 3 - half, ay + r, 2 * half + 1, 1, TH_ACCENT);
+        }
+    }
+}
+
+/* Строка списка: selected - выбрана, active - у списка клавиатурный фокус (рамка), hover - под мышью, alt - зебра. */
+void ui_list_row(surface_t* s, int x, int y, int w, int h, int selected, int active, int hover, int alt) {
+    if (selected) {
+        gfx_rect(s, x, y, w, h, ui_state_bg(UI_ST_SELECTED, TH_SURF_CONTENT));
+        gfx_rect(s, x, y, 3, h, active ? TH_ACCENT : TH_FG_FAINT);
+        if (active) { gfx_rect(s, x, y, w, 1, TH_ACCENT); gfx_rect(s, x, y + h - 1, w, 1, TH_ACCENT); }
+    } else if (hover) gfx_rect(s, x, y, w, h, ui_state_bg(UI_ST_HOVER, TH_SURF_CONTENT));
+    else if (alt) gfx_rect(s, x, y, w, h, TH_SURF_ROW_ALT);
+}
+
+/* Вертикальная полоса прокрутки: total элементов, visible видно, top - первый видимый. */
+void ui_scrollbar(surface_t* s, int x, int y, int h, int total, int visible, int top, int active) {
+    if (total <= visible || visible <= 0) return;
+    gfx_rect(s, x, y, 6, h, TH_SURF_TRACK);
+    int th = h * visible / total; if (th < 16) th = 16;
+    int ty = y + (h - th) * top / (total - visible);
+    gfx_rect(s, x, ty, 6, th, active ? TH_ACCENT : TH_FG_FAINT);
+}
+
+/* Контекстное меню: items - подписи (пустая строка - разделитель), sel - выбранный пункт, off - маска недоступных.
+   Высота пункта TH_BAR_H, разделитель 8 px. Геометрия общая с ui_menu_hit. */
+#define UI_MENU_SEP 8
+static int menu_item_h(const char* t) { return t[0] ? TH_BAR_H : UI_MENU_SEP; }
+int ui_menu_height(const char* const* items, int n) {
+    int h = 2 * TH_S1;
+    for (int i = 0; i < n; i++) h += menu_item_h(items[i]);
+    return h;
+}
+void ui_menu(surface_t* s, int x, int y, int w, const char* const* items, int n, int sel, unsigned off) {
+    int h = ui_menu_height(items, n);
+    ui_round_rect(s, x + 2, y + 3, w, h, TH_RADIUS, 0x00000000, 90);          /* лёгкая тень */
+    ui_round_rect(s, x, y, w, h, TH_RADIUS, TH_SURF_HEAD, 255);
+    ui_round_frame(s, x, y, w, h, TH_RADIUS, TH_EDGE, 255);
+    int cy = y + TH_S1;
+    for (int i = 0; i < n; i++) {
+        int ih = menu_item_h(items[i]);
+        if (!items[i][0]) { gfx_rect(s, x + TH_S2, cy + ih / 2, w - 2 * TH_S2, 1, TH_EDGE); cy += ih; continue; }
+        int dis = i < 32 && ((off >> i) & 1);
+        if (i == sel && !dis) { gfx_rect(s, x + 2, cy, w - 4, ih, ui_state_bg(UI_ST_SELECTED, TH_SURF_HEAD)); gfx_rect(s, x + 2, cy, 3, ih, TH_ACCENT); }
+        ui_text_fit(s, x + TH_S2 + 4, cy + (ih - 16) / 2, items[i], w - 2 * TH_S2 - 4, dis ? TH_FG_FAINT : i == sel ? TH_FG : TH_FG_DIM);
+        cy += ih;
+    }
+}
+/* Номер пункта под точкой (px,py) или -1 (разделитель и пустое место - не пункт). */
+int ui_menu_hit(int x, int y, int w, const char* const* items, int n, int px, int py) {
+    if (px < x || px >= x + w) return -1;
+    int cy = y + TH_S1;
+    for (int i = 0; i < n; i++) {
+        int ih = menu_item_h(items[i]);
+        if (items[i][0] && py >= cy && py < cy + ih) return i;
+        cy += ih;
+    }
+    return -1;
+}
+
+/* Рамка диалога: единая для всех окон; danger - красная полоса заголовка (опасное действие). Возвращает верх содержимого. */
+void ui_dialog_frame(surface_t* s, int x, int y, int w, int h, const char* title, int danger) {
+    ui_round_rect(s, x + 3, y + 5, w, h, TH_RADIUS, 0x00000000, 110);
+    ui_round_rect(s, x, y, w, h, TH_RADIUS, TH_SURF_WIN, 255);
+    ui_round_rect(s, x, y, w, 28, TH_RADIUS, TH_SURF_HEAD, 255);
+    gfx_rect(s, x + 1, y + TH_RADIUS, w - 2, 28 - TH_RADIUS, TH_SURF_HEAD);
+    ui_round_frame(s, x, y, w, h, TH_RADIUS, danger ? TH_ALARM : TH_EDGE, 255);
+    if (danger) gfx_rect(s, x + 1, y + 1, 3, 27, TH_ALARM);
+    ui_text_bold(s, x + TH_S3, y + 6, title, TH_FG);
+}
+
+/* Поле ввода с текстом и курсором; focus - рамка акцента. */
+void ui_input(surface_t* s, int x, int y, int w, int h, const char* text, int focus) {
+    ui_round_rect(s, x, y, w, h, TH_RADIUS, TH_SURF_TRACK, 255);
+    ui_round_frame(s, x, y, w, h, TH_RADIUS, focus ? TH_ACCENT : TH_EDGE, 255);
+    ui_text_fit(s, x + TH_S2, y + (h - 16) / 2, text, w - 2 * TH_S2, TH_FG);
+    if (focus) { int cw = gfx_text_width(text); if (cw > w - 2 * TH_S2) cw = w - 2 * TH_S2; gfx_rect(s, x + TH_S2 + cw, y + (h - 16) / 2, 2, 16, TH_ACCENT); }
+}
+
+/* Полоса состояния внизу окна на всю ширину: слева итог/подсказка, справа сведения. */
 void ui_statusbar(surface_t* s, int y, const char* left, uint32_t lc, const char* right) {
-    ui_vgrad(s, 0, y, s->w, TH_BAR_H, TH_BAR0, TH_BAR1);
-    gfx_rect(s, 0, y, s->w, 1, TH_CARD_EDGE);
+    gfx_rect(s, 0, y, s->w, TH_BAR_H, TH_SURF_BAR);
+    gfx_rect(s, 0, y, s->w, 1, TH_EDGE);
     int rw = right && right[0] ? gfx_text_width(right) : 0;
-    if (left && left[0]) ui_text_fit(s, 12, y + 4, left, s->w - 36 - rw, lc);
-    if (rw) gfx_text(s, s->w - 12 - rw, y + 4, right, TH_TEXT_FAINT, -1);
+    if (left && left[0]) ui_text_fit(s, TH_S2, y + 4, left, s->w - 3 * TH_S2 - rw - TH_S2, lc);
+    if (rw) gfx_text(s, s->w - TH_S2 - rw, y + 4, right, TH_FG_DIM, -1);
 }
 
 static void keybar_cell(int width, int n, int i, int* x, int* w) {

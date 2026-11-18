@@ -40,4 +40,20 @@ void ui_statusbar(surface_t* s, int y, const char* left, uint32_t left_color, co
 void ui_keybar(surface_t* s, int y, const ui_key_t* k, int n, int hover);
 int  ui_keybar_hit(int width, int n, int x);              /* номер ячейки по x или -1 */
 
+
+/* ---- состояния и общие элементы единого стиля (docs/UI_DESIGN.md) ---- */
+enum { UI_ST_NORMAL, UI_ST_HOVER, UI_ST_PRESSED, UI_ST_SELECTED, UI_ST_DISABLED };
+uint32_t ui_state_bg(int state, uint32_t base);            /* фон элемента по состоянию */
+uint32_t ui_state_fg(int state);                           /* цвет текста по состоянию */
+void ui_focus_ring(surface_t* s, int x, int y, int w, int h);   /* видимая рамка клавиатурного фокуса, 2 px */
+void ui_toolbtn(surface_t* s, int x, int y, int w, int h, const char* label, int state, int focus);
+void ui_col_header(surface_t* s, int x, int y, int w, int h, const char* label, int dir, int hover);   /* dir: 0 нет, 1 вверх, -1 вниз */
+void ui_list_row(surface_t* s, int x, int y, int w, int h, int selected, int active, int hover, int alt);
+void ui_scrollbar(surface_t* s, int x, int y, int h, int total, int visible, int top, int active);
+int  ui_menu_height(const char* const* items, int n);
+void ui_menu(surface_t* s, int x, int y, int w, const char* const* items, int n, int sel, unsigned off);   /* "" - разделитель */
+int  ui_menu_hit(int x, int y, int w, const char* const* items, int n, int px, int py);
+void ui_dialog_frame(surface_t* s, int x, int y, int w, int h, const char* title, int danger);
+void ui_input(surface_t* s, int x, int y, int w, int h, const char* text, int focus);
+
 #endif
