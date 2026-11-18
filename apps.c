@@ -128,16 +128,16 @@ static int mind_nav_geom(int i, int* x) {
 }
 static void mind_tabs_draw(surface_t* s, unsigned page) {
     gfx_rect(s, 0, 0, s->w, MIND_NAV_H, TH_CONTENT);
-    ui_round_rect(s, 10, 7, MIND_NAV_W, 34, 17, TH_BAR0, 255);
-    ui_round_frame(s, 10, 7, MIND_NAV_W, 34, 17, ui_mix(TH_BORDER, TH_CYAN, 50), 255);
+    ui_round_rect(s, 10, 7, MIND_NAV_W, 34, TH_RADIUS, TH_SURF_BAR, 255);
+    ui_round_frame(s, 10, 7, MIND_NAV_W, 34, TH_RADIUS, TH_EDGE, 255);
     for (int i = 0; i < 6; i++) {
         int x, cw = mind_nav_geom(i, &x);
         if (i == (int)page) {
-            ui_round_rect(s, x, 10, cw, 28, 14, TH_CYAN, 52);
-            ui_round_frame(s, x, 10, cw, 28, 14, TH_CYAN, 130);
+            ui_round_rect(s, x, 10, cw, 28, TH_RADIUS, ui_state_bg(UI_ST_SELECTED, TH_SURF_BAR), 255);
+            gfx_rect(s, x + 2, 10 + 26, cw - 4, 2, TH_ACCENT);
         }
         int lw = gfx_text_width(mind_names[i]); if (lw > cw - 8) lw = cw - 8;
-        ui_text_fit(s, x + (cw - lw) / 2, 16, mind_names[i], cw - 8, i == (int)page ? TH_CYAN : TH_TEXT_DIM);
+        ui_text_fit(s, x + (cw - lw) / 2, 16, mind_names[i], cw - 8, i == (int)page ? TH_FG : TH_FG_DIM);
     }
 }
 int app_mind_hit(int x, int y) {
@@ -188,7 +188,7 @@ static void m0_sigframe(surface_t* s, const mind_view_t* v) {
 static void m0_sig_row(surface_t* s, const mind_view_t* v, int k) {
     char t[128]; int p;
     int y = 38 + k * 36;
-    if (k == 0) ui_vgrad(s, 232, 39, 346, 1, TH_CYAN, TH_CARD_EDGE);       /* линия под заголовком карточки: стирание строки задевает её, рисуем снова */
+    if (k == 0) gfx_rect(s, 232, 39, 346, 1, TH_EDGE);       /* линия под заголовком карточки: стирание строки задевает её, рисуем снова */
     int az = v->z_x10[k] < 0 ? -v->z_x10[k] : v->z_x10[k];
     int learning = v->learned[k] < 60;
     uint32_t vc = learning ? TH_TEXT_DIM : az >= 40 ? TH_RED : az >= 25 ? TH_AMBER : TH_TEXT;
@@ -651,8 +651,7 @@ void app_monitor_draw(surface_t* s, const mind_view_t* v, uint32_t threads) {
         unsigned b = v->busy[i] > 100 ? 100 : v->busy[i];
         ui_round_rect(s, x, ay, bw, ah, bw >= 8 ? 4 : 0, TRACK, 255);
         int h = (int)(b * (unsigned)ah / 100); if (h < 2) h = 2;
-        ui_vgrad(s, x, ay + ah - h, bw, h, ui_mix(TH_CYAN, TH_PURPLE, b * 255 / 100), ui_mix(TH_CYAN, TH_PURPLE, 40));
-        if (b >= 85) gfx_rect(s, x, ay + ah - h, bw, 2, TH_RED);
+        gfx_rect(s, x, ay + ah - h, bw, h, b >= 85 ? TH_ALARM : b >= 60 ? TH_WARN : TH_ACCENT);   /* цвет - по уровню нагрузки: норма, внимание, авария */
         if (slot >= 22) { app_fmt_u(t, i); gfx_text(s, x + bw / 2 - gfx_text_width(t) / 2, ay + ah + 4, t, TH_TEXT_FAINT, -1); }
     }
 

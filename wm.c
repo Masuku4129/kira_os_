@@ -1330,11 +1330,11 @@ static void draw_fullscreen(surface_t* c, int ox, int oy, int id) {
 
 static void draw_pill(surface_t* c, int ox, int oy, int fs, int show) {
     const win_t* w = &win[fs];
-    if (!show) { ui_round_rect(c, scr->w / 2 - 24 + ox, 4 + oy, 48, 4, 2, TH_CYAN, 110); return; }
+    if (!show) { ui_round_rect(c, scr->w / 2 - 24 + ox, 4 + oy, 48, 4, 2, TH_FG_DIM, 160); return; }
     int x, y, pw, ph, n; pill_rect(w, &x, &y, &pw, &ph, &n);
     x += ox; y += oy;
-    ui_round_rect(c, x, y, pw, ph, 18, TH_BAR0, 240);
-    ui_round_frame(c, x, y, pw, ph, 18, ui_mix(TH_BORDER, TH_CYAN, 120), 255);
+    ui_round_rect(c, x, y, pw, ph, TH_RADIUS * 2, TH_SURF_BAR, 255);
+    ui_round_frame(c, x, y, pw, ph, TH_RADIUS * 2, TH_EDGE, 255);
     for (int k = 0; k < n; k++) {
         int bx = x + 12 + k * 36 + 18, by = y + 18;
         ui_disc(c, bx, by, 8, TH_TRACK, 255);

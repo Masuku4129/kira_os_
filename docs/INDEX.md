@@ -1,6 +1,6 @@
 # Указатель документов Kira OS
 
-Обновлено: 2026-11-17
+Обновлено: 2026-11-18
 
 С чего начать: человеку — [README](../README.md), затем [PLAN.md](PLAN.md) (что делаем и зачем) и [SYSTEMS.md](SYSTEMS.md) (что есть в системе). Агентам и разработчикам — ещё [AGENTS.md](../AGENTS.md).
 
@@ -37,7 +37,8 @@
 | [APP_ISOLATION.md](APP_ISOLATION.md) | Изоляция приложений | справочник |
 | [V44_SECURITY_MODEL.md](V44_SECURITY_MODEL.md) | Модель безопасности (версия 44) | справочник |
 | [DEPENDENCIES.md](DEPENDENCIES.md) | Аудит зависимостей и сторонних компонентов | справочник |
-| [KIRA_DESIGN_SYSTEM.md](KIRA_DESIGN_SYSTEM.md) | Правила оформления интерфейса | справочник |
+| [UI_DESIGN.md](UI_DESIGN.md) | Дизайн оболочки: принципы и стандарты, палитра, состояния, Проводник, инвентаризация меню, снимки до и после | основной |
+| [KIRA_DESIGN_SYSTEM.md](KIRA_DESIGN_SYSTEM.md) | Концепция интерфейса (постоянный слой, контекстные поверхности); визуальный язык теперь по UI_DESIGN.md | справочник |
 | [BUILDER_PLAN.md](BUILDER_PLAN.md) | План «заданий на сборку» для Разума | история |
 | [MASTER_DEVELOPMENT_PLAN.md](MASTER_DEVELOPMENT_PLAN.md) | Прежний мастер-план | история |
 | [UNIFIED_RELEASE_PLAN.md](UNIFIED_RELEASE_PLAN.md) | Прежний план единого выпуска | история |

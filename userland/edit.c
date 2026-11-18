@@ -3,6 +3,7 @@
    Backspace, Delete, Enter, Tab; F2 или Ctrl+S - сохранить; F3 - следующий файл песочницы; F4 - новый файл;
    мышь - курсор в точку. Файл до 32 КБ. */
 #include "kira.h"
+#include "../theme.h"   /* единая палитра оболочки (docs/UI_DESIGN.md) */
 #include "../font.h"
 KIRA_ENTRY()
 
@@ -64,12 +65,12 @@ static void text_at(int x, int y, const char* s, u32 fg, u32 bg) {
 }
 
 static void draw(void) {
-    for (int i = 0; i < W * TOP; i++) px[i] = 0x00203040;
+    for (int i = 0; i < W * TOP; i++) px[i] = TH_SURF_HEAD;
     char st[128]; st[0] = 0;
     scat(st, name, sizeof st); scat(st, changed ? " *  " : "    ", sizeof st);
     scat(st, "строка ", sizeof st); sdec(st, line_no(cur) + 1, sizeof st); scat(st, ", столбец ", sizeof st); sdec(st, col_of(cur) + 1, sizeof st);
     scat(st, "   ", sizeof st); scat(st, status, sizeof st);
-    text_at(4, 2, st, 0x00E0E8F0, 0x00203040);
+    text_at(4, 2, st, TH_FG, TH_SURF_HEAD);
     u32 cl = line_no(cur);
     if (cl < top_line) top_line = cl;
     if (cl >= top_line + ROWS) top_line = cl - ROWS + 1;
@@ -83,13 +84,13 @@ static void draw(void) {
             if (cp == '\t') cp = ' ';
             int on = p == cur && !drawn;
             if (on) drawn = 1;
-            glyph(x, y, cp < 32 ? '?' : cp, on ? 0x00101820 : 0x00D0D8E0, on ? 0x00F0C040 : 0x00101820);
+            glyph(x, y, cp < 32 ? '?' : cp, on ? TH_SURF_CONTENT : TH_FG, on ? TH_ACCENT : TH_SURF_CONTENT);
             x += CW; p += k;
         }
         int cur_here = !drawn && p == cur && (p >= len || text[p] == '\n');
         if (cur_here) drawn = 1;
         for (; x < W; x += CW) {
-            glyph(x, y, ' ', 0, cur_here ? 0x00F0C040 : 0x00101820);
+            glyph(x, y, ' ', 0, cur_here ? TH_ACCENT : TH_SURF_CONTENT);
             cur_here = 0;
         }
         while (p < len && text[p] != '\n') p++;                     /* за правым краем - не видно */

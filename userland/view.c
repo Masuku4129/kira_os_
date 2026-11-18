@@ -6,6 +6,7 @@
    серого и YCbCr с любым прореживанием 1-2, интервалы перезапуска; прогрессивный SOF2: спектральная выборка и уточнение, до 4 МБ коэффициентов), текст UTF-8, остальное - hex.
    Клавиши: стрелки, PgUp/PgDn, Home/End - прокрутка текста; q или Esc - закрыть. */
 #include "kira.h"
+#include "../theme.h"   /* единая палитра оболочки (docs/UI_DESIGN.md) */
 #include "../font.h"
 KIRA_ENTRY()
 
@@ -736,12 +737,12 @@ static int is_text(void) {
 }
 
 static void draw(void) {
-    for (int i = 0; i < W * TOP; i++) px[i] = 0x00203040;
+    for (int i = 0; i < W * TOP; i++) px[i] = TH_SURF_HEAD;
     char st[200]; st[0] = 0; scat(st, path, sizeof st); scat(st, "   ", sizeof st); scat(st, err[0] ? err : info, sizeof st);
-    text_at(4, 2, st, 0x00E0E8F0, 0x00203040);
-    for (int i = W * TOP; i < W * H; i++) px[i] = 0x00101820;
+    text_at(4, 2, st, TH_FG, TH_SURF_HEAD);
+    for (int i = W * TOP; i < W * H; i++) px[i] = TH_SURF_CONTENT;
     int rows = (H - TOP) / FONT_H;
-    if (err[0]) { text_at(16, TOP + 16, err, 0x00F08080, 0x00101820); }
+    if (err[0]) { text_at(16, TOP + 16, err, TH_ALARM, TH_SURF_CONTENT); }
     else if (mode == 0) {                                        /* картинка: целиком в окне, без увеличения */
         u32 aw = W, ah = H - TOP, sw = iw, sh = ih;
         if (sw > aw || sh > ah) { if ((u64)iw * ah > (u64)ih * aw) { sw = aw; sh = (u32)((u64)ih * aw / iw); } else { sh = ah; sw = (u32)((u64)iw * ah / ih); } }
@@ -761,7 +762,7 @@ static void draw(void) {
                 u32 cp, k = utf8(file + p, flen - p, &cp); p += k;
                 if (cp == '\r') continue;
                 if (cp == '\t') cp = ' ';
-                if (x + FONT_W <= W) glyph(x, TOP + r * FONT_H, cp < 32 ? '?' : cp, 0x00D0D8E0, 0x00101820);
+                if (x + FONT_W <= W) glyph(x, TOP + r * FONT_H, cp < 32 ? '?' : cp, TH_FG, TH_SURF_CONTENT);
                 x += FONT_W;
             }
             p++;
@@ -778,7 +779,7 @@ static void draw(void) {
             ln[k++] = ' ';
             for (u32 i = 0; i < 16 && o + i < flen; i++) { u8 c = file[o + i]; ln[k++] = (char)(c >= 32 && c < 127 ? c : '.'); }
             ln[k] = 0;
-            text_at(4, TOP + r * FONT_H, ln, 0x00B0C8E0, 0x00101820);
+            text_at(4, TOP + r * FONT_H, ln, TH_FG_DIM, TH_SURF_CONTENT);
         }
     }
     k_gfx_present();

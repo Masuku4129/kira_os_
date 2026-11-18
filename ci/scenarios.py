@@ -386,6 +386,15 @@ ALL = [
         {"cmd": "fmstate"}, {"sleep": 1}, {"log": [r"mode=normal "]},
         {"log_forbid": NO_ERR},
     ], smp=2, mem="512M"),
+    sc("desktop-launcher", "меню запуска (F9): все программы по группам, поиск по названию и меткам, запуск Enter; значок открытой программы появляется в доке; закрытие Esc; снимки", [
+        {"log": BOOT_LOG},
+        {"keys": "", "then": ["f9"]}, {"sleep": 2}, {"shot": "launcher-groups"},
+        {"keys": "edit"}, {"sleep": 1}, {"shot": "launcher-search"},
+        {"keys": "", "then": ["ret"]}, {"sleep": 4}, {"shot": "launcher-edit-open"},
+        {"log": [r"\[KIRA DOCK\] открыта: edit «Текстовый редактор»"]},
+        {"keys": "", "then": ["f9"]}, {"sleep": 1}, {"keys": "", "then": ["esc"]}, {"sleep": 1}, {"shot": "launcher-closed"},
+        {"log_forbid": NO_ERR},
+    ], smp=2, mem="512M"),
     sc("apps-view", "просмотр: PNG (фильтры, dynamic/stored), BMP, PPM, GIF, JPEG базовый и прогрессивный (отказ при буфере >4 МБ), текст, двоичный - разбор в Ring 3, суммы пикселей против эталона", [
         {"log": BOOT_LOG},
         *[x for f, s in [("/pic.png", SUMS["/pic.png"]), ("/rgba.png", SUMS["/rgba.png"]), ("/pic.bmp", SUMS["/pic.bmp"]), ("/pic.ppm", SUMS["/pic.ppm"]), ("/pic.gif", SUMS["/pic.gif"]), ("/lace.gif", SUMS["/lace.gif"])]
