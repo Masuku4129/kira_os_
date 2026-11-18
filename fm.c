@@ -42,6 +42,29 @@ static int is_inside(const char* p, const char* dir) {        /* p совпад�
     return !dir[i] && (!p[i] || p[i] == '/' || (i == 1 && dir[0] == '/'));
 }
 
+/* ---------------- путь ---------------- */
+
+int fm_path_depth(const char* path) {
+    int d = 0;
+    for (int i = 0; path[i]; i++) if (path[i] == '/' && path[i + 1] && path[i + 1] != '/') d++;
+    return d;
+}
+
+/* Путь до k-й части включительно: "/a/b/c", k=2 -> "/a/b"; k=0 -> "/". Лишние косые игнорируются. */
+int fm_path_prefix(const char* path, int k, char* out, int cap) {
+    if (path[0] != '/' || k < 0 || k > fm_path_depth(path) || cap < 2) return -1;
+    int n = 0, seen = 0;
+    out[n++] = '/';
+    for (int i = 1; path[i] && seen < k; i++) {
+        if (path[i] == '/') continue;
+        if (n > 1) { if (n + 1 >= cap) return -1; out[n++] = '/'; }
+        while (path[i] && path[i] != '/') { if (n + 1 >= cap) return -1; out[n++] = path[i++]; }
+        seen++; i--;
+    }
+    out[n] = 0;
+    return 0;
+}
+
 /* ---------------- служебное и тип ---------------- */
 
 int fm_is_system(const char* dir, const char* name) {
@@ -72,14 +95,26 @@ int fm_kind_of(const char* dir, const char* name, int is_dir) {
 
 static int fold(int c) { return (c >= 'A' && c <= 'Z') ? c + 32 : c; }
 
-static int ent_cmp(const fm_ent_t* a, const fm_ent_t* b) {
-    if (a->dir != b->dir) return a->dir ? -1 : 1;                    /* каталоги первыми */
+static int g_col, g_desc;                                           /* колонка и направление текущей сортировки (рабочий поток один) */
+
+static int name_cmp(const fm_ent_t* a, const fm_ent_t* b) {
     const unsigned char* x = (const unsigned char*)a->name; const unsigned char* y = (const unsigned char*)b->name;
     while (*x && fold(*x) == fold(*y)) { x++; y++; }
     if (*x != *y && fold(*x) != fold(*y)) return fold(*x) - fold(*y);
     x = (const unsigned char*)a->name; y = (const unsigned char*)b->name;
     while (*x && *x == *y) { x++; y++; }
     return (int)*x - (int)*y;
+}
+
+/* Каталоги всегда первыми; внутри группы - по колонке (имя, размер, тип), равные - по имени; убывание переворачивает группу целиком. */
+static int ent_cmp(const fm_ent_t* a, const fm_ent_t* b) {
+    if (a->dir != b->dir) return a->dir ? -1 : 1;
+    int c = 0;
+    if (g_col == FM_SORT_SIZE) c = a->size < b->size ? -1 : a->size > b->size ? 1 : 0;
+    else if (g_col == FM_SORT_TYPE) c = (int)a->kind - (int)b->kind;
+    if (c) return g_desc ? -c : c;
+    c = name_cmp(a, b);
+    return g_desc && g_col == FM_SORT_NAME ? -c : c;
 }
 
 typedef struct { fm_ent_t* e; uint32_t n, cap, over, hidden; int show_hidden; const char* dir; } lst_t;
@@ -96,9 +131,10 @@ static void emit(void* c, const char* name, int dir, uint64_t size) {
 }
 
 /* Сортировка вставками по индексам, затем перестановка по циклам: записи по 80 байт почти не двигаются. */
-static void sort_ents(fm_ent_t* e, uint32_t n) {
+void fm_sort(fm_ent_t* e, uint32_t n, int col, int desc) {
     static uint16_t idx[FM_ENT];                                   /* вызывается только из рабочего потока */
     if (n < 2) return;
+    g_col = col; g_desc = desc != 0;
     for (uint32_t i = 0; i < n; i++) idx[i] = (uint16_t)i;
     for (uint32_t i = 1; i < n; i++) {
         uint16_t t = idx[i]; uint32_t j = i;
@@ -136,7 +172,7 @@ static int load_panel(fm_t* f, const fm_io_t* io, fm_panel_t* P, const char* kee
     lst_t L = { buf + n0, 0, FM_ENT - n0, 0, 0, f->show_hidden, P->path };
     int r = io->list(P->path, emit, &L);
     if (r < 0) return r;
-    sort_ents(buf + n0, L.n);
+    fm_sort(buf + n0, L.n, P->sort_col, P->sort_desc);
     uint32_t n = n0 + L.n;
     if (n0) {
         fm_ent_t* u = &buf[0];
@@ -186,6 +222,14 @@ static const char* errtext(const fm_io_t* io, int e) {
     }
 }
 
+static int g_nohist;                                               /* 1 - переход по истории: стеки не трогать */
+
+static void hist_push(char (*st)[FM_PATH], uint32_t* n, const char* path) {
+    if (*n && seq(st[*n - 1], path)) return;
+    if (*n >= FM_HIST) { for (uint32_t i = 1; i < FM_HIST; i++) scpy(st[i - 1], st[i], FM_PATH); (*n)--; }
+    scpy(st[(*n)++], path, FM_PATH);
+}
+
 static int goto_keep(fm_t* f, const fm_io_t* io, int pi, const char* path, const char* keep) {
     fm_panel_t* P = &f->p[pi];
     char np[FM_PATH]; int n = 0;
@@ -202,7 +246,7 @@ static int goto_keep(fm_t* f, const fm_io_t* io, int pi, const char* path, const
     if (r < 0 && !same) {                                          /* не вышло - остаёмся, где были */
         scpy(P->path, oldp, FM_PATH);
         load_panel(f, io, P, 0);
-    }
+    } else if (r >= 0 && !same && !g_nohist) { hist_push(P->back, &P->nback, oldp); P->nfwd = 0; }
     return r;
 }
 
@@ -230,6 +274,7 @@ void fm_init(fm_t* f, const fm_io_t* io, const char* left, const char* right) {
     load_panel(f, io, &f->p[0], 0); load_panel(f, io, &f->p[1], 0);
     if (left && left[0]) goto_keep(f, io, 0, left, 0);
     if (right && right[0]) goto_keep(f, io, 1, right, 0);
+    for (int i = 0; i < 2; i++) f->p[i].nback = f->p[i].nfwd = 0;       /* начальная установка путей - не переход пользователя */
     f->version++;
 }
 
@@ -399,24 +444,20 @@ static void finish_msg(fm_t* f, const fm_io_t* io, const char* verb, int r, cons
     ap(f->msg, q, sizeof f->msg, errtext(io, r));
 }
 
-static void run_transfer(fm_t* f, const fm_io_t* io, int move, int only_cur) {
-    fm_panel_t* S = &f->p[f->active]; fm_panel_t* D = &f->p[!f->active];
-    static tgt_t t[FM_MARKS];
-    int n = targets(S, only_cur, t, FM_MARKS);
-    if (!n) { msg(f, 1, "Нечего ", move ? "переносить" : "копировать", 0); return; }
-    if (seq(S->path, D->path)) { msg(f, 1, "Обе панели показывают один каталог: откройте другой во второй панели", 0, 0); return; }
+/* Ядро копирования и переноса: имена t[0..n) из каталога sdir в каталог ddir. */
+static void transfer_core(fm_t* f, const fm_io_t* io, const char* sdir, const tgt_t* t, int n, const char* ddir, int move) {
     op_t o = { f, io, 0, 0, 0, 0, 0 };
     begin_busy(f, move ? FM_OP_MOVE : FM_OP_COPY, move ? "Перенос" : "Копирование");
     int r = 0; char culprit[FM_PATH]; culprit[0] = 0;
     for (int i = 0; i < n && r >= 0; i++) {
         char s[FM_PATH];
-        if (pjoin(s, S->path, t[i].name) < 0) { r = E_NAME; scpy(culprit, t[i].name, FM_PATH); break; }
+        if (pjoin(s, sdir, t[i].name) < 0) { r = E_NAME; scpy(culprit, t[i].name, FM_PATH); break; }
         r = scan_item(&o, s, t[i].dir, t[i].size, 0);
         if (r < 0) scpy(culprit, s, FM_PATH);
     }
     for (int i = 0; i < n && r >= 0; i++) {
         char s[FM_PATH], d[FM_PATH];
-        if (pjoin(s, S->path, t[i].name) < 0 || pjoin(d, D->path, t[i].name) < 0) { r = E_NAME; scpy(culprit, t[i].name, FM_PATH); break; }
+        if (pjoin(s, sdir, t[i].name) < 0 || pjoin(d, ddir, t[i].name) < 0) { r = E_NAME; scpy(culprit, t[i].name, FM_PATH); break; }
         uint64_t before = o.done;
         r = copy_item(&o, s, d, t[i].dir, t[i].size, 0);
         if (r >= 0 && move) r = delete_item(&o, s, t[i].dir, 0);
@@ -426,8 +467,50 @@ static void run_transfer(fm_t* f, const fm_io_t* io, int move, int only_cur) {
     end_busy(f);
     finish_msg(f, io, move ? "Перенесено" : "Скопировано", r, culprit, &o);
     if (r < 0) log_line(io, move ? "move failed:" : "copy failed:", culprit, 0, 0, 0);
-    clear_marks(S);
     for (int i = 0; i < 2; i++) load_panel(f, io, &f->p[i], 0);
+}
+
+static void run_transfer(fm_t* f, const fm_io_t* io, int move, int only_cur) {
+    fm_panel_t* S = &f->p[f->active]; fm_panel_t* D = &f->p[!f->active];
+    static tgt_t t[FM_MARKS];
+    int n = targets(S, only_cur, t, FM_MARKS);
+    if (!n) { msg(f, 1, "Нечего ", move ? "переносить" : "копировать", 0); return; }
+    if (seq(S->path, D->path)) { msg(f, 1, "Обе панели показывают один каталог: откройте другой во второй панели", 0, 0); return; }
+    char sdir[FM_PATH], ddir[FM_PATH]; scpy(sdir, S->path, FM_PATH); scpy(ddir, D->path, FM_PATH);
+    transfer_core(f, io, sdir, t, n, ddir, move);
+    clear_marks(&f->p[f->active]);
+    for (int i = 0; i < 2; i++) load_panel(f, io, &f->p[i], 0);
+}
+
+/* Буфер обмена: Ctrl+C / Ctrl+X запоминают имена (отмеченные или под курсором), Ctrl+V вставляет в каталог активной панели. */
+static void clip_take(fm_t* f, int cut) {
+    fm_panel_t* P = &f->p[f->active];
+    static tgt_t t[FM_MARKS];
+    int n = targets(P, 0, t, FM_MARKS);
+    if (!n) { msg(f, 1, "Нечего ", cut ? "вырезать" : "копировать", 0); return; }
+    scpy(f->clip_dir, P->path, FM_PATH);
+    for (int i = 0; i < n; i++) scpy(f->clip[i], t[i].name, FM_NAME);
+    f->nclip = (uint32_t)n; f->clip_cut = cut != 0;
+    char c[24]; int p = apu(c, 0, sizeof c, (uint64_t)n); (void)p;
+    msg(f, 0, cut ? "Вырезано в буфер: " : "Скопировано в буфер: ", c, 0);
+}
+
+static void clip_paste(fm_t* f, const fm_io_t* io) {
+    fm_panel_t* P = &f->p[f->active];
+    if (!f->nclip) { msg(f, 1, "Буфер обмена пуст", 0, 0); return; }
+    if (seq(f->clip_dir, P->path)) { msg(f, 1, "Вставка в тот же каталог: откройте другой", 0, 0); return; }
+    static tgt_t t[FM_MARKS];
+    int n = 0;
+    for (uint32_t i = 0; i < f->nclip && n < FM_MARKS; i++) {
+        char full[FM_PATH]; int dir = 0; uint64_t size = 0;
+        if (pjoin(full, f->clip_dir, f->clip[i]) < 0 || io->stat(full, &dir, &size) != 0) continue;   /* исчезло - пропускаем */
+        scpy(t[n].name, f->clip[i], FM_NAME); t[n].dir = dir; t[n].size = size; n++;
+    }
+    if (!n) { msg(f, 1, "Скопированного уже нет на месте", 0, 0); f->nclip = 0; return; }
+    int cut = f->clip_cut;
+    char sdir[FM_PATH], ddir[FM_PATH]; scpy(sdir, f->clip_dir, FM_PATH); scpy(ddir, P->path, FM_PATH);
+    transfer_core(f, io, sdir, t, n, ddir, cut);
+    if (cut) f->nclip = 0;                                          /* вырезанное вставляется один раз */
 }
 
 static int valid_name(const char* nm) {
@@ -601,10 +684,139 @@ static void move_cur(fm_t* f, int32_t to) {
     P->cur = to; clamp_view(P);
 }
 
-void fm_key(fm_t* f, const fm_io_t* io, int key, int ch) {
+/* ---------------- команды (клавиши, панель инструментов, контекстное меню) ---------------- */
+
+static void cmd_rename(fm_t* f) {
+    fm_panel_t* P = &f->p[f->active];
+    if (P->n && P->e[P->cur].kind != FM_KIND_UP) ask_input(f, FM_OP_RENAME, "Переименовать", "Новое имя:", P->e[P->cur].name);
+    else msg(f, 1, "Выберите файл или каталог для переименования", 0, 0);
+}
+
+static void cmd_pin(fm_t* f) {
+    fm_panel_t* P = &f->p[f->active];
+    char full[FM_PATH];
+    if (P->n && !P->e[P->cur].dir && P->e[P->cur].kind == FM_KIND_PROG && pjoin(full, P->path, P->e[P->cur].name) == 0) {
+        f->act_kind = FM_ACT_PIN; scpy(f->act_path, full, sizeof f->act_path); f->act_seq++;
+    } else msg(f, 1, "Закрепить можно программу из /bin", 0, 0);
+}
+
+static void select_all(fm_t* f) {
+    fm_panel_t* P = &f->p[f->active];
+    uint32_t added = 0;
+    for (uint32_t i = 0; i < P->n; i++) {
+        if (P->e[i].kind == FM_KIND_UP || P->e[i].mark) continue;
+        if (P->nmark >= FM_MARKS) { msg(f, 1, "Выделено 64 объекта - больше за раз отметить нельзя", 0, 0); break; }
+        uint32_t k = 0; while (k < FM_MARKS && P->mk[k][0]) k++;
+        P->e[i].mark = 1; scpy(P->mk[k], P->e[i].name, FM_NAME);
+        recount_marks(P); added++;
+    }
+    recount_marks(P);
+    (void)added;
+}
+
+static void hist_go(fm_t* f, const fm_io_t* io, int fwd) {
+    fm_panel_t* P = &f->p[f->active];
+    uint32_t* n = fwd ? &P->nfwd : &P->nback;
+    if (!*n) { msg(f, 1, fwd ? "Вперёд идти некуда" : "Назад идти некуда", 0, 0); return; }
+    char target[FM_PATH], here[FM_PATH];
+    scpy(target, (fwd ? P->fwd : P->back)[*n - 1], FM_PATH);
+    scpy(here, P->path, FM_PATH);
+    (*n)--;
+    g_nohist = 1;
+    int r = goto_keep(f, io, f->active, target, 0);
+    g_nohist = 0;
+    if (r < 0) { msg(f, 1, "Не открыть каталог: ", errtext(io, r), 0); return; }
+    if (fwd) hist_push(P->back, &P->nback, here); else hist_push(P->fwd, &P->nfwd, here);
+}
+
+void fm_cmd(fm_t* f, const fm_io_t* io, int cmd) {
+    fm_panel_t* P = &f->p[f->active];
+    switch (cmd) {
+    case FM_CMD_BACK: hist_go(f, io, 0); break;
+    case FM_CMD_FWD: hist_go(f, io, 1); break;
+    case FM_CMD_UP: go_up(f, io, f->active); break;
+    case FM_CMD_REFRESH: for (int i = 0; i < 2; i++) load_panel(f, io, &f->p[i], 0); msg(f, 0, "Список обновлён", 0, 0); break;
+    case FM_CMD_MKDIR: ask_input(f, FM_OP_MKDIR, "Новый каталог", "Имя каталога:", ""); break;
+    case FM_CMD_COPY: clip_take(f, 0); break;
+    case FM_CMD_CUT: clip_take(f, 1); break;
+    case FM_CMD_PASTE: clip_paste(f, io); break;
+    case FM_CMD_DELETE: ask_delete(f); break;
+    case FM_CMD_RENAME: cmd_rename(f); break;
+    case FM_CMD_OPEN: enter_cur(f, io, 0); break;
+    case FM_CMD_VIEW: enter_cur(f, io, 1); break;
+    case FM_CMD_SELALL: select_all(f); break;
+    case FM_CMD_HIDDEN: fm_set_hidden(f, io, !f->show_hidden); break;
+    case FM_CMD_PIN: cmd_pin(f); break;
+    case FM_CMD_XCOPY: run_transfer(f, io, 0, 0); break;
+    case FM_CMD_XMOVE: run_transfer(f, io, 1, 0); break;
+    default: break;
+    }
+    (void)P;
+}
+
+/* ---------------- контекстное меню ---------------- */
+
+int fm_menu_build(const fm_t* f, int* id, const char** label, unsigned* off) {
+    const fm_panel_t* P = &f->p[f->active];
+    int has = P->n > 0 && P->cur < (int32_t)P->n, real = has && P->e[P->cur].kind != FM_KIND_UP;
+    int file = real && !P->e[P->cur].dir, prog = real && P->e[P->cur].kind == FM_KIND_PROG;
+    int other = !seq(f->p[0].path, f->p[1].path);
+    struct { int id; const char* label; int ok; } it[] = {
+        { FM_CMD_OPEN, "Открыть", has }, { FM_CMD_VIEW, "Просмотр", file }, { FM_CMD_NONE, "", 1 },
+        { FM_CMD_COPY, "Копировать       Ctrl+C", real }, { FM_CMD_CUT, "Вырезать         Ctrl+X", real },
+        { FM_CMD_PASTE, "Вставить         Ctrl+V", f->nclip > 0 }, { FM_CMD_NONE, "", 1 },
+        { FM_CMD_RENAME, "Переименовать   F2", real }, { FM_CMD_DELETE, "Удалить          Del", real }, { FM_CMD_NONE, "", 1 },
+        { FM_CMD_XCOPY, "Копия в другую панель  F5", real && other }, { FM_CMD_XMOVE, "Перенос в другую панель  F6", real && other },
+        { FM_CMD_NONE, "", 1 }, { FM_CMD_MKDIR, "Новая папка      F7", 1 }, { FM_CMD_SELALL, "Выделить всё     Ctrl+A", P->n > 0 },
+        { FM_CMD_REFRESH, "Обновить", 1 },
+        { FM_CMD_NONE, "", 1 }, { FM_CMD_PIN, "Закрепить в панели  F4", prog },
+    };
+    int n = (int)(sizeof it / sizeof it[0]);
+    if (!prog) n -= 2;                                              /* закрепление - только для программ /bin */
+    *off = 0;
+    for (int i = 0; i < n && i < FM_MENU_MAX; i++) { id[i] = it[i].id; label[i] = it[i].label; if (!it[i].ok) *off |= 1u << i; }
+    return n;
+}
+
+static int menu_first(const fm_t* f, int from, int dir) {          /* ближайший доступный пункт от from в сторону dir; -1 - нет */
+    int id[FM_MENU_MAX]; const char* lb[FM_MENU_MAX]; unsigned off;
+    int n = fm_menu_build(f, id, lb, &off);
+    for (int i = from; i >= 0 && i < n; i += dir) if (id[i] != FM_CMD_NONE && !((off >> i) & 1)) return i;
+    return -1;
+}
+
+static void menu_open(fm_t* f, int x, int y) {
+    f->mode = FM_MODE_MENU; f->menu_x = x; f->menu_y = y;
+    int s = menu_first(f, 0, 1);
+    f->menu_sel = s < 0 ? 0 : s;
+}
+
+static void menu_exec(fm_t* f, const fm_io_t* io, int item) {
+    int id[FM_MENU_MAX]; const char* lb[FM_MENU_MAX]; unsigned off;
+    int n = fm_menu_build(f, id, lb, &off);
+    f->mode = FM_MODE_NORMAL;
+    if (item < 0 || item >= n || id[item] == FM_CMD_NONE || ((off >> item) & 1)) return;
+    fm_cmd(f, io, id[item]);
+}
+
+static void menu_key(fm_t* f, const fm_io_t* io, int key) {
+    if (key == KEY_ESC) { f->mode = FM_MODE_NORMAL; return; }
+    if (key == KEY_ENTER) { menu_exec(f, io, f->menu_sel); return; }
+    if (key == KEY_UP) { int k = menu_first(f, f->menu_sel - 1, -1); if (k >= 0) f->menu_sel = k; }
+    else if (key == KEY_DOWN) { int k = menu_first(f, f->menu_sel + 1, 1); if (k >= 0) f->menu_sel = k; }
+    else if (key == KEY_HOME) { int k = menu_first(f, 0, 1); if (k >= 0) f->menu_sel = k; }
+    else if (key == KEY_END) { int k = menu_first(f, FM_MENU_MAX - 1, -1); if (k >= 0) f->menu_sel = k; }
+}
+
+/* ---------------- клавиши ---------------- */
+
+void fm_key(fm_t* f, const fm_io_t* io, int key, int ch) { fm_key_m(f, io, key, ch, 0); }
+
+void fm_key_m(fm_t* f, const fm_io_t* io, int key, int ch, int mods) {
     if (f->mode == FM_MODE_BUSY) return;
     if (f->mode == FM_MODE_HELP) { f->mode = FM_MODE_NORMAL; f->version++; return; }
     if (f->mode == FM_MODE_INPUT) { input_key(f, io, key, ch); f->version++; return; }
+    if (f->mode == FM_MODE_MENU) { menu_key(f, io, key); f->version++; return; }
     if (f->mode == FM_MODE_CONFIRM) {
         if (key == KEY_ENTER || ch == 'y' || ch == 'Y' || ch == 0x434 || ch == 0x414) {
             f->mode = FM_MODE_NORMAL;
@@ -615,6 +827,15 @@ void fm_key(fm_t* f, const fm_io_t* io, int key, int ch) {
     }
     fm_panel_t* P = &f->p[f->active];
     f->msg[0] = 0; f->msg_err = 0;
+    if (mods & 2) {                                                 /* Ctrl: буфер обмена и выделение */
+        int c = key == 'c' ? FM_CMD_COPY : key == 'x' ? FM_CMD_CUT : key == 'v' ? FM_CMD_PASTE : key == 'a' ? FM_CMD_SELALL : FM_CMD_NONE;
+        if (c != FM_CMD_NONE) { fm_cmd(f, io, c); f->version++; return; }
+    }
+    if (mods & 4) {                                                 /* Alt: история и вверх */
+        int c = key == KEY_LEFT ? FM_CMD_BACK : key == KEY_RIGHT ? FM_CMD_FWD : key == KEY_UP ? FM_CMD_UP : FM_CMD_NONE;
+        if (c != FM_CMD_NONE) { fm_cmd(f, io, c); f->version++; return; }
+    }
+    if ((mods & 1) && key == KEY_F10) { menu_open(f, -1, -1); f->version++; return; }   /* Shift+F10 - контекстное меню */
     int32_t cur = P->cur, n = (int32_t)P->n;
     switch (key) {
     case KEY_TAB: case KEY_LEFT: case KEY_RIGHT: f->active = !f->active; break;
@@ -629,18 +850,9 @@ void fm_key(fm_t* f, const fm_io_t* io, int key, int ch) {
     case KEY_ESC: clear_marks(P); break;
     case KEY_INSERT: case ' ': toggle_mark(f, P, cur); if (cur + 1 < n) move_cur(f, cur + 1); break;
     case KEY_F1: f->mode = FM_MODE_HELP; break;
-    case KEY_F2:
-        if (n && P->e[cur].kind != FM_KIND_UP) ask_input(f, FM_OP_RENAME, "Переименовать", "Новое имя:", P->e[cur].name);
-        else msg(f, 1, "Выберите файл или каталог для переименования", 0, 0);
-        break;
+    case KEY_F2: cmd_rename(f); break;
     case KEY_F3: enter_cur(f, io, 1); break;
-    case KEY_F4: {
-        char full[FM_PATH];
-        if (n && !P->e[cur].dir && P->e[cur].kind == FM_KIND_PROG && pjoin(full, P->path, P->e[cur].name) == 0) {
-            f->act_kind = FM_ACT_PIN; scpy(f->act_path, full, sizeof f->act_path); f->act_seq++;
-        } else msg(f, 1, "Закрепить можно программу из /bin", 0, 0);
-        break;
-    }
+    case KEY_F4: cmd_pin(f); break;
     case KEY_F5: run_transfer(f, io, 0, 0); break;
     case KEY_F6: run_transfer(f, io, 1, 0); break;
     case KEY_F7: ask_input(f, FM_OP_MKDIR, "Новый каталог", "Имя каталога:", ""); break;
@@ -651,14 +863,34 @@ void fm_key(fm_t* f, const fm_io_t* io, int key, int ch) {
     f->version++;
 }
 
-void fm_mouse(fm_t* f, const fm_io_t* io, int kind, int panel, int row) {
-    if (f->mode != FM_MODE_NORMAL || panel < 0 || panel > 1) return;
+void fm_mouse(fm_t* f, const fm_io_t* io, int kind, int panel, int row) { fm_mouse_at(f, io, kind, panel, row, -1, -1); }
+
+static const char* sort_name(int col) { return col == FM_SORT_SIZE ? "по размеру" : col == FM_SORT_TYPE ? "по типу" : "по имени"; }
+
+void fm_mouse_at(fm_t* f, const fm_io_t* io, int kind, int panel, int row, int x, int y) {
+    if (f->mode == FM_MODE_MENU) {
+        if (kind == FM_MOUSE_MENUPICK) { menu_exec(f, io, row); f->version++; return; }
+        f->mode = FM_MODE_NORMAL;                                   /* щелчок мимо меню закрывает его */
+        if (kind != FM_MOUSE_RCLICK) { f->version++; return; }
+    }
+    if (f->mode != FM_MODE_NORMAL) return;
     f->msg[0] = 0; f->msg_err = 0;
+    if (kind == FM_MOUSE_CMD) { fm_cmd(f, io, row); f->version++; return; }
+    if (panel < 0 || panel > 1) return;
     f->active = panel;
     fm_panel_t* P = &f->p[panel];
+    if (kind == FM_MOUSE_SORT) {
+        if (row < 0 || row >= FM_SORT_COLS) return;
+        if (P->sort_col == row) P->sort_desc = !P->sort_desc; else { P->sort_col = row; P->sort_desc = 0; }
+        load_panel(f, io, P, 0);
+        msg(f, 0, "Сортировка ", sort_name(P->sort_col), P->sort_desc ? ", по убыванию" : ", по возрастанию");
+        f->version++;
+        return;
+    }
     if (row >= 0 && row < (int)P->n) { P->cur = row; clamp_view(P); }
     if (kind == FM_MOUSE_DOUBLE && row >= 0 && row < (int)P->n) enter_cur(f, io, 0);
     else if (kind == FM_MOUSE_DROP && row >= 0 && row < (int)P->n) run_transfer(f, io, 0, !P->e[row].mark);
+    else if (kind == FM_MOUSE_RCLICK) menu_open(f, x, y);
     f->version++;
 }
 

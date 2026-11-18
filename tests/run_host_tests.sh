@@ -439,6 +439,10 @@ echo "== file manager (two panels: sort, hidden, navigation, copy/move/mkdir/ren
 $CC $FLAGS -fsanitize=address,undefined -o $T/fm tests/fm_test.c fm.c
 ASAN_OPTIONS=detect_leaks=0 $T/fm
 
+echo "== file manager navigation (sort columns, path crumbs, history, Ctrl+A/C/X/V, context menu, toolbar commands) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/fmnav tests/fm_nav_test.c fm.c
+ASAN_OPTIONS=detect_leaks=0 $T/fmnav
+
 echo "== USB: HID, hubs, flash drives (Bulk-Only/SCSI -> FAT -> /usbN), stack core, UHCI and xHCI drivers against controller models =="
 USB_STACK="usb.c usbhid.c usbhub.c usbmsc.c usbmsc_fs.c input.c fat.c part.c vfs.c kfs.c sha256.c zstd.c store.c devhealth.c"
 $CC $FLAGS -fsanitize=address,undefined -o $T/usbhid tests/usbhid_test.c usbhid.c input.c
