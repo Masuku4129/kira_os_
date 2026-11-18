@@ -431,6 +431,10 @@ echo "== real-time clock (calendar, CMOS decode, epoch, Russian date) =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/rtc tests/rtc_test.c rtc.c
 $T/rtc
 
+echo "== theme (contrast >= 4.5:1, three states, target sizes) =="
+$CC $FLAGS -o $T/theme tests/theme_contrast_test.c -lm
+$T/theme
+
 echo "== file manager (two panels: sort, hidden, navigation, copy/move/mkdir/rename/delete, cancel, chunks, mouse) =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/fm tests/fm_test.c fm.c
 ASAN_OPTIONS=detect_leaks=0 $T/fm
