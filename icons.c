@@ -24,7 +24,7 @@ static void circle(const pen_t* p, int u, int v, int r) {
 }
 static void dot(const pen_t* p, int u, int v, int r) {
     int rr = r * p->size / 64; if (rr < 1) rr = 1;
-    ui_disc(p->s, X(p, u) / 16, Y(p, v) / 16, rr, p->col, p->alpha);
+    ui_disc(p->s, X(p, u) >> 4, Y(p, v) >> 4, rr, p->col, p->alpha);   /* вниз, а не к нулю: иначе в окне кадра левее/выше нуля точка сдвигается на пиксель */
 }
 
 static void shape(const pen_t* p, int kind) {

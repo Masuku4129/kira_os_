@@ -360,6 +360,14 @@ echo "== framegov (frame pacing: decided by the compositor, not by Mind) =="
 $CC $FLAGS -Werror -o $T/framegov tests/framegov_test.c framegov.c
 $T/framegov
 
+echo "== drawing into a clipped part of the frame = drawing the whole frame (primitives, text, icons) =="
+$CC $FLAGS -Werror -o $T/clip tests/clip_test.c gfx2d.c gfxui.c icons.c font8x16.c -lm
+$T/clip
+
+echo "== rgn (rectangle regions: subtracting covered parts) =="
+$CC $FLAGS -Werror -o $T/rgn tests/rgn_test.c rgn.c
+$T/rgn
+
 echo "== ftstat (frame time: average, p99, maximum)"
 $CC $FLAGS -Werror -o $T/ftstat tests/ftstat_test.c ftstat.c
 $T/ftstat
@@ -475,7 +483,7 @@ $T/dock
 
 if [ "${KIRA_SKIP_GUI:-0}" != 1 ]; then
     echo "== shell (top bar, side launcher, traffic lights, fullscreen, drag, input, live background, culling) =="
-    $CC $FLAGS -o $T/wm tests/wm_test.c wm.c gfxui.c gfx2d.c font8x16.c icons.c brainfx.c wallpaper.c
+    $CC $FLAGS -o $T/wm tests/wm_test.c wm.c rgn.c gfxui.c gfx2d.c font8x16.c icons.c brainfx.c wallpaper.c
     $T/wm
     echo "== уменьшение окна: быстрая версия = прямое усреднение по площади =="
     $CC $FLAGS -o $T/blit_scaled tests/blit_scaled_test.c gfxui.c gfx2d.c font8x16.c icons.c brainfx.c wallpaper.c
@@ -492,7 +500,7 @@ $CC $FLAGS -fsanitize=address,undefined -o $T/mcards tests/mind_cards_test.c app
 ASAN_OPTIONS=detect_leaks=0 $T/mcards
 
 echo "== display thread end-to-end with apps (preview: /tmp/kira_gfx/*.ppm) =="
-$CC $FLAGS -fsanitize=address,undefined -o $T/disp tests/display_preview.c display.c framegov.c ftstat.c kpar.c wm.c gfxui.c icons.c brainfx.c wallpaper.c zstd.c apps.c fm.c dock.c mind.c mindnet.c rtc.c input.c gfx2d.c font8x16.c klog.c fbcon.c bbring.c -lm
+$CC $FLAGS -fsanitize=address,undefined -o $T/disp tests/display_preview.c display.c framegov.c ftstat.c kpar.c wm.c rgn.c gfxui.c icons.c brainfx.c wallpaper.c zstd.c apps.c fm.c dock.c mind.c mindnet.c rtc.c input.c gfx2d.c font8x16.c klog.c fbcon.c bbring.c -lm
 # код возврата превью - не через tail (раньше сбой терялся в конвейере)
 for r in "" "1280 720" "1920 1080"; do
     ASAN_OPTIONS=detect_leaks=0 $T/disp $r > $T/disp.out 2>&1; rc=$?
