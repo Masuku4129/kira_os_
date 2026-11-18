@@ -69,9 +69,10 @@
 #define TH_TRACK        TH_SURF_TRACK
 #define TH_ROW_ALT      TH_SURF_ROW_ALT
 
-/* Кнопки управления окном: нейтральные, при наведении - по смыслу (закрыть - красный) */
+/* Прежние цвета кнопок окна (оставлены как псевдонимы; сами кнопки теперь нейтральные, красным при наведении
+   становится только «закрыть» - действие необратимо) */
 #define TH_CLOSE        TH_ALARM
-#define TH_MIN          TH_FG_DIM
-#define TH_FULL         TH_FG_DIM
+#define TH_MIN          TH_WARN
+#define TH_FULL         TH_OK
 
 #endif

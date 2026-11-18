@@ -100,7 +100,7 @@ static void dock_states(void) {
     it[5] = (wm_side_item_t){ "+", "", TH_TEXT_DIM, ICON_FOLDER, 1, 0, 0, 0, 0 };
     wm_side_set(it, 6);                                              /* p0..p4 и «+» внизу */
     frame();
-    uint32_t col = TH_PINK, faint = TH_TEXT_FAINT;
+    uint32_t col = TH_ACCENT, faint = TH_FG_FAINT;                   /* единый стиль: полоса открытого - акцент, свёрнутого - тусклая */
     CHECK(ind(&sc, 1) != col && ind(&sc, 1) != faint);               /* окна нет - полосы нет */
     int w1 = wm_create("Рисование", 300, 100, 200, 100, WM_CLOSABLE); wm_set_tag(w1, "p1");
     int w2 = wm_create("Другое", 340, 140, 200, 100, WM_CLOSABLE); wm_set_tag(w2, "p2");
@@ -218,10 +218,10 @@ int main(void) {
     CHECK(px(&scr, 320, 140) == 0x00AA0000);
     int ox, oy, sc;
     CHECK(wm_content_origin(a, &ox, &oy, &sc) == 0 && ox == 300 + WM_PAD && oy == 100 + WM_HEAD && sc == 1);
-    /* фон нарисован (градиент, сетка, мозг), а не пустой чёрный; верхняя панель и боковая есть */
-    int lit = 0; for (int i = 1024 * 100; i < 1024 * 700; i++) if (scr.px[i] != 0) lit++;
-    CHECK(lit > 1024 * 590);
-    CHECK(px(&scr, 512, 20) != px(&scr, 512, 300));
+    /* фон по умолчанию - гладкий нейтральный (docs/UI_DESIGN.md), а не пустой чёрный; панели отличаются от него */
+    int lit = 0; for (int i = 1024 * 100; i < 1024 * 700; i++) if (scr.px[i] == TH_SURF_DESK) lit++;
+    CHECK(lit > 1024 * 500);
+    CHECK(px(&scr, 512, 300) == TH_SURF_DESK);
     int sx0, sy0; wm_side_center(0, &sx0, &sy0);
     CHECK(sx0 > 200 && sx0 < 824 && sy0 > 768 - WM_DOCK_H);              /* Dock - снизу по центру */
     int sx2, sy2; wm_side_center(2, &sx2, &sy2);
@@ -511,6 +511,10 @@ int main(void) {
     CHECK(cw_ == 200 && ch_ == 100);
     wm_destroy(cid);
 
+    /* заставка «мозг» включается отдельно (по умолчанию фон гладкий): после включения фон перерисован целиком */
+    wm_desk_fancy(1);
+    CHECK(wm_compose(&x, &y, &w, &h) && w == 1024 && h == 768);
+    CHECK(px(&scr, 512, 300) != TH_SURF_DESK || px(&scr, 300, 400) != TH_SURF_DESK);
     /* живой фон: вспышки узлов отмечают свои области; при выключенной анимации - тишина */
     frame();
     wm_set_fx(3);

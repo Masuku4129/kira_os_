@@ -361,7 +361,7 @@ void ui_card(surface_t* s, int x, int y, int w, int h, const char* title, uint32
     ui_round_frame(s, x, y, w, h, TH_RADIUS, TH_EDGE, 255);
     if (title) {
         gfx_text(s, x + TH_S3, y + TH_S2, title, TH_FG_DIM, -1);
-        if (h > 44 && w > 40) gfx_rect(s, x + TH_S2, y + 28, w - 2 * TH_S2, 1, TH_EDGE);
+        if (h > 44 && w > 40) gfx_rect(s, x + 12, y + 29, w - 24, 1, TH_EDGE);      /* геометрия линии фиксирована: окно Разума перерисовывает её по строкам */
     }
 }
 

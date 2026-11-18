@@ -402,7 +402,6 @@ static uint32_t accent_of(const win_t* w) {
 static int bg_fancy;                                       /* 1 - прежняя заставка «мозг» (по умолчанию гладкий нейтральный фон) */
 static const uint8_t* wp_rgb; static int wp_w, wp_h;      /* обои из картинки (см. wallpaper.h); без них - заставка brainfx */
 
-void wm_desk_fancy(int on) { bg_fancy = on != 0; }      /* до wm_init: 1 - прежняя заставка «мозг» */
 int wm_wallpaper_set(const uint8_t* kwp, uint64_t len) {
     const uint8_t* rgb; int w, h;
     if (wallpaper_parse(kwp, (size_t)len, &w, &h, &rgb)) return -1;
@@ -424,6 +423,18 @@ static void bg_render(void) {
     if (hw > area_w * 40 / 100) { hw = area_w * 40 / 100; hh = hw * 10 / 13; }
     brainfx_build(brain_cx, brain_cy, hw, hh);
     brainfx_render(&bgs, brain_cx, brain_cy, hw, hh);
+}
+
+/* Заставка «мозг» (1) или гладкий нейтральный фон (0); можно переключать и во время работы: фон строится заново. */
+void wm_desk_fancy(int on) {
+    on = on != 0;
+    if (on == bg_fancy) return;
+    bg_fancy = on;
+    if (!scr || !bg) return;                                  /* до wm_init достаточно запомнить выбор */
+    uint32_t* old = bg; bg = 0;
+    bg_render();
+    if (bg && old) { ops.release(old, (uint64_t)scr->w * scr->h * 4); damage(0, 0, scr->w, scr->h); }
+    else if (!bg) bg = old;                                   /* памяти не хватило - остаётся прежний */
 }
 
 /* --- создание и состояние окон --- */

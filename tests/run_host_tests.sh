@@ -484,7 +484,7 @@ else
 fi
 
 echo "== окно Разума: кэш карточек = полная перерисовка для каждого байта снимка =="
-$CC $FLAGS -fsanitize=address,undefined -o $T/mcards tests/mind_cards_test.c apps.c gfxui.c gfx2d.c font8x16.c icons.c brainfx.c wallpaper.c zstd.c dock.c mind.c mindnet.c -lm
+$CC $FLAGS -fsanitize=address,undefined -o $T/mcards tests/mind_cards_test.c apps.c fm.c gfxui.c gfx2d.c font8x16.c icons.c brainfx.c wallpaper.c zstd.c dock.c mind.c mindnet.c -lm
 ASAN_OPTIONS=detect_leaks=0 $T/mcards
 
 echo "== display thread end-to-end with apps (preview: /tmp/kira_gfx/*.ppm) =="

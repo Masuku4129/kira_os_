@@ -214,8 +214,10 @@ static int clicks;
 static void ex_publish(void) { EV.mounted = 1; EV.total_kb = 8192; EV.free_kb = 7790; EV.files = 18; EV.version++; }
 static char written_path[64], written[256]; static int writes;
 void explorer_goto(int panel, const char* path) { int pn = panel < 0 ? EV.fm.active : panel; fm_goto(&EV.fm, &IO, pn, path); EV.fm.active = pn; ex_publish(); }
-void explorer_key(int key, int ch) { clicks++; fm_key(&EV.fm, &IO, key, ch); ex_publish(); }
+void explorer_key(int key, int ch, int mods) { clicks++; fm_key_m(&EV.fm, &IO, key, ch, mods); ex_publish(); }
 void explorer_mouse(int kind, int panel, int row) { clicks++; fm_mouse(&EV.fm, &IO, kind, panel, row); ex_publish(); }
+void explorer_menu(int panel, int row, int x, int y) { clicks++; fm_mouse_at(&EV.fm, &IO, FM_MOUSE_RCLICK, panel, row, x, y); ex_publish(); }
+void explorer_state_log(void) {}
 void explorer_page(int panel, int dir) { fm_page(&EV.fm, panel, dir); ex_publish(); }
 int explorer_write(const char* path, const void* data, unsigned len) {
     snprintf(written_path, sizeof written_path, "%s", path); memcpy(written, data, len); written[len] = 0; writes++;
@@ -392,15 +394,15 @@ int main(int argc, char** argv) {
     int w_files = wm_find("Files");
     CHECK(w_files >= 0 && wm_top() == w_files);
     exp_view_t e; explorer_view(&e);
-    const int RX0 = 70, RX1 = 70 + 395 - 10, RY = 38 + 46 + 9, KY = 520 - 12;
+    const int RX0 = 166 + 70, RX1 = 166 + 309 + 8 + 70, RY = 36 + 46 + 9, TBY = 6 + 12;   /* левая и правая панель, первая строка, панель инструментов */
     CHECK(!strcmp(e.fm.p[0].path, "/") && !strcmp(e.fm.p[1].path, "/data") && e.fm.p[0].n == 5 && e.fm.p[0].hidden == 1);   /* var скрыт, bin виден (список приложений) */
     CHECK(!strcmp(e.fm.p[0].e[0].name, "bin") && !strcmp(e.fm.p[0].e[1].name, "data") && e.fm.p[0].e[1].dir && !strcmp(e.fm.p[0].e[2].name, "wasm"));
     save_shot("files-open.ppm");
-    click_in(w_files, RX0, RY + 18 * 2); run(1);                              /* щелчок: курсор на wasm */
+    click_in(w_files, RX0, RY + 20 * 2); run(1);                              /* щелчок: курсор на wasm */
     explorer_view(&e); CHECK(e.fm.active == 0 && e.fm.p[0].cur == 2);
-    click_in(w_files, RX1, RY + 18 * 1); run(1);                              /* щелчок по правой панели: она активна */
+    click_in(w_files, RX1, RY + 20 * 1); run(1);                              /* щелчок по правой панели: она активна */
     explorer_view(&e); CHECK(e.fm.active == 1 && e.fm.p[1].cur == 1);
-    click_in(w_files, RX0, RY + 18); click_in(w_files, RX0, RY + 18); run(1);  /* двойной щелчок по data: левая панель входит */
+    click_in(w_files, RX0, RY + 20); click_in(w_files, RX0, RY + 20); run(1);  /* двойной щелчок по data: левая панель входит */
     explorer_view(&e); CHECK(!strcmp(e.fm.p[0].path, "/data") && e.fm.active == 0);
     /* клавиши: Tab, F7 - каталог */
     input_push_scancode(0x0F); input_push_scancode(0x8F); run(2);
@@ -410,7 +412,7 @@ int main(int argc, char** argv) {
     save_shot("files-dialog.ppm");
     input_push_scancode(0x31); input_push_scancode(0xB1); input_push_scancode(0x1C); input_push_scancode(0x9C); run(2);   /* "n" Enter */
     explorer_view(&e); CHECK(e.fm.mode == FM_MODE_NORMAL && mfind("/data/n") && !strcmp(e.fm.p[1].e[e.fm.p[1].cur].name, "n"));
-    click_in(w_files, 4 * 800 / 9 + 30, KY); run(1);                         /* ячейка F5: обе панели в /data - отказ */
+    input_push_scancode(0x3F); input_push_scancode(0xBF); run(2);            /* F5: обе панели в /data - отказ */
     explorer_view(&e); CHECK(e.fm.msg_err);
     explorer_goto(0, "/"); run(1);
     explorer_view(&e);
@@ -418,7 +420,7 @@ int main(int argc, char** argv) {
     CHECK(dd > 0);
     {
         int ox, oy, sc; wm_content_origin(w_files, &ox, &oy, &sc);
-        int z = wm_zoom_percent(w_files); move_to(ox + RX1 * z / 100, oy + (RY + 18 * dd) * z / 100, 0); wm_mouse(0, 0, 1); wm_mouse(-120, 4, 1); wm_mouse(-60, 4, 1); save_shot("files-drag.ppm"); wm_mouse(0, 0, 0);
+        int z = wm_zoom_percent(w_files); move_to(ox + RX1 * z / 100, oy + (RY + 20 * dd) * z / 100, 0); wm_mouse(0, 0, 1); wm_mouse(-120, 4, 1); wm_mouse(-60, 4, 1); save_shot("files-drag.ppm"); wm_mouse(0, 0, 0);
     }
     run(1);
     CHECK(mfind("/notes.txt") && mfind("/data/notes.txt"));
@@ -429,24 +431,24 @@ int main(int argc, char** argv) {
     save_shot("files-confirm.ppm");
     input_push_scancode(0x1C); input_push_scancode(0x9C); run(2);
     explorer_view(&e); CHECK(e.fm.mode == FM_MODE_NORMAL && !mfind("/data/notes.txt"));
-    click_in(w_files, 8 * 800 / 9 + 30, KY); run(1);                         /* F9: служебные файлы видны */
+    click_in(w_files, 704, TBY); run(1);                                     /* кнопка «Служебные»: служебные файлы видны */
     explorer_view(&e); CHECK(e.fm.show_hidden && e.fm.p[0].n == 7);
     save_shot("files.ppm");
-    click_in(w_files, 8 * 800 / 9 + 30, KY); run(1);
+    click_in(w_files, 704, TBY); run(1);
     /* программы /bin: двойной щелчок запускает, F4 закрепляет */
     explorer_goto(0, "/bin"); run(2);
     explorer_view(&e);
     int burn = -1, ipc = -1;
     for (uint32_t i = 0; i < e.fm.p[0].n; i++) { if (!strcmp(e.fm.p[0].e[i].name, "burn")) burn = (int)i; if (!strcmp(e.fm.p[0].e[i].name, "ipc")) ipc = (int)i; }
     CHECK(burn > 0 && ipc > 0 && e.fm.p[0].e[burn].kind == FM_KIND_PROG);
-    con_n = 0; click_in(w_files, RX0, RY + 18 * burn); run(1); click_in(w_files, RX0, RY + 18 * burn); run(2);
+    con_n = 0; click_in(w_files, RX0, RY + 20 * burn); run(1); click_in(w_files, RX0, RY + 20 * burn); run(2);
     CHECK(con_n == 1 && !strcmp(con_cmd, "burn"));
-    run(2); con_n = 0; click_in(w_files, RX0, RY + 18 * ipc); run(1); click_in(w_files, RX0, RY + 18 * ipc); run(2);
+    run(2); con_n = 0; click_in(w_files, RX0, RY + 20 * ipc); run(1); click_in(w_files, RX0, RY + 20 * ipc); run(2);
     CHECK(con_n == 1 && !strcmp(con_cmd, "test ipc"));
-    run(2); click_in(w_files, RX0, RY + 18 * burn); run(1);
+    run(2); click_in(w_files, RX0, RY + 20 * burn); run(1);
     move_to(200, 600, 0); run(2);
     save_shot("files_run.ppm");
-    writes = 0; click_in(w_files, 3 * 800 / 9 + 30, KY); run(2);              /* F4: закрепить burn */
+    writes = 0; input_push_scancode(0x3E); input_push_scancode(0xBE); run(2);  /* F4: закрепить burn */
     CHECK(writes == 1 && !strcmp(written_path, "/var/dock") && !strcmp(written, "cube3d\nedit\ndrvman\nburn\n"));
     { int x, y; CHECK(wm_side_center(3, &x, &y) == 0 && wm_side_center(4, &x, &y) == 0 && wm_side_center(5, &x, &y) != 0); }
     con_n = 0; click_side(3); CHECK(con_n == 1 && !strcmp(con_cmd, "burn"));

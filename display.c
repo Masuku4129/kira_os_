@@ -393,7 +393,7 @@ static void dock_log_changes(char (*run)[16], int nrun) {
 static void side_fill(int k, const char* name, int kind) {
     scpy(side_names[k], 0, name, 16);
     int p = scpy(side_hints[k], 0, name, (int)sizeof side_hints[k]);
-    p = scpy(side_hints[k], p, kind == SK_PINNED ? " · правая кнопка - открепить" : " · правая кнопка - закрепить", (int)sizeof side_hints[k]);
+    p = scpy(side_hints[k], p, kind == SK_PINNED ? " · правая кнопка - убрать из панели" : " · правая кнопка - закрепить в панели", (int)sizeof side_hints[k]);
     side_kind[k] = (unsigned char)kind;
     side[k] = (wm_side_item_t){ app_label(side_names[k]), side_names[k], dock_color(name), dock_icon(name), 0, kind == SK_RUN, side_hints[k], 0, app_desc(name) };
     if (side[k].icon == ICON_TERMINAL && name[0] >= 'a' && name[0] <= 'z') side[k].badge = (char)(name[0] - 32);
@@ -444,7 +444,7 @@ static void side_rebuild(int force) {
         side[k] = (wm_side_item_t){ side_labels[k], side_names[k], TH_TEXT_DIM, ICON_MORE, 0, 1, side_hints[k], 0, "Окон открыто больше, чем помещается в панели" };
     }
     side_kind[side_n] = SK_ADD;
-    side[side_n++] = (wm_side_item_t){ "Добавить программу", "", TH_TEXT_DIM, ICON_FOLDER, 1, 0, "откроет /bin в Проводнике", 0, "" };
+    side[side_n++] = (wm_side_item_t){ "Добавить программу", "", TH_TEXT_DIM, ICON_FOLDER, 1, 0, "откроет список программ в Проводнике", 0, "" };
     wm_side_set(side, side_n);
 }
 
