@@ -10,6 +10,9 @@ T=$(mktemp -d)
 echo "== уровни архитектуры (docs/architecture/levels.map) =="
 python3 ci/check_layers.py
 
+echo "== лицензии сторонних компонентов (docs/THIRD_PARTY.md) =="
+python3 ci/check_licenses.py
+
 echo "== process PID allocator (no wrap/reuse for private IPC principals) =="
 $CC $FLAGS -o $T/proc-pid tests/proc_pid_test.c
 $T/proc-pid

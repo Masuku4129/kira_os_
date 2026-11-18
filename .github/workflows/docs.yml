@@ -10,3 +10,5 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: python3 ci/check_docs.py
+      - run: python3 ci/check_licenses.py
+      - run: python3 ci/test_check_licenses.py
