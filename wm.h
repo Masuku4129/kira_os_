@@ -90,6 +90,7 @@ void wm_invalidate_rows(int id, int y0, int y1);
 void wm_invalidate_diff(int id);                   /* только изменившиеся полосы содержимого (сравнение с копией) */
 void wm_invalidate_all(void);
 void wm_set_culling(int on);
+void wm_set_scale_cache(int on);   /* кэш уменьшенного содержимого окон (по умолчанию включён); выключается для проверки: картинка та же */
 /* Верхняя панель и домашняя карточка: дата/время, загрузка CPU, память и здоровье Mind.
    Отсутствующие значения отображаются как «нет данных», не как фиктивный ноль. */
 void wm_set_clock(const char* date, const char* hm);

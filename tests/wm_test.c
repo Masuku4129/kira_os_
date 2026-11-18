@@ -31,7 +31,7 @@ static void same_as_full(surface_t* scr, const char* what) {
     static uint32_t snap[1024 * 768];
     frame();
     memcpy(snap, scr->px, sizeof snap);
-    wm_set_culling(0); wm_invalidate_all(); frame(); wm_set_culling(1);
+    wm_set_culling(0); wm_set_scale_cache(0); wm_invalidate_all(); frame(); wm_set_culling(1); wm_set_scale_cache(1);
     if (memcmp(snap, scr->px, sizeof snap)) {
         int n = 0, fx = -1, fy = -1;
         for (int i = 0; i < 1024 * 768; i++) if (snap[i] != scr->px[i]) { if (!n) { fx = i % 1024; fy = i / 1024; } n++; }
@@ -130,6 +130,51 @@ static void drag_random(void) {
     }
     #undef RND
     for (int n = 0; n < 4; n++) wm_destroy(ids[n]);
+    free(sc.px);
+}
+
+/* Кэш уменьшенного содержимого: окно больше свободного места уменьшается; правки (полосы, строки, окно целиком), сокрытие, смена масштаба и перетаскивание
+   дают ту же картинку, что сборка без кэша (same_as_full отключает кэш для эталона). */
+static void scale_cache(void) {
+    surface_t sc = { calloc(1024 * 768, 4), 1024, 768, 1024 };
+    wm_ops_t ops = { al, nt, inp, lc, rz, tb, 0, rel };
+    wm_init(&sc, &ops);
+    wm_side_set(0, 0);
+    int a = wm_create_ex("big", 100, 80, 900, 700, WM_RESIZABLE | WM_ZOOMABLE, 900, 700);    /* не помещается: уменьшается */
+    int b = wm_create("small", 300, 200, 200, 150, WM_CLOSABLE);
+    CHECK(wm_zoom_percent(a) < 100);
+    surface_t* c = wm_content(a);
+    for (int j = 0; j < c->h; j++) for (int i = 0; i < c->w; i++) c->px[j * c->pitch + i] = (uint32_t)((i * 5 + j * 11 + ((i / 7 + j / 9) & 1) * 0x808080) & 0xFFFFFF);
+    wm_invalidate(a);
+    same_as_full(&sc, "кэш: первая сборка");
+    unsigned seed = 99;
+    #define RND() (seed = seed * 1103515245u + 12345u, (int)(seed >> 8))
+    for (int it = 0; it < 200; it++) {
+        int kind = RND() % 6;
+        if (kind <= 2) {                                         /* правка прямоугольника и сообщение о ней тремя способами */
+            int y0 = RND() % c->h, x0 = RND() % c->w, h = 1 + RND() % 20, w = 1 + RND() % 60; uint32_t col = (uint32_t)RND() & 0xFFFFFF;
+            for (int j = y0; j < y0 + h && j < c->h; j++) for (int i = x0; i < x0 + w && i < c->w; i++) c->px[j * c->pitch + i] = col;
+            if (kind == 0) wm_invalidate_diff(a);
+            else if (kind == 1) wm_invalidate_rows(a, y0, y0 + h);
+            else wm_invalidate(a);
+        } else if (kind == 3) {                                  /* скрыли, поправили, показали: пока окно было скрыто, содержимое менялось без сообщений */
+            wm_set_visible(a, 0);
+            for (int i = 0; i < 400; i++) c->px[(RND() % c->h) * c->pitch + RND() % c->w] ^= 0x00FF00;
+            wm_set_visible(a, 1);
+        } else if (kind == 4) {                                  /* перетащили */
+            int wx, wy, ww, wh; const char* t; wm_window_info(a, &wx, &wy, &ww, &wh, &t);
+            move_to(wx + ww / 2, wy + 15, 0); wm_mouse(0, 0, 1);
+            for (int k = 0; k < 2; k++) { int mx = RND() % 120 - 60; int my = RND() % 80 - 40; wm_mouse(mx, my, 1); }
+            wm_mouse(0, 0, 0);
+        } else {                                                 /* другое окно поверх / сменили масштаб за уголок */
+            if (RND() % 2) wm_raise(b); else wm_raise(a);
+            int wx, wy, ww, wh; const char* t; wm_window_info(a, &wx, &wy, &ww, &wh, &t);
+            if (RND() % 3 == 0) { int mx = RND() % 160 - 120; int my = RND() % 120 - 90; move_to(wx + ww - 4, wy + wh - 4, 0); wm_mouse(0, 0, 1); wm_mouse(mx, my, 1); wm_mouse(0, 0, 0); }
+        }
+        same_as_full(&sc, "кэш: шаг");
+    }
+    #undef RND
+    wm_destroy(a); wm_destroy(b);
     free(sc.px);
 }
 
@@ -636,6 +681,7 @@ int main(void) {
     dock_states();
     diff_invalidate();
     drag_random();
+    scale_cache();
     responsive_topbar();
     printf("wm: shell top bar (responsive tabs and fitted app windows at 640x480, 800x600, 1024x768, 1280x720, 1920x1080; clock and meters), side launcher, traffic-light buttons, z-order, damage, drag, "
            "fullscreen, pinned, app and kernel input, zoom, owner resize, live background, culling = full redraw, partial content redraw = full, dock states / cycling / compression passed\n");

@@ -46,6 +46,21 @@ LATENCY_LOAD = [
     {"send": "burnall"}, {"sleep": 4},
 ]
 
+def WM_DRAG_STEPS(profile):
+    return [
+        {"log": BOOT_LOG}, {"send": "3d"}, {"sleep": 8},
+        {"open_window": {"title": "Разум", "launcher": "mind"}}, {"sleep": 3}, {"shot": "start"},
+        {"cmd": "fb", "must": [r"\[WMPERF\] drawn"]},
+        {"drag": {"window": "Разум", "seconds": 8, "hz": 125, "step": 24}},
+        {"cmd": "fb", "must": [r"\[WMPERF\] drawn \d+", r"\[PERIOD\] ms \d+ frames \d+"]},
+        {"redraw_compare": {"name": "after-mind", "mask": ["Разум", "Терминал", "3D", "cube"], "max_diff": 0}},
+        {"drag": {"window": "Терминал", "seconds": 8, "hz": 125, "step": 24}},
+        {"cmd": "fb", "must": [r"\[WMPERF\] drawn \d+", r"\[PERIOD\] ms \d+ frames \d+"]},
+        {"redraw_compare": {"name": "after-term", "mask": ["Разум", "Терминал", "3D", "cube"], "max_diff": 0}},
+        {"wmperf_gate": profile},
+    ]
+
+
 def sc(name, about, steps, **kw):
     d = {"name": name, "about": about, "steps": steps}
     d.update(kw)
@@ -560,17 +575,9 @@ ALL = [
         {"sleep": 5}, {"cmd": "fb", "must": [r"\[PERIOD\] ms \d+ frames \d+"]},
         {"cmd": "ai", "must": [r"."]},
     ], smp=4, mem="512M", limbo=True),
-    sc("wm-drag", "перетаскивание окон (А14): быстрое перетаскивание «Разума» и терминала по экрану при работающем кубе, экран 1412x1060 на virtio-gpu и один поток TCG, как Limbo на телефоне; замер времени кадра, пересчитанных точек, полных перерисовок и сверка с полной перерисовкой (остатков старого положения быть не должно)", [
-        {"log": BOOT_LOG}, {"send": "3d"}, {"sleep": 8},
-        {"open_window": {"title": "Разум", "launcher": "mind"}}, {"sleep": 3}, {"shot": "start"},
-        {"cmd": "fb", "must": [r"\[WMWIN\] id \d+ .*\"Разум"]},
-        {"drag": {"window": "Разум", "seconds": 8, "hz": 125, "step": 24}},
-        {"cmd": "fb", "must": [r"\[WMPERF\] drawn \d+", r"\[PERIOD\] ms \d+ frames \d+"]},
-        {"redraw_compare": {"name": "after-mind", "mask": ["Разум", "Терминал", "3D", "cube"], "max_diff": 0}},
-        {"drag": {"window": "Терминал", "seconds": 8, "hz": 125, "step": 24}},
-        {"cmd": "fb", "must": [r"\[WMPERF\] drawn \d+", r"\[PERIOD\] ms \d+ frames \d+"]},
-        {"redraw_compare": {"name": "after-term", "mask": ["Разум", "Терминал", "3D", "cube"], "max_diff": 0}},
-    ], smp=4, mem="1G", limbo=True, vga="none", extra=["-device", "virtio-gpu-pci,disable-legacy=on,xres=1412,yres=1060"]),
+    sc("wm-drag", "перетаскивание окон (А14): быстрое перетаскивание «Разума» и терминала по экрану при работающем кубе, экран 1412x1060 на virtio-gpu и один поток TCG, как Limbo на телефоне; замер времени кадра, пересчитанных точек, полных перерисовок и сверка с полной перерисовкой (остатков старого положения быть не должно); пороги - ci/wmperf_policy.json", WM_DRAG_STEPS("virtio1412"),
+       smp=4, mem="1G", limbo=True, vga="none", extra=["-device", "virtio-gpu-pci,disable-legacy=on,xres=1412,yres=1060"]),
+    sc("wm-drag-small", "то же на маленьком экране 1280x720 (кадровый буфер загрузчика): окна приложений уменьшены (кэш уменьшенного содержимого), без virtio-gpu", WM_DRAG_STEPS("vga1280"), smp=2, mem="1G"),
     sc("hover-look", "вид: наведение на значок Dock и вкладку - подпись рисуется целиком, следов нет", [
         {"log": BOOT_LOG}, {"sleep": 6},
         {"pointer": [603, 672, 1280, 720]}, {"shot": "hover-dock"},

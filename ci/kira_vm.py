@@ -775,6 +775,34 @@ def run(sc, args):
                     else: vm.drain(0)
                 vm.log += f"[HOST] mouse: sent {sent} move events in {secs * args.timeout_scale} s\n".encode()
                 vm.pump(0.5)
+            elif "wmperf_gate" in st:                 # пороги плавности (ci/wmperf_policy.json) по строкам [WMPERF] периодов, где шло перетаскивание (мышь: много событий)
+                pol = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "wmperf_policy.json")))[st["wmperf_gate"]]
+                txt = bytes(vm.log).decode(errors="replace")
+                samples = []
+                for m in re.finditer(r"\[PERIOD\] (.*)\n(?:.*\n)*?\s*\[WMPERF\] (.*)", txt):
+                    per = {k: int(v) for k, v in re.findall(r"(\w+) (\d+)", m.group(1))}
+                    wp = {k: int(v) for k, v in re.findall(r"(\w+) (\d+)", m.group(2))}
+                    if per.get("mouse_used", 0) >= pol.get("drag_min_mouse", 800):
+                        wp["late_pct"] = 100 * per.get("late", 0) // max(1, per.get("frames", 1))
+                        wp["frames"] = per.get("frames", 0); wp["period_ms"] = per.get("ms", 0)
+                        wp["fps"] = per.get("frames", 0) * 1000 // max(1, per.get("ms", 1))
+                        wp["content_over_px_x100"] = 100 * wp.get("content_px", 0) // max(1, wp.get("px_per_frame", 1))
+                        samples.append(wp)
+                if len(samples) < pol.get("min_samples", 2):
+                    raise Fail(f"wmperf_gate: найдено {len(samples)} перетаскиваний, нужно {pol.get('min_samples', 2)}")
+                bad = []
+                for i2, wp in enumerate(samples):
+                    for key, lim in pol.get("max", {}).items():
+                        ok = wp.get(key, 0) <= lim
+                        result["checks"].append({"wmperf": key, "sample": i2, "value": wp.get(key, 0), "max": lim, "ok": ok})
+                        if not ok: bad.append(f"перетаскивание {i2}: {key} = {wp.get(key, 0)} > {lim}")
+                    for key, lim in pol.get("min", {}).items():
+                        ok = wp.get(key, 0) >= lim
+                        result["checks"].append({"wmperf": key, "sample": i2, "value": wp.get(key, 0), "min": lim, "ok": ok})
+                        if not ok: bad.append(f"перетаскивание {i2}: {key} = {wp.get(key, 0)} < {lim}")
+                vm.log += ("[HOST] wmperf_gate: " + json.dumps(samples, ensure_ascii=False) + "\n").encode()
+                if bad:
+                    raise Fail("wmperf_gate: " + "; ".join(bad))
             elif "open_window" in st:                 # окно запускается через меню по F9 (печатается часть имени метки); не вышло с первого раза (медленная эмуляция теряет клавиши) - Esc и снова
                 ow = st["open_window"]
                 for attempt in range(4):

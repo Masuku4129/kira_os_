@@ -1,0 +1,4 @@
+{
+  "virtio1412": {"drag_min_mouse": 800, "min_samples": 2, "max": {}},
+  "vga1280": {"drag_min_mouse": 800, "min_samples": 2, "max": {}}
+}

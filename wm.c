@@ -28,6 +28,10 @@ typedef struct {
     const volatile uint32_t* seq;
     uint32_t* shadow;                 /* копия содержимого, как его видит композитор (для wm_invalidate_diff) */
     int shadow_ok, sh_w, sh_h;
+    uint32_t* sc;                     /* уменьшенное содержимое окна, готовое к копированию (кэш: усреднение по площади делается при изменении содержимого, а не при каждой сборке кадра) */
+    int sc_ok, sc_w, sc_h, sc_cw, sc_ch;   /* кэш верен для размера показа sc_w x sc_h и содержимого sc_cw x sc_ch */
+    int sc_x0, sc_y0, sc_x1, sc_y1;   /* что в кэше устарело (в точках показа, относительно левого верхнего угла содержимого); пусто - всё верно */
+    int sc_lock;
 } win_t;
 
 static surface_t* scr;
@@ -159,6 +163,31 @@ static int disp_w(const win_t* w) { return w->zoomable ? (w->content.w * w->zoom
 static int disp_h(const win_t* w) { return w->zoomable ? (w->content.h * w->zoom16 + 8) / 16 : w->content.h; }
 static int outer_w(const win_t* w) { return disp_w(w) + 2 * WM_PAD; }
 static int outer_h(const win_t* w) { return disp_h(w) + WM_HEAD + WM_PAD; }
+
+/* Кэш уменьшенного содержимого. Окна приложений (Разум, куб, ...) обычно уменьшаются под маленький экран; усреднение по площади стоит ~60 нс на точку
+   и без кэша повторялось при каждой сборке кадра - в том числе когда окно лишь двигают и содержимое то же. Теперь оно пересчитывается только в
+   изменённой части, а сборка кадра копирует готовое. Об изменении содержимого композитору сообщают wm_invalidate*, их же метки ведут кэш. */
+static int sc_enabled = 1;
+void wm_set_scale_cache(int on) { sc_enabled = on; }
+static int sc_wanted(const win_t* w) {
+    if (!sc_enabled || !w->zoomable || w->full) return 0;
+    int dw = disp_w(w), dh = disp_h(w);
+    return dw <= w->content.w && dh <= w->content.h && (dw < w->content.w || dh < w->content.h);       /* только уменьшение: увеличение - повтор точек, оно дёшево */
+}
+static void sc_mark(win_t* w, int x0, int y0, int x1, int y1) {
+    if (!w->sc_ok) return;
+    if (x0 < 0) x0 = 0;
+    if (y0 < 0) y0 = 0;
+    if (x1 > w->sc_w) x1 = w->sc_w;
+    if (y1 > w->sc_h) y1 = w->sc_h;
+    if (x0 >= x1 || y0 >= y1) return;
+    if (w->sc_x1 <= w->sc_x0) { w->sc_x0 = x0; w->sc_y0 = y0; w->sc_x1 = x1; w->sc_y1 = y1; return; }
+    if (x0 < w->sc_x0) w->sc_x0 = x0;
+    if (y0 < w->sc_y0) w->sc_y0 = y0;
+    if (x1 > w->sc_x1) w->sc_x1 = x1;
+    if (y1 > w->sc_y1) w->sc_y1 = y1;
+}
+static void sc_drop(win_t* w) { w->sc_ok = 0; w->sc_x0 = w->sc_y0 = w->sc_x1 = w->sc_y1 = 0; }
 
 static int fs_scale(const win_t* w) {
     int sx = scr->w / w->content.w, sy = scr->h / w->content.h;
@@ -625,6 +654,8 @@ void wm_destroy(int id) {
     if (owned && ops.release) ops.release(owned, owned_bytes);
     if (w->shadow && ops.release) ops.release(w->shadow, owned_bytes);
     w->shadow = 0; w->shadow_ok = 0;
+    if (w->sc && ops.release) ops.release(w->sc, owned_bytes);
+    w->sc = 0; sc_drop(w);
     int j = 0;
     for (int i = 0; i < zcount; i++) if (zorder[i] != id) zorder[j++] = zorder[i];
     zcount = j;
@@ -723,6 +754,7 @@ void wm_set_visible(int id, int v) {
     int prev_top = wm_top();
     win[id].visible = v;
     win[id].shadow_ok = 0;                     /* пока окно было скрыто, содержимое могло уйти от копии */
+    sc_drop(&win[id]);                         /* и от кэша уменьшенного содержимого */
     if (v) wm_raise(id);
     damage_win(&win[id]);
     focus_moved(prev_top);
@@ -771,9 +803,11 @@ int wm_fullscreen(int id) { return id >= 0 && id < WM_MAX_WIN && win[id].used &&
 
 void wm_invalidate_report(void (*out)(uintptr_t ra, uint32_t n)) { for (int i = 0; i < 16; i++) { if (inv_tab[i].n) out(inv_tab[i].ra, inv_tab[i].n); inv_tab[i].n = 0; } }
 void wm_invalidate(int id) {
+    if (id >= 0 && id < WM_MAX_WIN && win[id].used && !win[id].visible) sc_drop(&win[id]);     /* скрытое окно могло уйти от кэша */
     if (!wm_visible(id)) return;
     win_t* w = &win[id];
     int ox, oy, dw, dh; geom(w, &ox, &oy, &dw, &dh);
+    sc_mark(w, 0, 0, dw, dh);
     damage(ox, oy, ox + dw, oy + dh);
 }
 
@@ -787,7 +821,7 @@ void wm_invalidate(int id) {
 void wm_invalidate_diff(int id) {
     if (id < 0 || id >= WM_MAX_WIN || !win[id].used) return;
     win_t* w = &win[id];
-    if (!w->visible) { w->shadow_ok = 0; return; }
+    if (!w->visible) { w->shadow_ok = 0; sc_drop(w); return; }
     int cw = w->content.w, ch = w->content.h;
     if (!w->shadow && ops.alloc && ops.release)
         w->shadow = (uint32_t*)ops.alloc((uint64_t)w->cap_w * (uint64_t)w->cap_h * sizeof(uint32_t));
@@ -824,6 +858,7 @@ void wm_invalidate_diff(int id) {
         }
         if (bs >= 0 && (j == ch || (!diff && j - be >= DIFF_GAP))) {   /* полоса закончилась */
             int m = scaled ? 1 : 0;
+            sc_mark(w, bx0 * dw / cw - m, bs * dh / ch - m, (bx1 * dw + cw - 1) / cw + m, (be * dh + ch - 1) / ch + m);
             damage(ox + bx0 * dw / cw - m, oy + bs * dh / ch - m,
                    ox + (bx1 * dw + cw - 1) / cw + m, oy + (be * dh + ch - 1) / ch + m);
             bs = -1;
@@ -832,6 +867,7 @@ void wm_invalidate_diff(int id) {
 }
 
 void wm_invalidate_rows(int id, int y0, int y1) {
+    if (id >= 0 && id < WM_MAX_WIN && win[id].used && !win[id].visible) sc_drop(&win[id]);
     if (!wm_visible(id)) return;
     win_t* w = &win[id];
     if (y0 < 0) y0 = 0;
@@ -839,6 +875,7 @@ void wm_invalidate_rows(int id, int y0, int y1) {
     if (y0 >= y1) return;
     int ox, oy, dw, dh; geom(w, &ox, &oy, &dw, &dh);
     int ch = w->content.h;
+    sc_mark(w, 0, y0 * dh / ch, dw, (y1 * dh + ch - 1) / ch + 1);
     damage(ox, oy + y0 * dh / ch, ox + dw, oy + (y1 * dh + ch - 1) / ch + 1);
 }
 
@@ -1299,12 +1336,39 @@ static void blit_content_raw(surface_t* c, int dx, int dy, int dw, int dh, const
     blit_scaled(c, dx, dy, dw, dh, &w->content);
 }
 
-static void blit_content(surface_t* c, int dx, int dy, int dw, int dh, const win_t* w) {
+/* Привести кэш в порядок (под замком окна: полосы сборки идут на нескольких ядрах). 1 - кэш годен. Память под кэш выдаёт compose_prepare. */
+static int sc_ready(win_t* w, int dw, int dh) {
+    if (!w->sc) return 0;
+    while (__atomic_exchange_n(&w->sc_lock, 1, __ATOMIC_ACQUIRE)) __asm__ volatile ("" ::: "memory");
+    int x0 = 0, y0 = 0, x1 = dw, y1 = dh;
+    if (w->sc_ok && w->sc_w == dw && w->sc_h == dh && w->sc_cw == w->content.w && w->sc_ch == w->content.h) {
+        if (w->sc_x1 <= w->sc_x0 || w->sc_y1 <= w->sc_y0) { __atomic_store_n(&w->sc_lock, 0, __ATOMIC_RELEASE); return 1; }
+        x0 = w->sc_x0; y0 = w->sc_y0; x1 = w->sc_x1; y1 = w->sc_y1;
+    }
     uint64_t t0 = pnow();
+    surface_t box = { w->sc + (long)y0 * dw + x0, x1 - x0, y1 - y0, dw };
+    blit_content_raw(&box, -x0, -y0, dw, dh, w);
+    w->sc_ok = 1; w->sc_w = dw; w->sc_h = dh; w->sc_cw = w->content.w; w->sc_ch = w->content.h;
+    w->sc_x0 = w->sc_y0 = w->sc_x1 = w->sc_y1 = 0;
+    if (t0) padd(&prof.scaled_px, (uint64_t)(x1 - x0) * (uint64_t)(y1 - y0));
+    __atomic_store_n(&w->sc_lock, 0, __ATOMIC_RELEASE);
+    return 1;
+}
+
+static void blit_content(surface_t* c, int dx, int dy, int dw, int dh, const win_t* cw_) {
+    win_t* w = (win_t*)cw_;
+    uint64_t t0 = pnow();
+    int xa = dx < 0 ? 0 : dx, xb = dx + dw > c->w ? c->w : dx + dw, ya = dy < 0 ? 0 : dy, yb = dy + dh > c->h ? c->h : dy + dh;
+    uint64_t px = xa < xb && ya < yb ? (uint64_t)(xb - xa) * (uint64_t)(yb - ya) : 0;
+    if (sc_wanted(w) && dw == disp_w(w) && dh == disp_h(w) && sc_ready(w, dw, dh)) {
+        surface_t src = { w->sc, dw, dh, dw };
+        gfx_blit(c, dx, dy, &src, 0, 0, dw, dh);
+        if (t0) padd(&prof.content_ns, pnow() - t0);
+        padd(&prof.content_px, px);
+        return;
+    }
     blit_content_raw(c, dx, dy, dw, dh, w);
     if (t0) {
-        int xa = dx < 0 ? 0 : dx, xb = dx + dw > c->w ? c->w : dx + dw, ya = dy < 0 ? 0 : dy, yb = dy + dh > c->h ? c->h : dy + dh;
-        uint64_t px = xa < xb && ya < yb ? (uint64_t)(xb - xa) * (uint64_t)(yb - ya) : 0;
         padd(&prof.content_ns, pnow() - t0);
         padd(&prof.content_px, px);
         if (dw != w->content.w || dh != w->content.h) padd(&prof.scaled_px, px);     /* пересчёт масштаба: усреднение или повтор точек, не простое копирование */
@@ -1653,6 +1717,11 @@ void wm_set_culling(int on) { cull_enabled = on; }
 
 /* Признаки, меняющие всю картинку (полноэкранный режим, плашка, вкладка), - до сборки изменённых мест. */
 static int compose_prepare(void) {
+    for (int i = 0; i < WM_MAX_WIN; i++) {                  /* память кэша уменьшенных окон выдаётся здесь, до параллельной сборки полос */
+        win_t* w = &win[i];
+        if (w->used && w->visible && !w->sc && ops.alloc && sc_wanted(w))
+            w->sc = (uint32_t*)ops.alloc((uint64_t)(unsigned)w->cap_w * (uint64_t)(unsigned)w->cap_h * sizeof(uint32_t));
+    }
     int fs = fs_top();
     if (fs != last_fs) { last_fs = fs; damage(0, 0, scr->w, scr->h); }
     int pill = pill_visible(fs);
