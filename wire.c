@@ -46,7 +46,7 @@ void wire_init(void) {
     static const gfx_wm_ops_t wm_ops = { wire_win_create, wm_destroy, dock_title, wm_set_title, wm_set_frame_seq, wm_raise,
                                          wm_visible, wm_invalidate, wm_top };
     gfx_set_wm_ops(&wm_ops);
-    static const console_shell_t shell = { display_print_info, display_request_files, display_kbd_owner, display_files_state };
+    static const console_shell_t shell = { display_print_info, display_request_files, display_kbd_owner, display_files_state, display_request_redraw };
     console_set_shell(&shell);
     static const mind_sys_env_t mind_env = { display_get_fx, display_set_fx, display_get_stats, display_compositor_stats, gfx_focus_pid, build_mind_tick, display_mind_cost };
     mind_sys_set_env(&mind_env);

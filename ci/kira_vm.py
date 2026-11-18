@@ -403,6 +403,17 @@ class VM:
         except Exception:
             pass
 
+    def screenshot_image(self, name):
+        """Снимок экрана как изображение PIL (и файл PNG в каталоге результатов)."""
+        ppm = os.path.abspath(os.path.join(self.out, name + ".ppm"))
+        self.qmp_cmd({"execute": "screendump", "arguments": {"filename": ppm}})
+        time.sleep(0.4)
+        from PIL import Image
+        img = Image.open(ppm); img.load()
+        img.save(ppm[:-4] + ".png")
+        os.unlink(ppm)
+        return img
+
     # ---------- последовательный порт ----------
     def pump(self, wait):
         r, _, _ = select.select([self.ser], [], [], wait)
@@ -522,6 +533,47 @@ def subst(v, names):
     if isinstance(v, dict):
         return {k: subst(x, names) for k, x in v.items()}
     return v
+
+
+def wm_windows(vm):
+    """Окна и курсор по команде fb: строки [WMWIN] и «cursor x,y» периода."""
+    out = vm.command("fb", 30)
+    wins = [{"id": int(m.group(1)), "x": int(m.group(2)), "y": int(m.group(3)), "w": int(m.group(4)), "h": int(m.group(5)), "state": m.group(6), "title": m.group(7)}
+            for m in re.finditer(r'\[WMWIN\] id (\d+) x (\d+) y (\d+) w (\d+) h (\d+) (shown|hidden) "(.*)"', out)]
+    m = re.search(r"cursor (\d+),(\d+)", out)
+    return wins, ((int(m.group(1)), int(m.group(2))) if m else (640, 360))
+
+
+def ptr_move(vm, x0, y0, x1, y1):
+    """Поставить указатель PS/2 (смещениями) из известной точки в другую."""
+    dx, dy = x1 - x0, y1 - y0
+    n = max(abs(dx), abs(dy)) // 40 + 1
+    for k in range(n):
+        sx = dx * (k + 1) // n - dx * k // n
+        sy = dy * (k + 1) // n - dy * k // n
+        vm.qmp_cmd({"execute": "input-send-event", "arguments": {"events": [
+            {"type": "rel", "data": {"axis": "x", "value": sx}}, {"type": "rel", "data": {"axis": "y", "value": sy}}]}})
+        time.sleep(0.02)
+
+
+def image_diff(a, b, masks, noise=None):
+    """Число отличающихся точек двух снимков вне прямоугольников masks и охватывающая рамка.
+    noise=(p, q): снимки, где различия - не остатки, а живое содержимое; их различия (с запасом 8 точек) не считаются."""
+    import numpy as np
+    A = np.asarray(a.convert("RGB")).astype(int); B = np.asarray(b.convert("RGB")).astype(int)
+    m = np.abs(A - B).sum(axis=2) > 0
+    if noise:
+        P = np.asarray(noise[0].convert("RGB")).astype(int); Q = np.asarray(noise[1].convert("RGB")).astype(int)
+        nz = np.abs(P - Q).sum(axis=2) > 0
+        grown = nz.copy()
+        for dy in range(-8, 9, 4):
+            for dx in range(-8, 9, 4):
+                grown |= np.roll(np.roll(nz, dy, axis=0), dx, axis=1)
+        m &= ~grown
+    for (x0, y0, x1, y1) in masks:
+        m[max(0, y0):max(0, y1), max(0, x0):max(0, x1)] = False
+    ys, xs = np.nonzero(m)
+    return {"n": int(m.sum()), "box": [int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max())] if len(xs) else None}
 
 
 def run(sc, args):
@@ -723,6 +775,62 @@ def run(sc, args):
                     else: vm.drain(0)
                 vm.log += f"[HOST] mouse: sent {sent} move events in {secs * args.timeout_scale} s\n".encode()
                 vm.pump(0.5)
+            elif "drag" in st:                        # перетаскивание окна за заголовок потоком движений мыши (PS/2: смещения): окно берётся по подстроке заголовка из списка [WMWIN] (команда fb)
+                d = st["drag"]
+                wins, cur = wm_windows(vm)
+                pick = [w for w in wins if d["window"] in w["title"] and w["state"] == "shown"]
+                if not pick:
+                    raise Fail(f"drag: нет показанного окна «{d['window']}»; окна: {[(w['title'], w['state']) for w in wins]}")
+                w0 = pick[0]
+                gx, gy = w0["x"] + w0["w"] // 2, w0["y"] + 18                       # середина заголовка (кнопки окна слева, подзаголовок справа)
+                ptr_move(vm, cur[0], cur[1], gx, gy)
+                vm.pump(0.4)
+                vm.qmp_cmd({"execute": "input-send-event", "arguments": {"events": [{"type": "btn", "data": {"down": True, "button": "left"}}]}})
+                vm.pump(0.2)
+                hz, secs, step = d.get("hz", 125), d.get("seconds", 8), d.get("step", 24)
+                rx, ry = d.get("range", (420, 200))
+                sx, sy = step, max(1, step // 2)
+                dirx, diry, tx, ty = 1, 1, 0, 0
+                t_end = time.time() + secs * args.timeout_scale
+                t_next = time.time(); sent = 0
+                while time.time() < t_end:
+                    vm.qmp_cmd({"execute": "input-send-event", "arguments": {"events": [
+                        {"type": "rel", "data": {"axis": "x", "value": sx * dirx}}, {"type": "rel", "data": {"axis": "y", "value": sy * diry}}]}})
+                    tx += sx; ty += sy; sent += 1
+                    if tx >= rx: dirx, tx = -dirx, 0
+                    if ty >= ry: diry, ty = -diry, 0
+                    t_next += 1.0 / hz
+                    dl = t_next - time.time()
+                    if dl > 0: time.sleep(dl)
+                    else: vm.drain(0)
+                vm.qmp_cmd({"execute": "input-send-event", "arguments": {"events": [{"type": "btn", "data": {"down": False, "button": "left"}}]}})
+                vm.log += f"[HOST] drag: window {w0['title']!r} from ({w0['x']},{w0['y']}), {sent} move events in {secs * args.timeout_scale} s\n".encode()
+                vm.pump(0.5)
+                wins2, cur2 = wm_windows(vm)
+                now = [w for w in wins2 if w["id"] == w0["id"]]
+                if not now or (now[0]["x"], now[0]["y"]) == (w0["x"], w0["y"]):
+                    raise Fail(f"drag: окно «{w0['title']}» не сдвинулось ({w0['x']},{w0['y']}): заголовок перекрыт другим окном или мышь не дошла")
+                vm.ptr = cur2
+                result["checks"].append({"drag": d["window"], "ok": True, "moved_to": [now[0]["x"], now[0]["y"]], "events": sent})
+            elif "redraw_compare" in st:              # кадр, собранный по частям, должен совпасть с кадром, перерисованным целиком (fb redraw): остатки старого положения окон дадут различия
+                rc = st["redraw_compare"]
+                wins, cur = wm_windows(vm)
+                masks = [(w["x"] - 8, w["y"] - 8, w["x"] + w["w"] + 8, w["y"] + w["h"] + 8) for w in wins if w["state"] == "shown" and any(t in w["title"] for t in rc.get("mask", []))]
+                masks.append((0, 0, 100000, 44))                                  # верхняя панель: часы и метры
+                masks.append((cur[0] - 24, cur[1] - 24, cur[0] + 40, cur[1] + 40))   # курсор
+                a = vm.screenshot_image(f"{i:02d}-{rc['name']}-partial")
+                vm.command("fb redraw", 30)
+                vm.pump(1.0)
+                b = vm.screenshot_image(f"{i:02d}-{rc['name']}-full")
+                vm.command("fb redraw", 30)
+                vm.pump(1.0)
+                c = vm.screenshot_image(f"{i:02d}-{rc['name']}-full2")
+                diff = image_diff(a, b, masks, noise=(b, c))                      # живые места (метрики справа) меняются и сами: два полных кадра подряд их показывают
+                vm.log += f"[HOST] redraw_compare {rc['name']}: {diff['n']} differing pixels outside masks, box {diff['box']}\n".encode()
+                ok = diff["n"] <= rc.get("max_diff", 0)
+                result["checks"].append({"redraw_compare": rc["name"], "diff_pixels": diff["n"], "box": diff["box"], "ok": ok})
+                if not ok:
+                    raise Fail(f"redraw_compare «{rc['name']}»: {diff['n']} точек отличаются от полной перерисовки (рамка {diff['box']}) - остатки отрисовки")
             elif "combo" in st:                       # одновременное нажатие (Alt+Shift - раскладка)
                 vm.qmp_cmd({"execute": "send-key", "arguments": {"keys": [{"type": "qcode", "data": k} for k in st["combo"]]}})
                 vm.pump(0.3)

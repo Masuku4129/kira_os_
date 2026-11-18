@@ -10,6 +10,7 @@ typedef struct {
     void (*request_files)(const char* left, const char* right); /* команда files */
     int  (*kbd_owner)(void);                                   /* 1 - клавиатуру читает Проводник */
     void (*files_state)(void);                                 /* команда fmstate: строка состояния Проводника */
+    void (*redraw)(void);                                      /* команда fb redraw: перерисовать весь экран с нуля (сверка кадра, собранного по частям, с полным) */
 } console_shell_t;
 void console_set_shell(const console_shell_t* sh);
 void console_graceful_poweroff(void);   // сохранить опыт и диски, выключить (кнопка питания ACPI)

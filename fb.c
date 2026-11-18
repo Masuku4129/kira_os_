@@ -192,13 +192,14 @@ void fb_present_rect(int x, int y, int w, int h) {
     }
 }
 
-void fb_frame_done(void) {
-    if (!ready || !flush_hook) return;
+uint64_t fb_frame_done(void) {
+    if (!ready || !flush_hook) return 0;
     uint64_t f = spin_lock_irqsave(&dlk);
     int x0 = dx0, y0 = dy0, x1 = dx1, y1 = dy1;
     dx0 = dy0 = 1 << 30; dx1 = dy1 = 0;
     spin_unlock_irqrestore(&dlk, f);
-    if (x1 > x0 && y1 > y0) flush_hook(x0, y0, x1 - x0, y1 - y0);
+    if (x1 > x0 && y1 > y0) { flush_hook(x0, y0, x1 - x0, y1 - y0); return (uint64_t)(x1 - x0) * (uint64_t)(y1 - y0); }
+    return 0;
 }
 
 int fb_attach_linear(uint64_t phys, void* fr, uint32_t w, uint32_t h, uint32_t pitch, void (*flush)(int, int, int, int)) {

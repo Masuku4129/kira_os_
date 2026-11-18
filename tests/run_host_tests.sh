@@ -360,6 +360,10 @@ echo "== framegov (frame pacing: decided by the compositor, not by Mind) =="
 $CC $FLAGS -Werror -o $T/framegov tests/framegov_test.c framegov.c
 $T/framegov
 
+echo "== ftstat (frame time: average, p99, maximum)"
+$CC $FLAGS -Werror -o $T/ftstat tests/ftstat_test.c ftstat.c
+$T/ftstat
+
 echo "== Mind archive policy (preserve current and last-good snapshots, score eviction, fail closed) =="
 $CC $FLAGS -Werror -o $T/mind-archive-policy tests/mind_archive_policy_test.c
 $T/mind-archive-policy
@@ -488,7 +492,7 @@ $CC $FLAGS -fsanitize=address,undefined -o $T/mcards tests/mind_cards_test.c app
 ASAN_OPTIONS=detect_leaks=0 $T/mcards
 
 echo "== display thread end-to-end with apps (preview: /tmp/kira_gfx/*.ppm) =="
-$CC $FLAGS -fsanitize=address,undefined -o $T/disp tests/display_preview.c display.c framegov.c kpar.c wm.c gfxui.c icons.c brainfx.c wallpaper.c zstd.c apps.c fm.c dock.c mind.c mindnet.c rtc.c input.c gfx2d.c font8x16.c klog.c fbcon.c bbring.c -lm
+$CC $FLAGS -fsanitize=address,undefined -o $T/disp tests/display_preview.c display.c framegov.c ftstat.c kpar.c wm.c gfxui.c icons.c brainfx.c wallpaper.c zstd.c apps.c fm.c dock.c mind.c mindnet.c rtc.c input.c gfx2d.c font8x16.c klog.c fbcon.c bbring.c -lm
 # код возврата превью - не через tail (раньше сбой терялся в конвейере)
 for r in "" "1280 720" "1920 1080"; do
     ASAN_OPTIONS=detect_leaks=0 $T/disp $r > $T/disp.out 2>&1; rc=$?

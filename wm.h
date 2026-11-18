@@ -118,6 +118,11 @@ void wm_mouse(int dx, int dy, unsigned buttons);
 void wm_mouse_abs(uint16_t ax, uint16_t ay, unsigned buttons); /* планшет/сенсор: абсолютные координаты 0..32767 */   /* относительное движение, бит0 = левая кнопка */
 void wm_cursor(int* x, int* y);
 void wm_last_damage(int* box4);
+/* Замер сборки кадра (docs/WM_PERF.md): время этапов суммарно по ядрам, точки содержимого окон (из них с пересчётом масштаба), число собранных прямоугольников. */
+typedef struct { uint64_t bg_ns, panel_ns, content_ns, ui_ns, content_px, scaled_px, rects; } wm_prof_t;
+void wm_prof_set_clock(uint64_t (*now)(void));
+void wm_prof_take(wm_prof_t* out);            /* забрать накопленное и обнулить */
+int  wm_window_info(int id, int* x, int* y, int* w, int* h, const char** title);   /* -1 нет окна, 0 показано, 1 свёрнуто; w,h - внешний размер панели */
 void wm_invalidate_report(void (*out)(uintptr_t ra, uint32_t n));
 int  wm_window_pos(int id, int* x, int* y);        /* левый верхний угол панели */
 int  wm_content_origin(int id, int* x, int* y, int* scale);

@@ -9,6 +9,7 @@
 // показывает их один поток.
 int  display_init(unsigned long mbi_addr);   // 0 - экран есть; <0 - работаем без него
 void display_print_info(void);
+void display_request_redraw(void);          /* полная перерисовка экрана в ближайшем кадре (команда fb redraw) */
 /* Команда «files»: открыть Проводник; левая и правая панель - на этих каталогах ("" - не менять). Из любого потока. */
 void display_request_files(const char* left, const char* right);
 void display_files_state(void);   /* команда fmstate */

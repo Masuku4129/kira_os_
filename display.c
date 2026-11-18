@@ -15,6 +15,7 @@
 #include "experience.h"
 #include "gfxsrv.h"
 #include "framegov.h"
+#include "ftstat.h"
 #include "proc.h"
 #include "progs.h"
 #include "platform.h"
@@ -70,8 +71,20 @@ static struct {
     uint64_t worst_busy_ns;   // самый тяжёлый цикл
     uint64_t last_t0;
     uint64_t pixels;          // собрано точек (все полосы всех кадров)
+    uint64_t pixels_p;        // то же за период замера (сбрасывается командой fb)
     uint64_t ns_gfx, ns_mouse, ns_mid, ns_comp;   // замеры по этапам цикла: окна программ, мышь, обновление видов, сборка и показ
 } st;
+
+static volatile int redraw_req;                  /* команда fb redraw: целиком перерисовать экран в ближайшем кадре */
+
+/* Замер плавности (docs/WM_PERF.md): время кадра по кадрам, а не только среднее. Сбрасывается командой fb (период). */
+static fts_t fts_comp, fts_cycle;                 /* сборка и показ; весь цикл - только у кадров, где что-то рисовалось */
+static uint64_t pf_copy_ns, pf_flush_ns, pf_flush_px, pf_flush_n, pf_full, pf_drawn;
+static void present_timed(int x, int y, int w, int h) {
+    uint64_t t = clock_ns();
+    fb_present_rect(x, y, w, h);
+    __atomic_fetch_add(&pf_copy_ns, clock_ns() - t, __ATOMIC_RELAXED);
+}
 
 /* снимки данных для приложений */
 static mind_view_t mv;
@@ -748,6 +761,7 @@ static void display_main(void* arg) {
             if (l[0]) explorer_goto(0, l);
         }
 
+        if (redraw_req) { redraw_req = 0; wm_invalidate_all(); }
         int hk = input_take_hotkey();     // F11 - на весь экран, F10 - свернуть на фон, F9 - поиск и запуск
         if (hk == KEY_F9) wm_launcher_toggle();
         else if (hk) {
@@ -795,15 +809,19 @@ static void display_main(void* arg) {
         uint64_t px = 0;
         int cmode = comp_mode(tp0);
         wm_set_runner(cmode ? kpar_run : 0);
-        if (wm_compose_par(fb_present_rect, &px)) { st.composed++; st.pixels += px; if (px > st.px_max) { st.px_max = px; wm_last_damage(st.px_box); } if (px > 20000) st.big_frames++; }
+        if (wm_compose_par(present_timed, &px)) { st.composed++; pf_drawn++; st.pixels_p += px; { const fb_info_t* fi = fb_get_info(); if (px * 10 >= (uint64_t)fi->width * fi->height * 7) pf_full++; } st.pixels += px; if (px > st.px_max) { st.px_max = px; wm_last_damage(st.px_box); } if (px > 20000) st.big_frames++; }
         st.present_ns = clock_ns() - tp0;
         st.ns_comp += st.present_ns;
         comp_note(cmode, st.present_ns, px);
-        fb_frame_done();                                   /* virtio-gpu: изменённое - устройству (без кадрового буфера в памяти устройства) */
+        uint64_t tf0 = clock_ns();
+        uint64_t fpx = fb_frame_done();                    /* virtio-gpu: изменённое - устройству (без кадрового буфера в памяти устройства) */
+        if (fpx) { pf_flush_ns += clock_ns() - tf0; pf_flush_px += fpx; pf_flush_n++; }
+        if (px) fts_push(&fts_comp, (uint32_t)((st.present_ns + clock_ns() - tf0) / 1000));
         st.frames++;
 
         uint64_t now = clock_ns();
         uint64_t elapsed = now - t0;
+        if (px) fts_push(&fts_cycle, (uint32_t)(elapsed / 1000));
         if (timed) { st.busy_ns += elapsed; if (elapsed > st.worst_busy_ns) st.worst_busy_ns = elapsed; }
         if (timed && elapsed > FRAME_NS) frame_note(elapsed, px, gfx_d, mouse_d, mid_d, st.present_ns);
         uint32_t ticks = 1;
@@ -869,6 +887,7 @@ int display_init(unsigned long mbi) {
     wm_ops_t ops = { wm_alloc, on_visibility, on_input, on_launch, on_resize, on_tab, on_side_alt, wm_release, on_launch_tag };
     load_wallpaper();
     wm_init(fb_surface(), &ops);
+    wm_prof_set_clock(clock_ns);
     launcher_items_init();
     surface_t* fbs = fb_surface();
     w_con = wm_create_ex("Терминал", WM_AUTO, WM_AUTO, CON_W, CON_H, WM_RESIZABLE, fbs->w, fbs->h);   // можно растянуть до размера экрана
@@ -911,6 +930,8 @@ void display_get_stats(uint64_t* loops, uint64_t* late, uint64_t* worst_gap_ns) 
     *loops = st.frames; *late = st.late; *worst_gap_ns = st.worst_gap_ns;
     st.worst_gap_ns = 0;                       /* худший промежуток - за период между вызовами */
 }
+
+void display_request_redraw(void) { redraw_req = 1; }
 
 void display_request_files(const char* left, const char* right) {
     uint64_t fl = spin_lock_irqsave(&rq_lk);
@@ -971,7 +992,32 @@ void display_print_info(void) {
     uart_print(" mouse_avg_us "); uart_print_dec(df ? (st.ns_mouse - p_mm) / df / 1000 : 0);
     uart_print(" mid_avg_us "); uart_print_dec(df ? (st.ns_mid - p_mid) / df / 1000 : 0);
     uart_print(" compose_avg_us "); uart_print_dec(df ? (st.ns_comp - p_cmp) / df / 1000 : 0);
-    uart_print("\n\n");
+    uart_print("\n");
+    {   /* плавность: время кадра по кадрам (сборка + передача устройству), пересчитанные точки, этапы (docs/WM_PERF.md) */
+        wm_prof_t pr; wm_prof_take(&pr);
+        uint64_t dn = fts_count(&fts_comp);
+        uart_print("[WMPERF] drawn "); uart_print_dec(dn);
+        uart_print(" comp_avg_us "); uart_print_dec(fts_avg(&fts_comp));
+        uart_print(" comp_p99_us "); uart_print_dec(fts_p99(&fts_comp));
+        uart_print(" comp_max_us "); uart_print_dec(fts_max(&fts_comp));
+        uart_print(" cycle_p99_us "); uart_print_dec(fts_p99(&fts_cycle));
+        uart_print(" cycle_max_us "); uart_print_dec(fts_max(&fts_cycle));
+        uart_print(" px_per_frame "); uart_print_dec(dn ? st.pixels_p / dn : 0);
+        uart_print(" full_frames "); uart_print_dec(pf_full);
+        uart_print(" flush_px_per_frame "); uart_print_dec(pf_flush_n ? pf_flush_px / pf_flush_n : 0);
+        uart_print(" flush_us_per_frame "); uart_print_dec(pf_flush_n ? pf_flush_ns / pf_flush_n / 1000 : 0);
+        uart_print(" copy_us_per_frame "); uart_print_dec(dn ? pf_copy_ns / dn / 1000 : 0);
+        uart_print(" bg_us "); uart_print_dec(dn ? pr.bg_ns / dn / 1000 : 0);
+        uart_print(" panel_us "); uart_print_dec(dn ? pr.panel_ns / dn / 1000 : 0);
+        uart_print(" content_us "); uart_print_dec(dn ? pr.content_ns / dn / 1000 : 0);
+        uart_print(" ui_us "); uart_print_dec(dn ? pr.ui_ns / dn / 1000 : 0);
+        uart_print(" content_px "); uart_print_dec(dn ? pr.content_px / dn : 0);
+        uart_print(" scaled_px "); uart_print_dec(dn ? pr.scaled_px / dn : 0);
+        uart_print(" rects "); uart_print_dec(dn ? pr.rects / dn : 0);
+        uart_print("\n\n");
+        fts_reset(&fts_comp); fts_reset(&fts_cycle);
+        pf_copy_ns = pf_flush_ns = pf_flush_px = pf_flush_n = pf_full = pf_drawn = 0; st.pixels_p = 0;
+    }
     p_frames = st.frames; p_comp = st.composed; p_late = st.late; p_mouse = st.mouse_events; p_t = nowp; p_busy = st.busy_ns;
     p_gfx = st.ns_gfx; p_mm = st.ns_mouse; p_mid = st.ns_mid; p_cmp = st.ns_comp; p_in = in_n; p_drop = drop_n;
     st.max_gap_period = 0; st.worst_busy_ns = 0;
@@ -979,6 +1025,14 @@ void display_print_info(void) {
         char l[512];
         bb_summary(l, sizeof l); uart_print(l); uart_print("\n");
         bbsave_status(l, sizeof l); uart_print(l); uart_print("\n");
+    }
+    for (int id = 0; id < WM_MAX_WIN; id++) {          /* положения окон: по ним сценарии стенда берут окно за заголовок */
+        int wx, wy, ww, wh; const char* tt;
+        int vis = wm_window_info(id, &wx, &wy, &ww, &wh, &tt);
+        if (vis < 0) continue;
+        uart_print("[WMWIN] id "); uart_print_dec((uint64_t)id); uart_print(" x "); uart_print_dec((uint64_t)(wx < 0 ? 0 : wx));
+        uart_print(" y "); uart_print_dec((uint64_t)(wy < 0 ? 0 : wy)); uart_print(" w "); uart_print_dec((uint64_t)ww);
+        uart_print(" h "); uart_print_dec((uint64_t)wh); uart_print(vis ? " hidden \"" : " shown \""); uart_print(tt); uart_print("\"\n");
     }
     wm_invalidate_report(inv_out);
 }

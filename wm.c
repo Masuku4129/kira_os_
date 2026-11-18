@@ -132,6 +132,23 @@ __attribute__((noinline)) static void damage(int x0, int y0, int x1, int y1) {
     if (y1 > dy1) dy1 = y1;
 }
 
+/* --- замер стоимости кадра (docs/WM_PERF.md) ---
+   Время этапов сборки копится по всем полосам и ядрам. Часы задаёт display (в хост-тестах их нет - тогда замер выключен). */
+static uint64_t (*prof_now)(void);
+static struct { uint64_t bg_ns, panel_ns, content_ns, ui_ns, content_px, scaled_px, rects; } prof;
+void wm_prof_set_clock(uint64_t (*now)(void)) { prof_now = now; }
+void wm_prof_take(wm_prof_t* o) {
+    o->bg_ns = __atomic_exchange_n(&prof.bg_ns, 0, __ATOMIC_RELAXED);
+    o->panel_ns = __atomic_exchange_n(&prof.panel_ns, 0, __ATOMIC_RELAXED);
+    o->content_ns = __atomic_exchange_n(&prof.content_ns, 0, __ATOMIC_RELAXED);
+    o->ui_ns = __atomic_exchange_n(&prof.ui_ns, 0, __ATOMIC_RELAXED);
+    o->content_px = __atomic_exchange_n(&prof.content_px, 0, __ATOMIC_RELAXED);
+    o->scaled_px = __atomic_exchange_n(&prof.scaled_px, 0, __ATOMIC_RELAXED);
+    o->rects = __atomic_exchange_n(&prof.rects, 0, __ATOMIC_RELAXED);
+}
+static inline uint64_t pnow(void) { return prof_now ? prof_now() : 0; }
+static inline void padd(uint64_t* c, uint64_t v) { if (v) __atomic_fetch_add(c, v, __ATOMIC_RELAXED); }
+
 /* --- геометрия --- */
 
 #define ZOOM_MIN 8
@@ -897,6 +914,11 @@ int wm_window_pos(int id, int* x, int* y) {
     if (id < 0 || id >= WM_MAX_WIN || !win[id].used) return -1;
     *x = win[id].x; *y = win[id].y; return 0;
 }
+int wm_window_info(int id, int* x, int* y, int* w, int* h, const char** title) {
+    if (id < 0 || id >= WM_MAX_WIN || !win[id].used) return -1;
+    *x = win[id].x; *y = win[id].y; *w = outer_w(&win[id]); *h = outer_h(&win[id]); *title = win[id].title;
+    return win[id].visible ? 0 : 1;
+}
 int wm_content_origin(int id, int* x, int* y, int* s) {
     if (id < 0 || id >= WM_MAX_WIN || !win[id].used) return -1;
     int dw, dh; geom(&win[id], x, y, &dw, &dh);
@@ -1264,7 +1286,7 @@ static void blit_scaled(surface_t* c, int dx, int dy, int dw, int dh, const surf
     }
 }
 
-static void blit_content(surface_t* c, int dx, int dy, int dw, int dh, const win_t* w) {
+static void blit_content_raw(surface_t* c, int dx, int dy, int dw, int dh, const win_t* w) {
     for (int tries = 0; tries < 4; tries++) {
         uint32_t s0 = w->seq ? *w->seq : 0;
         if (s0 & 1) continue;
@@ -1274,6 +1296,18 @@ static void blit_content(surface_t* c, int dx, int dy, int dw, int dh, const win
         if (!w->seq || *w->seq == s0) return;
     }
     blit_scaled(c, dx, dy, dw, dh, &w->content);
+}
+
+static void blit_content(surface_t* c, int dx, int dy, int dw, int dh, const win_t* w) {
+    uint64_t t0 = pnow();
+    blit_content_raw(c, dx, dy, dw, dh, w);
+    if (t0) {
+        int xa = dx < 0 ? 0 : dx, xb = dx + dw > c->w ? c->w : dx + dw, ya = dy < 0 ? 0 : dy, yb = dy + dh > c->h ? c->h : dy + dh;
+        uint64_t px = xa < xb && ya < yb ? (uint64_t)(xb - xa) * (uint64_t)(yb - ya) : 0;
+        padd(&prof.content_ns, pnow() - t0);
+        padd(&prof.content_px, px);
+        if (dw != w->content.w || dh != w->content.h) padd(&prof.scaled_px, px);     /* пересчёт масштаба: усреднение или повтор точек, не простое копирование */
+    }
 }
 
 static void draw_lights(surface_t* c, int x, int y, int hover) {
@@ -1841,6 +1875,7 @@ static void compose_rect(int fs, int x0, int y0, int x1, int y1) {
             else if (x0 < wn->x + outer_w(wn) + WM_GLOW && x1 > wn->x - WM_GLOW && y0 < wn->y + outer_h(wn) + WM_GLOW && y1 > wn->y - WM_GLOW) break;
         }
     }
+    uint64_t tb0 = pnow();
     if (content_only) {
         const win_t* wn = &win[seq[start]];
         blit_content(&clip, wn->x + WM_PAD + ox, wn->y + WM_HEAD + oy, disp_w(wn), disp_h(wn), wn);
@@ -1848,6 +1883,7 @@ static void compose_rect(int fs, int x0, int y0, int x1, int y1) {
         if (start < 0) {
             if (bg) gfx_blit(&clip, 0, 0, &bgs, x0, y0, rw, rh);
             else gfx_rect(&clip, 0, 0, rw, rh, TH_BG0);
+            padd(&prof.bg_ns, pnow() - tb0);
             if (fs < 0) {
                 if (!wp_rgb && bg_fancy) brainfx_draw(&clip, ox, oy, anim_ms);
                 if (home_open) draw_home(&clip, ox, oy);
@@ -1856,10 +1892,13 @@ static void compose_rect(int fs, int x0, int y0, int x1, int y1) {
         }
         for (int k = start; k < ns; k++) {
             const win_t* wn = &win[seq[k]];
+            uint64_t tp = pnow();
             if (wn->full) draw_fullscreen(&clip, ox, oy, seq[k]);
             else draw_panel(&clip, ox, oy, seq[k]);
+            padd(&prof.panel_ns, pnow() - tp);
         }
     }
+    uint64_t tu0 = pnow();
     if (fs < 0) {
         if (y0 < WM_TOP_H) draw_topbar(&clip, ox, oy);
         draw_side(&clip, ox, oy);
@@ -1867,6 +1906,8 @@ static void compose_rect(int fs, int x0, int y0, int x1, int y1) {
         if (launcher_open) draw_launcher(&clip, ox, oy);
     } else draw_pill(&clip, ox, oy, fs, pill);
     draw_cursor(&clip, ox, oy);
+    padd(&prof.ui_ns, pnow() - tu0);
+    if (tu0) __atomic_fetch_add(&prof.rects, 1, __ATOMIC_RELAXED);
 }
 
 static void tiles_clear(void) {
