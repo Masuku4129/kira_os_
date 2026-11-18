@@ -157,7 +157,7 @@ static void test_names(void) {
 }
 
 #ifdef __SANITIZE_THREAD__
-static lat_set_t ts; static lat_cpu_t tmem[2]; static volatile int stop;
+static lat_set_t ts; static lat_cpu_t tmem[2]; static int stop; /* читается из потоков: только атомарно (иначе гонка по TSAN) */
 static void* writer(void* a) {
     unsigned cpu = (unsigned)(uintptr_t)a;
     for (int i = 0; i < 300000; i++) lat_set_record(&ts, cpu, LAT_ISR, (uint64_t)(i % 5000) + 1, (uint64_t)(i % 7));
@@ -166,7 +166,7 @@ static void* writer(void* a) {
 static void* reader(void* a) {
     (void)a;
     lat_hist_t m; lat_site_t out[LAT_SITES];
-    while (!stop) { lat_set_merge(&ts, LAT_ISR, &m); (void)lat_hist_quantile(&m, 999000); (void)lat_set_sites(&ts, LAT_ISR, out); }
+    while (!__atomic_load_n(&stop, __ATOMIC_ACQUIRE)) { lat_set_merge(&ts, LAT_ISR, &m); (void)lat_hist_quantile(&m, 999000); (void)lat_set_sites(&ts, LAT_ISR, out); }
     return 0;
 }
 static void test_threads(void) {
@@ -174,7 +174,7 @@ static void test_threads(void) {
     pthread_t w0, w1, r, rs;
     pthread_create(&w0, 0, writer, (void*)0); pthread_create(&w1, 0, writer, (void*)1); pthread_create(&r, 0, reader, 0);
     pthread_create(&rs, 0, (void* (*)(void*))lat_set_reset, &ts);        /* сброс на ходу: ничего не должно ломаться */
-    pthread_join(w0, 0); pthread_join(w1, 0); stop = 1; pthread_join(r, 0); pthread_join(rs, 0);
+    pthread_join(w0, 0); pthread_join(w1, 0); __atomic_store_n(&stop, 1, __ATOMIC_RELEASE); pthread_join(r, 0); pthread_join(rs, 0);
     lat_hist_t m; lat_set_merge(&ts, LAT_ISR, &m);
     CHECK(m.count <= 600000);
 }
