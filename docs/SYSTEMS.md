@@ -385,7 +385,7 @@ Kira OS (ОС Кира) - программное обеспечение для �
 - Уровень: 7
 - Файлы: `userland/wasm/ksh.c`, `userland/wasm/wasifs.c`, `userland/wasi_host.h`, `tools/mpy_kira/main.c`, `tools/mp_wasm.sh`, `tools/ksh_wasm.sh`, `tools/wasi_sysroot.sh`
 - Проверка: хост-тест «ksh: оболочка» в `tests/run_host_tests.sh` (`tests/ksh_test.sh`); сценарии `python` (код, скрипт, интерактивный режим, исключения, код выхода), `arm64-parity` (Python и ksh на ARM64).
-- Статус: частично. Работают; исходники самого MicroPython в репозиторий не входят, они берутся с GitHub по закреплённому коммиту (`tools/mpy_kira/pins.txt`), список сторонних компонентов и лицензий (MicroPython, wasi-libc) ещё не составлен (`docs/INDUSTRIAL_READINESS.md`, раздел 7).
+- Статус: частично. Работают; исходники самого MicroPython в репозиторий не входят, они берутся с GitHub по закреплённому коммиту (`tools/mpy_kira/pins.txt`); если сборка на месте не удалась (телефон: нет github.com, cmake или sysroot), берётся готовый `prebuilt/python.wasm` и `prebuilt/ksh.wasm` при совпадении хеша исходников (`prebuilt/WASM.sha256`, `tools/wasm_prebuilt.sh`), список сторонних компонентов и лицензий (MicroPython, wasi-libc) ещё не составлен (`docs/INDUSTRIAL_READINESS.md`, раздел 7).
 - Альтернативы: другой интерпретатор Python (CPython - крупнее), без скриптового языка вовсе. Записей о выборе в `docs/` нет; в `docs/architecture/TECH_DECISIONS.md` Python назван инструментом сборки и CI, а не частью образа - запись не обновлена после появления MicroPython в системе.
 
 ## Подсистема: Компилятор KCC

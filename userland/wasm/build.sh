@@ -21,9 +21,9 @@ wasm-ld --no-entry --export=kmain -z stack-size=65536 --initial-memory=262144 bu
 # Python (MicroPython) под WASI: build-wasm/python.wasm. Нужны cmake, ninja, git и доступ к github.com (исходники по закреплённым коммитам, tools/mpy_kira/pins.txt).
 # KIRA_NO_PYTHON=1 - пропустить. Без инструментов образ собирается без python (команда python скажет об этом).
 if [ "${KIRA_NO_PYTHON:-0}" != 1 ]; then
-    tools/mp_wasm.sh || echo "[ПРЕДУПРЕЖДЕНИЕ] Python не собран (нужны cmake, ninja, git, clang с wasm32, lld и github.com); образ будет без /wasm/python.wasm"
+    tools/mp_wasm.sh || tools/wasm_prebuilt.sh python || echo "[ПРЕДУПРЕЖДЕНИЕ] Python не собран (нужны cmake, ninja, git, clang с wasm32, lld и github.com), готового prebuilt/python.wasm под текущие исходники нет; образ будет без /wasm/python.wasm"
 fi
 # ksh: оболочка Киры (userland/wasm/ksh.c) -> build-wasm/ksh.wasm; тот же sysroot, что у Python. KIRA_NO_KSH=1 - пропустить.
 if [ "${KIRA_NO_KSH:-0}" != 1 ]; then
-    tools/ksh_wasm.sh || echo "[ПРЕДУПРЕЖДЕНИЕ] ksh не собран (нужны clang с wasm32, lld и sysroot wasi-libc, см. tools/wasi_sysroot.sh); образ будет без /wasm/ksh.wasm"
+    tools/ksh_wasm.sh || tools/wasm_prebuilt.sh ksh || echo "[ПРЕДУПРЕЖДЕНИЕ] ksh не собран (нужны clang с wasm32, lld и sysroot wasi-libc, см. tools/wasi_sysroot.sh); образ будет без /wasm/ksh.wasm"
 fi
