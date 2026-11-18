@@ -482,6 +482,43 @@ static void on_launch(int index) {
     launch_program(side_names[index]);
 }
 
+/* Пункт меню запуска, у программы окна нет: «@...» - окна оболочки, иначе программа из /bin. */
+static void on_launch_tag(const char* tag) {
+    if (tag[0] == '@') {
+        if (streq(tag, "@term")) open_app(APP_TERM);
+        else if (streq(tag, "@files")) open_app(APP_FILES);
+        else if (streq(tag, "@mon")) open_app(APP_MON);
+        else if (streq(tag, "@set")) open_app(APP_SET);
+        else if (streq(tag, "@mind")) open_app(APP_MIND);
+        else if (streq(tag, "@bin")) { open_app(APP_FILES); explorer_goto(-1, "/bin"); }
+        return;
+    }
+    launch_program(tag);
+}
+
+/* Меню запуска: окна оболочки и все программы таблицы, по группам (docs/UI_DESIGN.md, раздел 4). */
+static void launcher_items_init(void) {
+    static wm_launch_item_t it[48];
+    int n = 0;
+    static const struct { const char* label; const char* tag; const char* desc; int icon; int g; } shell_items[] = {
+        { "Терминал", "@term", "Консоль ядра: команды и журнал", ICON_TERMINAL, 0 },
+        { "Проводник", "@files", "Файлы и папки, флешки", ICON_FOLDER, 0 },
+        { "Монитор", "@mon", "Загрузка процессоров, память, процессы", ICON_MONITOR, 0 },
+        { "Настройки", "@set", "Время, уведомления, режим Разума", ICON_GEAR, 0 },
+        { "Разум", "@mind", "Состояние системы и предупреждения", ICON_BRAIN, 1 },
+    };
+    for (int g = 0; g < 4; g++) {
+        for (int i = 0; i < (int)(sizeof shell_items / sizeof shell_items[0]) && n < 46; i++)
+            if (shell_items[i].g == g) it[n++] = (wm_launch_item_t){ shell_items[i].label, shell_items[i].tag, shell_items[i].desc, shell_items[i].icon, g };
+        for (int i = 0; i < app_info_count() && n < 46; i++) {
+            const app_info_t* a = app_info_at(i);
+            if (app_group(a->sys) == g) it[n++] = (wm_launch_item_t){ a->title, a->sys, a->desc, a->icon, g };
+        }
+    }
+    it[n++] = (wm_launch_item_t){ "Все программы", "@bin", "Каталог /bin в Проводнике", ICON_FOLDER, 3 };
+    wm_launcher_set(it, n, app_group_names, 4);
+}
+
 static void on_side_alt(int index) {
     if (index < 0 || index >= side_n || side[index].bottom || side_kind[index] == SK_MORE) return;
     char name[16]; scpy(name, 0, side_names[index], 16);
@@ -829,9 +866,10 @@ int display_init(unsigned long mbi) {
     if (rc != 0 && virtio_gpu_probe() == 0) rc = 0;
     if (rc != 0 && platform_fb_probe() == 0) rc = 0;            /* ARM: ramfb, simple-framebuffer из дерева устройств */
     if (rc != 0) return rc;
-    wm_ops_t ops = { wm_alloc, on_visibility, on_input, on_launch, on_resize, on_tab, on_side_alt, wm_release };
+    wm_ops_t ops = { wm_alloc, on_visibility, on_input, on_launch, on_resize, on_tab, on_side_alt, wm_release, on_launch_tag };
     load_wallpaper();
     wm_init(fb_surface(), &ops);
+    launcher_items_init();
     surface_t* fbs = fb_surface();
     w_con = wm_create_ex("Терминал", WM_AUTO, WM_AUTO, CON_W, CON_H, WM_RESIZABLE, fbs->w, fbs->h);   // можно растянуть до размера экрана
     if (w_con < 0) { uart_print("[KIRA DISPLAY] cannot allocate window surfaces.\n"); return -7; }

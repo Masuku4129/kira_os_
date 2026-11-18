@@ -46,6 +46,7 @@ typedef struct {
     void  (*tab)(int tab_index);                  /* нажат раздел в верхней панели */
     void  (*side_alt)(int side_index);            /* правая кнопка на значке боковой панели */
     void  (*release)(void* ptr, uint64_t bytes);   /* освобождение поверхности, выделенной alloc */
+    void  (*launch_tag)(const char* tag);          /* выбран пункт меню запуска (его метка), окна у программы нет */
 } wm_ops_t;
 
 /* Обои из файла KWP1 (до wm_init; буфер должен жить всё время работы). 0 - принято, иначе остаётся заставка. */
@@ -107,6 +108,10 @@ void wm_launcher_toggle(void);
 int  wm_launcher_active(void);
 int  wm_launcher_count(void);                       /* сколько программ подошло под запрос */
 void wm_launcher_key(int key, int ch);
+/* Меню запуска: все программы по группам с поиском. Пока список не задан, меню показывает значки боковой панели (как раньше).
+   tag - метка окна (по ней находится запущенное окно); строки живут всё время работы. */
+typedef struct { const char* label; const char* tag; const char* desc; int icon; int group; } wm_launch_item_t;
+void wm_launcher_set(const wm_launch_item_t* items, int n, const char* const* groups, int ngroups);
 int  wm_home_open(void);                            /* обзор системы открыт (клик по системной зоне) */
 void wm_anim(uint32_t now_ms, unsigned activity);
 void wm_mouse(int dx, int dy, unsigned buttons);

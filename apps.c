@@ -53,7 +53,6 @@ static void fmt_age(char* out, uint32_t s) {
 
 /* ---------------- текст ---------------- */
 
-static int ncp(const char* s) { int n = 0; while (*s) { if ((*s & 0xC0) != 0x80) n++; s++; } return n; }
 
 #define text_fit ui_text_fit
 
@@ -823,7 +822,7 @@ static int crumb_layout(const char* path, int maxw, int* xs, int* ws, int cap) {
     for (int k = 0; k < n; k++) {
         char pre[FM_PATH]; fm_path_prefix(path, k, pre, sizeof pre);
         const char* base = pre; for (const char* q = pre; *q; q++) if (*q == '/' && q[1]) base = q + 1;
-        w[k] = (k == 0 ? 8 : gfx_text_width(base)) + 2 * TH_S1 + (k ? 8 : 0);
+        w[k] = (k == 0 ? 8 : gfx_text_width(base)) + 2 * TH_S1 + (k >= 2 ? 8 : 0);   /* между частями «/» */
         tot += w[k];
     }
     while (first < n - 1 && tot > maxw) { tot -= w[first]; first++; }
@@ -906,18 +905,6 @@ void app_files_menu_pos(const exp_view_t* e, int* x, int* y) {
 
 static int hit_eq(const app_hit_t* a, int kind, int panel, int row) { return a && a->kind == kind && a->panel == panel && a->row == row; }
 
-/* Длинный путь: слева «…», справа - то, что важнее (последние каталоги). */
-static void path_fit(surface_t* s, int x, int y, const char* t, int maxw, uint32_t col) {
-    int maxc = maxw / 8, n = ncp(t);
-    if (n <= maxc) { gfx_text(s, x, y, t, col, -1); return; }
-    const char* p = t;
-    for (int skip = n - (maxc - 1); skip > 0 && *p; skip--) utf8_next(&p);
-    char buf[160]; int b = cat(buf, 0, "…");
-    while (*p && b < 150) buf[b++] = *p++;
-    buf[b] = 0;
-    gfx_text(s, x, y, buf, col, -1);
-}
-
 static void fmt_size(char* out, uint64_t b) {
     if (b < 1024) { int p = cat_u(out, 0, b); cat(out, p, " Б"); }
     else app_fmt_kb(out, (b + 1023) / 1024);
@@ -977,8 +964,8 @@ static void draw_panel(surface_t* s, const exp_view_t* e, int p, const app_hit_t
         const char* base = pre; for (const char* q = pre; *q; q++) if (*q == '/' && q[1]) base = q + 1;
         int hov = hit_eq(hover, APP_HIT_CRUMB, p, k);
         if (hov) gfx_rect(s, cx, PY + 2, ws[j] - 2, CRUMB_H - 4, ui_state_bg(UI_ST_HOVER, TH_SURF_HEAD));
-        if (k) gfx_text(s, cx, PY + 4, "\xE2\x80\xBA", TH_FG_FAINT, -1);                 /* › между частями */
-        gfx_text(s, cx + (k ? 8 : 0) + TH_S1, PY + 4, k == 0 ? "/" : base, k == depth ? TH_FG : TH_FG_DIM, -1);
+        if (k >= 2) gfx_text(s, cx, PY + 4, "/", TH_FG_FAINT, -1);                        /* разделитель частей */
+        gfx_text(s, cx + (k >= 2 ? 8 : 0) + TH_S1, PY + 4, k == 0 ? "/" : base, k == depth ? TH_FG : TH_FG_DIM, -1);
     }
     /* шапка колонок */
     int tx = px + PW - SB_W - COL_T, sx = tx - COL_S;

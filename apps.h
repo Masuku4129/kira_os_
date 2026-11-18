@@ -36,7 +36,7 @@ enum { APP_HIT_NONE, APP_HIT_ROW, APP_HIT_PANEL, APP_HIT_SCROLL, APP_HIT_REFRESH
        APP_HIT_CRUMB,     /* часть строки пути: row - номер части (0 - корень) */
        APP_HIT_SIDE,      /* пункт боковой панели: row - номер (путь - app_files_side_path) */
        APP_HIT_MENU };    /* пункт контекстного меню: row - номер */
-#define APP_MENU_W 232
+#define APP_MENU_W 272
 typedef struct { int kind, panel, row; } app_hit_t;
 /* hover - что под мышью (или 0); drop_panel - над какой панелью тащат файл (или -1); status - итог запуска программы
    (строка состояния, если нет сообщения менеджера) или 0; pinned - программа под курсором уже в быстром доступе. */

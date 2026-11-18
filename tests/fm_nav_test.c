@@ -101,6 +101,7 @@ int main(void) {
     CHECK(!strcmp(F->p[0].path, "/data/sub") && F->p[0].nback == 1);
     keym(KEY_LEFT, 4);
     CHECK(!strcmp(F->p[0].path, "/data") && F->p[0].nfwd == 1 && F->p[0].nback == 0);
+    CHECK(!strcmp(F->p[0].e[F->p[0].cur].name, "sub"));                                                 /* курсор на каталоге, из которого вышли */
     keym(KEY_RIGHT, 4);
     CHECK(!strcmp(F->p[0].path, "/data/sub") && F->p[0].nback == 1 && F->p[0].nfwd == 0);
     keym(KEY_UP, 4);                                                                                    /* Alt+↑ - вверх */

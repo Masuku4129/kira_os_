@@ -27,6 +27,9 @@ typedef struct { const char* sys; const char* title; const char* desc; int icon;
 const app_info_t* app_info(const char* name);                   /* строка таблицы или 0 */
 const char* app_label(const char* name);                        /* русское название; для неизвестной - само имя */
 const char* app_desc(const char* name);                         /* описание или "" */
+/* Группы меню запуска (docs/UI_DESIGN.md, раздел 4): ничего не скрыто совсем, второстепенное - в «Дополнительно». */
+extern const char* const app_group_names[4];
+int      app_group(const char* name);                                    /* номер группы по системному имени программы */
 int      app_info_count(void);                                  /* строк в таблице (для проверок) */
 const app_info_t* app_info_at(int i);
 uint32_t dock_color(const char* name);                          /* неоновый цвет по имени */

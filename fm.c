@@ -723,7 +723,8 @@ static void hist_go(fm_t* f, const fm_io_t* io, int fwd) {
     scpy(here, P->path, FM_PATH);
     (*n)--;
     g_nohist = 1;
-    int r = goto_keep(f, io, f->active, target, 0);
+    const char* keep = is_inside(here, target) && !seq(here, target) ? base_of(here) : 0;   /* вышли из подкаталога - курсор на нём */
+    int r = goto_keep(f, io, f->active, target, keep);
     g_nohist = 0;
     if (r < 0) { msg(f, 1, "Не открыть каталог: ", errtext(io, r), 0); return; }
     if (fwd) hist_push(P->back, &P->nback, here); else hist_push(P->fwd, &P->nfwd, here);

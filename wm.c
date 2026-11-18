@@ -1037,7 +1037,9 @@ static void apply_resize(int id) {
 
 static int gets_input(const win_t* w) { return w->user || w->input; }
 
+static void launcher_click(int px, int py);
 static void click(int px, int py) {
+    if (wm_launcher_active()) { launcher_click(px, py); return; }       /* меню запуска открыто: щелчок только ему */
     int fs = fs_top();
     if (fs >= 0) {
         if (pill_visible(fs) && click_pill(fs, px, py)) return;
@@ -1275,15 +1277,6 @@ static void draw_lights(surface_t* c, int x, int y, int hover) {
         else if (k == 1) gfx_hline(c, lx - 3, ly, 7, glyph);
         else { gfx_line(c, lx - 3, ly - 3, lx + 3, ly - 3, glyph); gfx_line(c, lx - 3, ly + 3, lx + 3, ly + 3, glyph); gfx_line(c, lx - 3, ly - 3, lx - 3, ly + 3, glyph); gfx_line(c, lx + 3, ly - 3, lx + 3, ly + 3, glyph); }
     }
-}
-
-/* Горизонтальный отрезок цвета с прозрачностью (как ui_blend по точкам, но целой строкой). */
-static void row_blend(surface_t* c, int x, int y, int n, uint32_t col, unsigned alpha) {
-    if (y < 0 || y >= c->h || alpha == 0) return;
-    int xa = x < 0 ? 0 : x, xb = x + n > c->w ? c->w : x + n;
-    if (xa >= xb) return;
-    if (alpha >= 255) gfx_hline(c, xa, y, xb - xa, col & 0x00FFFFFF);
-    else gfx_span_blend(&c->px[(long)y * c->pitch + xa], xb - xa, col, alpha + (alpha >> 7));
 }
 
 static void draw_panel(surface_t* c, int ox, int oy, int id) {
@@ -1630,10 +1623,20 @@ static int compose_prepare(void) {
    Открывается по F9 или клику на логотип; печатаем часть имени (латиница и кириллица, регистр не важен), стрелки выбирают,
    Enter запускает или поднимает окно, Esc закрывает. Ничего не висит на экране, пока не вызван. */
 #define LQ_MAX 40
-#define LROWS  8
+#define LROW_H 26                                           /* строка меню (пункт или заголовок группы) */
+#define LLAUNCH_MAX 48
 static int launcher_open, lq_n, l_sel, l_nm;
 static char lq[LQ_MAX];
-static int l_match[WM_SIDE_MAX];
+static int l_match[LLAUNCH_MAX > WM_SIDE_MAX ? LLAUNCH_MAX : WM_SIDE_MAX];
+static wm_launch_item_t litem[LLAUNCH_MAX]; static int l_nitems;
+static const char* lgroup[8]; static int l_ngroups;
+static int lrow[LLAUNCH_MAX + 8], l_nrows;                  /* что показано: >= 0 - пункт, < 0 - заголовок группы -(g+1) */
+
+void wm_launcher_set(const wm_launch_item_t* items, int n, const char* const* groups, int ngroups) {
+    l_nitems = 0; l_ngroups = 0;
+    for (int i = 0; i < n && i < LLAUNCH_MAX; i++) litem[l_nitems++] = items[i];
+    for (int g = 0; g < ngroups && g < 8; g++) lgroup[l_ngroups++] = groups[g];
+}
 
 static unsigned u8next(const char** p) {
     const unsigned char* s = (const unsigned char*)*p;
@@ -1642,7 +1645,7 @@ static unsigned u8next(const char** p) {
     if ((c & 0xE0) == 0xC0 && s[1]) { *p += 2; return ((c & 0x1F) << 6) | (s[1] & 0x3F); }
     *p += 1; return c;
 }
-static unsigned cpfold(unsigned c) {
+static unsigned cpfold(unsigned c) {                        /* латиница и кириллица без учёта регистра */
     if (c >= 'A' && c <= 'Z') return c + 32;
     if (c >= 0x410 && c <= 0x42F) return c + 32;
     return c == 0x401 ? 0x451 : c;
@@ -1658,12 +1661,41 @@ static int has_fold(const char* hay, const char* nd) {
     }
     return 0;
 }
-static void launcher_damage(void) { damage(0, WM_TOP_H, scr->w, WM_TOP_H + 60 + 70 + LROWS * 36 + 40); }
+/* Геометрия меню: общая для рисования, мыши и повреждений экрана. */
+static int launcher_vis_rows(void) {
+    int total = l_nitems ? l_nrows : (l_nm ? l_nm : 1);
+    int cap = (scr->h - WM_TOP_H - 60 - 60) / LROW_H; if (cap < 3) cap = 3; if (cap > 14) cap = 14;
+    return total < cap ? total : cap;
+}
+static int launcher_pw(void) { int w = scr->w - 40 < 560 ? scr->w - 40 : 560; return w; }
+static void launcher_geom(int* px, int* py, int* pw, int* ph) {
+    *pw = launcher_pw(); *px = (scr->w - *pw) / 2; *py = WM_TOP_H + 40;
+    *ph = 8 + 32 + 8 + launcher_vis_rows() * LROW_H + 8;
+}
+static void launcher_damage(void) {
+    int px, py, pw, ph; launcher_geom(&px, &py, &pw, &ph);
+    damage(px - 8, py - 4, px + pw + 12, py + ph + 12);
+    damage(0, WM_TOP_H, scr->w, WM_TOP_H + 40 + 8 + 32 + 8 + 14 * LROW_H + 24);
+}
 static void launcher_rebuild(void) {
-    l_nm = 0;
-    for (int i = 0; i < side_n; i++) {
-        if (!side[i].label || !side[i].label[0]) continue;
-        if (has_fold(side[i].label, lq) || has_fold(side[i].tag, lq) || has_fold(side[i].desc, lq)) l_match[l_nm++] = i;
+    l_nm = 0; l_nrows = 0;
+    if (l_nitems) {
+        for (int i = 0; i < l_nitems; i++)
+            if (has_fold(litem[i].label, lq) || has_fold(litem[i].tag, lq) || has_fold(litem[i].desc, lq)) l_match[l_nm++] = i;
+        if (!lq_n) {                                        /* без запроса - по группам с заголовками */
+            for (int g = 0; g < l_ngroups; g++) {
+                int any = 0;
+                for (int k = 0; k < l_nm; k++) if (litem[l_match[k]].group == g) { if (!any) lrow[l_nrows++] = -(g + 1); any = 1; lrow[l_nrows++] = l_match[k]; }
+            }
+            int m = 0;                                      /* порядок выбора стрелками - как на экране */
+            for (int r = 0; r < l_nrows; r++) if (lrow[r] >= 0) l_match[m++] = lrow[r];
+            l_nm = m;
+        } else for (int k = 0; k < l_nm; k++) lrow[l_nrows++] = l_match[k];
+    } else {
+        for (int i = 0; i < side_n; i++) {
+            if (!side[i].label || !side[i].label[0]) continue;
+            if (has_fold(side[i].label, lq) || has_fold(side[i].tag, lq) || has_fold(side[i].desc, lq)) l_match[l_nm++] = i;
+        }
     }
     if (l_sel >= l_nm) l_sel = l_nm ? l_nm - 1 : 0;
 }
@@ -1676,12 +1708,23 @@ void wm_launcher_toggle(void) {
 }
 int wm_launcher_active(void) { return launcher_open; }
 int wm_launcher_count(void) { return l_nm; }
+
+/* Запуск выбранного пункта: окно уже есть - показать (как значок панели), иначе запросить запуск. */
+static void launcher_run(int k) {
+    if (k < 0 || k >= l_nm) return;
+    launcher_open = 0; launcher_damage();
+    if (!l_nitems) { side_click(l_match[k]); return; }
+    const char* tag = litem[l_match[k]].tag;
+    for (int i = 0; i < side_n; i++) if (side[i].tag && tag && streq(side[i].tag, tag) && side[i].tag[0]) { side_click(i); return; }
+    if (ops.launch_tag) ops.launch_tag(tag);
+}
+
 void wm_launcher_key(int key, int ch) {
     if (!launcher_open) return;
     launcher_damage();
     if (key == KEY_ESC) launcher_open = 0;
     else if (key == KEY_ENTER) {
-        if (l_nm) { int i = l_match[l_sel]; launcher_open = 0; launcher_damage(); side_click(i); return; }
+        if (l_nm) { launcher_run(l_sel); return; }
     } else if (key == KEY_UP) { if (l_sel > 0) l_sel--; }
     else if (key == KEY_DOWN) { if (l_sel + 1 < l_nm) l_sel++; }
     else if (key == KEY_BACKSPACE) {
@@ -1699,26 +1742,58 @@ void wm_launcher_key(int key, int ch) {
     launcher_damage();
 }
 
+/* Первая показанная строка так, чтобы выбранный пункт был виден. */
+static int launcher_top(int vis) {
+    int total = l_nitems ? l_nrows : l_nm, selrow = l_sel;
+    if (l_nitems && l_nm) { for (int r = 0; r < l_nrows; r++) if (lrow[r] == l_match[l_sel]) { selrow = r; break; } }
+    int top = selrow - vis + 1; if (top < 0) top = 0;
+    if (l_nitems && !lq_n && top > 0 && selrow >= vis && lrow[top] >= 0 && lrow[top - 1] < 0) top--;   /* заголовок группы остаётся над первым пунктом */
+    if (top > total - vis) top = total - vis;
+    return top < 0 ? 0 : top;
+}
+
+/* Щелчок при открытом меню: пункт запускает, мимо панели - закрывает. Всегда поглощает щелчок. */
+static void launcher_click(int px, int py) {
+    int x, y, w, h; launcher_geom(&x, &y, &w, &h);
+    if (px >= x && px < x + w && py >= y + 48 && py < y + h) {
+        int vis = launcher_vis_rows(), row = launcher_top(vis) + (py - y - 48) / LROW_H;
+        if (l_nitems) {
+            if (row >= 0 && row < l_nrows && lrow[row] >= 0) for (int k = 0; k < l_nm; k++) if (l_match[k] == lrow[row]) { launcher_run(k); return; }
+        } else if (row >= 0 && row < l_nm) { launcher_run(row); return; }
+        return;
+    }
+    if (px >= x && px < x + w && py >= y && py < y + h) return;
+    launcher_damage(); launcher_open = 0; launcher_damage();
+}
+
 static void draw_launcher(surface_t* c, int ox, int oy) {
-    int pw = scr->w - 40 < 560 ? scr->w - 40 : 560;
+    int px, py, pw, ph; launcher_geom(&px, &py, &pw, &ph);
     if (pw < 200) return;
-    int px = (scr->w - pw) / 2, py = WM_TOP_H + 60;
-    int ph = 64 + (l_nm ? l_nm : 1) * 36 + 12;
-    ui_round_rect(c, px + 4 + ox, py + 8 + oy, pw, ph, 18, 0x00000000, 110);          /* тень */
-    ui_round_rect(c, px + ox, py + oy, pw, ph, 18, TH_BAR0, 244);
-    ui_round_frame(c, px + ox, py + oy, pw, ph, 18, TH_CYAN, 110);
-    ui_round_rect(c, px + 14 + ox, py + 12 + oy, pw - 28, 40, 12, TH_TRACK, 255);
-    if (lq_n) ui_text_fit(c, px + 28 + ox, py + 22 + oy, lq, pw - 60, TH_TEXT);
-    else gfx_text(c, px + 28 + ox, py + 22 + oy, "Найти программу...", TH_TEXT_FAINT, -1);
-    if (lq_n) { int cw = gfx_text_width(lq); gfx_rect(c, px + 29 + cw + ox, py + 22 + oy, 2, 18, TH_CYAN); }
-    if (!l_nm) { gfx_text(c, px + 28 + ox, py + 70 + oy, "Ничего не найдено", TH_TEXT_DIM, -1); return; }
-    for (int k = 0; k < l_nm && k < LROWS; k++) {
-        int i = l_match[k], ry = py + 62 + k * 36;
-        if (k == l_sel) { ui_round_rect(c, px + 10 + ox, ry + oy, pw - 20, 32, 10, TH_CYAN, 38); ui_round_frame(c, px + 10 + ox, ry + oy, pw - 20, 32, 10, TH_CYAN, 120); }
-        icon_draw(c, px + 34 + ox, ry + 16 + oy, 20, side[i].icon, side[i].color, 0);
-        ui_text_fit(c, px + 56 + ox, ry + 8 + oy, side[i].label, pw / 3, k == l_sel ? TH_CYAN : TH_TEXT);
-        if (side[i].desc) ui_text_fit(c, px + 56 + pw / 3 + 10 + ox, ry + 8 + oy, side[i].desc, pw - pw / 3 - 90, TH_TEXT_DIM);
-        if (wm_find(side[i].tag) >= 0) gfx_text(c, px + pw - 40 + ox, ry + 8 + oy, "\xE2\x97\x8F", TH_GREEN, -1);
+    ui_round_rect(c, px + 3 + ox, py + 5 + oy, pw, ph, TH_RADIUS, 0x00000000, 110);           /* тень */
+    ui_round_rect(c, px + ox, py + oy, pw, ph, TH_RADIUS, TH_SURF_WIN, 255);
+    ui_round_frame(c, px + ox, py + oy, pw, ph, TH_RADIUS, TH_EDGE, 255);
+    ui_input(c, px + 8 + ox, py + 8 + oy, pw - 16, 32, lq_n ? lq : "", 1);
+    if (!lq_n) gfx_text(c, px + 16 + ox, py + 8 + (32 - 16) / 2 + oy, "Найти программу...", TH_FG_FAINT, -1);
+    if (!l_nm) { gfx_text(c, px + 16 + ox, py + 56 + oy, "Ничего не найдено", TH_FG_DIM, -1); return; }
+    int vis = launcher_vis_rows(), top = launcher_top(vis), nrows = l_nitems ? l_nrows : l_nm;
+    for (int r = 0; r < vis && top + r < nrows; r++) {
+        int ry = py + 48 + r * LROW_H, row = top + r;
+        if (l_nitems && lrow[row] < 0) {                                                 /* заголовок группы */
+            gfx_text(c, px + 16 + ox, ry + 5 + oy, lgroup[-lrow[row] - 1], TH_FG_FAINT, -1);
+            gfx_rect(c, px + 16 + gfx_text_width(lgroup[-lrow[row] - 1]) + 8 + ox, ry + LROW_H / 2 + oy, pw - 32 - gfx_text_width(lgroup[-lrow[row] - 1]) - 8, 1, TH_EDGE);
+            continue;
+        }
+        int item = l_nitems ? lrow[row] : l_match[row];
+        int sel = l_nitems ? (l_match[l_sel] == item) : (row == l_sel);
+        const char* label = l_nitems ? litem[item].label : side[item].label;
+        const char* tag = l_nitems ? litem[item].tag : side[item].tag;
+        const char* desc = l_nitems ? litem[item].desc : side[item].desc;
+        int icon = l_nitems ? litem[item].icon : side[item].icon;
+        if (sel) { gfx_rect(c, px + 4 + ox, ry + oy, pw - 8, LROW_H, ui_state_bg(UI_ST_SELECTED, TH_SURF_WIN)); gfx_rect(c, px + 4 + ox, ry + oy, 3, LROW_H, TH_ACCENT); }
+        icon_draw(c, px + 26 + ox, ry + LROW_H / 2 + oy, 16, icon, sel ? TH_FG : TH_FG_DIM, 0);
+        ui_text_fit(c, px + 44 + ox, ry + 5 + oy, label, pw / 3, sel ? TH_FG : TH_FG_DIM);
+        if (desc) ui_text_fit(c, px + 44 + pw / 3 + 10 + ox, ry + 5 + oy, desc, pw - pw / 3 - 90, TH_FG_FAINT);
+        if (tag && tag[0] && wm_find(tag) >= 0) gfx_text(c, px + pw - 28 + ox, ry + 5 + oy, "\xE2\x97\x8F", TH_OK, -1);   /* запущено */
     }
 }
 
