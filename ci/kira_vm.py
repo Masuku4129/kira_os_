@@ -25,6 +25,37 @@ def host_http(port, path):
         return f"[HOST] http {path}: error {e} in {time.time() - t0:.1f} s\n"
 
 
+def host_rcon(port, password, lines, wait=6.0):
+    """Клиент удалённой консоли с хозяина (hostfwd): AUTH, команды, весь ответ - в журнал стенда."""
+    t0 = time.time()
+    out = b""
+    try:
+        c = socket.create_connection(("127.0.0.1", port), timeout=10)
+        c.settimeout(1.0)
+        def rd(sec):
+            nonlocal out
+            end = time.time() + sec
+            while time.time() < end:
+                try:
+                    d = c.recv(4096)
+                except socket.timeout:
+                    continue
+                if not d:
+                    return False
+                out += d
+            return True
+        rd(1.5)
+        c.sendall(b"AUTH " + password.encode() + b"\n")
+        rd(3.0)
+        for ln in lines:
+            c.sendall(ln.encode() + b"\n")
+            rd(wait)
+        c.close()
+    except Exception as e:
+        return f"[HOST] rcon: error {e} in {time.time() - t0:.1f} s\n"
+    return "[HOST] rcon begin\n" + "".join("[RCON] " + l + "\n" for l in out.decode(errors="replace").splitlines()) + "[HOST] rcon end\n"
+
+
 def host_udp(port, msg):
     """Датаграмма с хозяина в гостевую систему (hostfwd udp) и ответ: строка итога для журнала."""
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.settimeout(10)
@@ -97,6 +128,40 @@ PROMPT = "кира> ".encode()
 FATAL = [rb"\[KIRA FATAL\]", rb"\[KIRA KERNEL PANIC\]", rb"\[KIRA WATCHDOG\] Halting"]
 
 
+def env_missing(needs, kvm):
+    """Чего не хватает хозяину для сценария (None - всё есть). Сценарий без нужной среды не падает, а пропускается с причиной."""
+    for n in needs or []:
+        if n == "kvm" and not kvm:
+            return "нужен KVM (на TCG скорость не измеряется честно)"
+        if n == "ipv6":
+            try:
+                t = socket.socket(socket.AF_INET6); t.bind(("::1", 0)); t.close()
+            except OSError:
+                return "у хозяина нет IPv6 (loopback ::1 недоступен)"
+        if n == "dns":
+            try:
+                socket.getaddrinfo("example.com", 80)
+            except OSError:
+                return "у хозяина нет DNS/интернета (example.com не находится)"
+        if n == "secureboot":                           # доверенная загрузка (А2): OVMF с Secure Boot, ключи и образы создаёт ci/sb_fixture.py
+            import sb_fixture
+            if not os.path.exists("kira.bin"):
+                return "нет kira.bin (соберите ядро)"
+            why = sb_fixture.missing()
+            if why:
+                return "доверенная загрузка: " + why
+        if n == "testtrust":                            # подписанные приложения (А3): ядро с тестовыми ключами издателя (KIRA_TEST_TRUST=1)
+            import apps_fixture
+            why = apps_fixture.missing()
+            if why:
+                return "подписанные приложения: " + why
+        if n == "swtpm" and not shutil.which("swtpm"):
+            return "нет swtpm (apt install swtpm swtpm-tools): измеряемая загрузка проверяется на эмулируемом TPM"
+        if n == "initrd" and not os.environ.get("KIRA_INITRD"):
+            return "образ собран без initrd.img (задайте KIRA_INITRD при сборке и запуске)"
+    return None
+
+
 class Fail(Exception):
     pass
 
@@ -116,12 +181,39 @@ class VM:
             import mkfiles
             for dst, src in mkfiles.make(os.path.join(out, "files")).items():
                 subprocess.run(["tools/kfstool", self.disk, "put", dst, src], check=True, stdout=subprocess.DEVNULL)
+        self.apps = {}
+        if sc.get("apps"):                          # подписанный манифест приложений (А3): файлы стенда подставляются в put как {apps_manifest}, {apps_sig_a}, ...
+            import apps_fixture
+            self.apps = apps_fixture.build(os.path.join(os.path.dirname(os.path.abspath(out)), "apps"))
         for dst, src in sc.get("put", {}).items():  # файлы хозяина на диск машины (например, семя опыта Разума)
-            subprocess.run(["tools/kfstool", self.disk, "put", dst, src], check=True, stdout=subprocess.DEVNULL)
+            subprocess.run(["tools/kfstool", self.disk, "put", dst, src.format(**self.apps) if self.apps else src], check=True, stdout=subprocess.DEVNULL)
         if sc.get("tls_chain"):                     # тестовая цепочка: корневой - единственный доверенный на этом диске
             chain = os.path.abspath("ci-out/tlschain")
             subprocess.run([sys.executable, "-I", "ci/mkchain.py", chain], check=True, stdout=subprocess.DEVNULL)
             subprocess.run(["tools/kfstool", self.disk, "put", "/etc/ssl/roots.der", os.path.join(chain, "root.der")], check=True, stdout=subprocess.DEVNULL)
+        self.swtpm = None
+        self.fixture_names = {}
+        if sc.get("secureboot"):                    # прошивка с Secure Boot, ключи PK/KEK/db и образ ESP (верный или испорченный) - на лету, в ci-out/secureboot
+            import sb_fixture
+            sbc = sc["secureboot"]
+            fx = sb_fixture.build(os.path.join(os.path.dirname(os.path.abspath(out)), "secureboot"), "kira.bin", ".")
+            self.fixture_names = fx["names"]
+            self.fx = fx
+            self.sb_code = fx["code"]
+            self.sb_vars = os.path.join(out, "OVMF_VARS.fd")         # прошивка пишет в VARS: у каждого запуска своя копия
+            shutil.copyfile(fx["vars_" + sbc.get("vars", "secboot")], self.sb_vars)
+            self.sb_esp = os.path.join(out, "esp.img")
+            shutil.copyfile(fx["images"][sbc.get("image", "good")], self.sb_esp)
+        if (sc.get("secureboot") or {}).get("tpm") or sc.get("tpm"):    # эмулируемый TPM 2.0: swtpm по сокету, QEMU подключает его как tpm-tis
+            tstate = sc.get("tpm_state") or (sc.get("secureboot") or {}).get("tpm_state")
+            if tstate:                              # состояние TPM в ci-out/ переживает перезапуски машины внутри сценария (как NV-память настоящего TPM); перед сценарием стирается
+                self.tpm_dir = os.path.abspath(os.path.join("ci-out", "tpm-state-" + tstate))
+                shutil.rmtree(self.tpm_dir, ignore_errors=True)
+            else:
+                self.tpm_dir = os.path.join(out, "tpm")
+            os.makedirs(self.tpm_dir, exist_ok=True)
+            self.tpm_sock = os.path.join(out, "swtpm.sock")
+            self.start_swtpm()
         self.daemons = []
         for argv in sc.get("daemons", []):          # процессы хозяина на время сценария (постоянный openssl s_server: билеты сессий живут между соединениями)
             chain = os.path.abspath("ci-out/tlschain")
@@ -130,18 +222,54 @@ class VM:
         if sc.get("disk_mb"):
             with open(self.disk, "r+b") as f:
                 f.truncate(sc["disk_mb"] * 1024 * 1024)
+        self.spare = os.path.join(out, "spare.img")
+        if sc.get("spare_mb"):                      # второй пустой диск (для драйверов Ring 3): файл из нулей, в extra он подставляется как {spare}
+            with open(self.spare, "wb") as f:
+                f.truncate(sc["spare_mb"] * 1024 * 1024)
         self.ser_path = os.path.join(out, "serial.sock")
         self.qmp_path = os.path.join(out, "qmp.sock")
         for p in (self.ser_path, self.qmp_path):
             if os.path.exists(p):
                 os.unlink(p)
 
+    def start_swtpm(self):
+        if os.path.exists(self.tpm_sock):
+            os.unlink(self.tpm_sock)
+        self.swtpm = subprocess.Popen(["swtpm", "socket", "--tpm2", "--tpmstate", "dir=" + self.tpm_dir,
+                                       "--ctrl", "type=unixio,path=" + self.tpm_sock,
+                                       "--log", "file=" + os.path.join(self.out, "swtpm.log") + ",level=5"],
+                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        end = time.time() + 10
+        while not os.path.exists(self.tpm_sock) and time.time() < end:
+            time.sleep(0.05)
+
+    def restart_swtpm(self):
+        """Машина выключена: TPM поднимается заново на том же каталоге состояния (NV-память сохранилась, регистры PCR сбросились - как после перезагрузки)."""
+        if self.swtpm:
+            self.swtpm.terminate()
+            try:
+                self.swtpm.wait(timeout=10)
+            except Exception:
+                self.swtpm.kill()
+            self.start_swtpm()
+
     # ---------- запуск ----------
+    def sb_boot_args(self):
+        """Загрузка по UEFI с Secure Boot: прошивка OVMF (CODE только для чтения, VARS - копия с ключами), ESP как диск AHCI, TPM по желанию."""
+        a = ["-global", "driver=cfi.pflash01,property=secure,value=on",
+             "-drive", f"if=pflash,format=raw,unit=0,file={self.sb_code},readonly=on",
+             "-drive", f"if=pflash,format=raw,unit=1,file={self.sb_vars}",
+             "-drive", f"if=none,id=esp,format=raw,file={self.sb_esp}",
+             "-device", "ide-hd,drive=esp,bus=ide.0,bootindex=0"]
+        return a
+
     def boot_args(self):
+        if self.sc.get("secureboot"):
+            return self.sb_boot_args()
         sc_boot_bios = lambda c: c.get("boot") == "bios"
         # По умолчанию - kira.iso (GRUB). KIRA_BOOT=bios: собственный BIOS-загрузчик без GRUB (kira-bios.img на вторичной шине IDE, первая в порядке загрузки).
         if os.environ.get("KIRA_BOOT") == "bios" or sc_boot_bios(self.sc):
-            img = os.environ.get("KIRA_BIOS_IMG", "kira-bios.img")
+            img = self.sc.get("bios_img") or os.environ.get("KIRA_BIOS_IMG", "kira-bios.img")
             return ["-drive", f"file={img},format=raw,if=none,id=bootd,snapshot=on",
                     "-device", "ide-hd,drive=bootd,bus=ide.1,unit=0,bootindex=0"]
         if self.sc.get("boot") == "grub":                       # запасной образ на GRUB
@@ -151,7 +279,7 @@ class VM:
     def args(self):
         sc = self.sc
         a = ["qemu-system-x86_64", "-machine", sc.get("machine", "pc"), "-m", str(sc.get("mem", "1G")),
-             "-smp", str(sc.get("smp", 4)), "-vga", "std", "-display", "none",
+             "-smp", str(sc.get("smp", 4)), "-vga", sc.get("vga", "std"), "-display", "none",
              *self.boot_args(),
              "-chardev", f"socket,id=ser0,path={self.ser_path},server=on,wait=on", "-serial", "chardev:ser0",
              "-qmp", f"unix:{self.qmp_path},server=on,wait=off",
@@ -174,11 +302,14 @@ class VM:
             a += ["-drive", f"file={d},format=raw,if=none,id=kd0", "-device", "ahci,id=ahci0", "-device", "ide-hd,drive=kd0,bus=ahci0.0"]
         elif disk == "nvme":
             a += ["-drive", f"file={d},format=raw,if=none,id=kd0", "-device", "nvme,drive=kd0,serial=KIRA0001"]
-        a += sc.get("extra", [])
+        if self.swtpm:
+            a += ["-chardev", f"socket,id=chrtpm,path={self.tpm_sock}", "-tpmdev", "emulator,id=tpm0,chardev=chrtpm",
+                  "-device", "tpm-tis,tpmdev=tpm0"]
+        a += [x.replace("{spare}", self.spare) for x in sc.get("extra", [])]
         if sc.get("flash"):
             fl = os.path.join(self.out, "flash.img")
             shutil.copyfile(sc["flash"], fl)
-            bus = "usb-bus.0" if "-usb" in a else "xhci.0"
+            bus = sc.get("flash_bus") or ("usb-bus.0" if "-usb" in a else "xhci.0")
             port = ",port=1.1" if sc.get("hub") else ""
             a += ["-drive", f"if=none,id=stick,format=raw,file={fl}", "-device", f"usb-storage,bus={bus}{port},drive=stick,removable=on"]
         return a
@@ -225,10 +356,11 @@ class VM:
                 os.unlink(pth)
         self.sc = dict(self.sc, extra=extra)
         self.phase_mark = len(self.log)
+        self.restart_swtpm()
         self.start()
 
     def stop(self):
-        for p in getattr(self, "daemons", []):
+        for p in getattr(self, "daemons", []) + ([self.swtpm] if getattr(self, "swtpm", None) else []):
             p.terminate()
         try:
             self.qmp_cmd({"execute": "quit"})
@@ -270,6 +402,17 @@ class VM:
             os.unlink(ppm)
         except Exception:
             pass
+
+    def screenshot_image(self, name):
+        """Снимок экрана как изображение PIL (и файл PNG в каталоге результатов)."""
+        ppm = os.path.abspath(os.path.join(self.out, name + ".ppm"))
+        self.qmp_cmd({"execute": "screendump", "arguments": {"filename": ppm}})
+        time.sleep(0.4)
+        from PIL import Image
+        img = Image.open(ppm); img.load()
+        img.save(ppm[:-4] + ".png")
+        os.unlink(ppm)
+        return img
 
     # ---------- последовательный порт ----------
     def pump(self, wait):
@@ -351,6 +494,31 @@ class VM:
         return out
 
 
+def disk_ops(vm, ops):
+    """Правка диска ВНЕ системы, пока машина выключена (подмена файла журнала между запусками): get - вынуть файл в каталог сценария,
+    xor - изменить один байт (смещение от начала файла), truncate - отрезать последние drop байт."""
+    for op in ops:
+        if "get" in op:
+            with open(os.path.join(vm.out, op["as"]), "wb") as f:
+                subprocess.run(["tools/kfstool", vm.disk, "cat", op["get"]], check=True, stdout=f)
+            vm.log += f"[HOST] disk: {op['get']} -> {op['as']}\n".encode()
+        elif "xor" in op or "truncate" in op:
+            path = op.get("xor") or op["truncate"]
+            tmp = os.path.join(vm.out, "tamper.tmp")
+            with open(tmp, "wb") as f:
+                subprocess.run(["tools/kfstool", vm.disk, "cat", path], check=True, stdout=f)
+            data = bytearray(open(tmp, "rb").read())
+            if "xor" in op:
+                data[op["offset"]] ^= op.get("mask", 1)
+                what = f"byte {op['offset']} xor {op.get('mask', 1)}"
+            else:
+                del data[len(data) - op["drop"]:]
+                what = f"last {op['drop']} bytes removed"
+            open(tmp, "wb").write(data)
+            subprocess.run(["tools/kfstool", vm.disk, "put", path, tmp], check=True, stdout=subprocess.DEVNULL)
+            vm.log += f"[HOST] disk: {path} edited outside the system: {what}\n".encode()
+
+
 def subst(v, names):
     """<<имя>> и <<имя:N>> (первые N знаков) в строках шага -> значения, снятые шагом capture; неизвестное имя - ошибка сценария."""
     if isinstance(v, str):
@@ -367,6 +535,47 @@ def subst(v, names):
     return v
 
 
+def wm_windows(vm):
+    """Окна и курсор по команде fb: строки [WMWIN] и «cursor x,y» периода."""
+    out = vm.command("fb", 30)
+    wins = [{"id": int(m.group(1)), "x": int(m.group(2)), "y": int(m.group(3)), "w": int(m.group(4)), "h": int(m.group(5)), "state": m.group(6), "title": m.group(7)}
+            for m in re.finditer(r'\[WMWIN\] id (\d+) x (\d+) y (\d+) w (\d+) h (\d+) (shown|hidden) "(.*)"', out)]
+    m = re.search(r"cursor (\d+),(\d+)", out)
+    return wins, ((int(m.group(1)), int(m.group(2))) if m else (640, 360))
+
+
+def ptr_move(vm, x0, y0, x1, y1):
+    """Поставить указатель PS/2 (смещениями) из известной точки в другую."""
+    dx, dy = x1 - x0, y1 - y0
+    n = max(abs(dx), abs(dy)) // 40 + 1
+    for k in range(n):
+        sx = dx * (k + 1) // n - dx * k // n
+        sy = dy * (k + 1) // n - dy * k // n
+        vm.qmp_cmd({"execute": "input-send-event", "arguments": {"events": [
+            {"type": "rel", "data": {"axis": "x", "value": sx}}, {"type": "rel", "data": {"axis": "y", "value": sy}}]}})
+        time.sleep(0.02)
+
+
+def image_diff(a, b, masks, noise=None):
+    """Число отличающихся точек двух снимков вне прямоугольников masks и охватывающая рамка.
+    noise=(p, q): снимки, где различия - не остатки, а живое содержимое; их различия (с запасом 8 точек) не считаются."""
+    import numpy as np
+    A = np.asarray(a.convert("RGB")).astype(int); B = np.asarray(b.convert("RGB")).astype(int)
+    m = np.abs(A - B).sum(axis=2) > 0
+    if noise:
+        P = np.asarray(noise[0].convert("RGB")).astype(int); Q = np.asarray(noise[1].convert("RGB")).astype(int)
+        nz = np.abs(P - Q).sum(axis=2) > 0
+        grown = nz.copy()
+        for dy in range(-8, 9, 4):
+            for dx in range(-8, 9, 4):
+                grown |= np.roll(np.roll(nz, dy, axis=0), dx, axis=1)
+        m &= ~grown
+    for (x0, y0, x1, y1) in masks:
+        m[max(0, y0):max(0, y1), max(0, x0):max(0, x1)] = False
+    ys, xs = np.nonzero(m)
+    return {"n": int(m.sum()), "box": [int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max())] if len(xs) else None}
+
+
 def run(sc, args):
     out = os.path.join(args.out, sc["name"])
     vm = VM(sc, out, args.iso, args.disk, args.kvm, args.timeout_scale)
@@ -374,12 +583,17 @@ def run(sc, args):
     t0 = time.time()
     try:
         vm.start()
-        boot = vm.expect(re.escape(PROMPT.decode()), sc.get("boot_timeout", 90), 0)
-        result["boot_seconds"] = round(time.time() - t0, 1)
-        time.sleep(1.0)
+        if sc.get("no_prompt"):                  # машина обязана НЕ загрузить систему (отказ доверенной загрузки): приглашения нет, шаги ждут строки журнала
+            result["boot_seconds"] = None
+            time.sleep(1.0)
+        else:
+            boot = vm.expect(re.escape(PROMPT.decode()), sc.get("boot_timeout", 90), 0)
+            result["boot_seconds"] = round(time.time() - t0, 1)
+            time.sleep(1.0)
         vm.screenshot("00-boot")
         mark = 0
-        names = {}
+        names = dict(vm.fixture_names)
+        names["out"] = vm.out
         for i, st in enumerate(sc["steps"]):
             if "capture" not in st:
                 st = subst(st, names)
@@ -399,6 +613,13 @@ def run(sc, args):
             elif "send" in st:                        # без ожидания приглашения (нагрузка, запуск программ)
                 mark = len(vm.log)
                 vm.send(st["send"] + "\r")
+            elif "type" in st:                        # ввод запущенной программе (её читает стандартный ввод): оболочка приглашения не печатает, ждать его нельзя
+                vm.drain(0.05)
+                vm.ser.setblocking(True)
+                for ch in (st["type"] + "\r").encode():
+                    vm.ser.sendall(bytes([ch]))
+                    time.sleep(0.004)
+                mark = len(vm.log)
             elif "capture" in st:                     # значения из журнала после последнего send (первая группа регулярного выражения)
                 for nm, rx in st["capture"].items():
                     m = re.search(rx.encode(), bytes(vm.log[mark:]))
@@ -421,19 +642,225 @@ def run(sc, args):
                     raise Fail(f"«{st['exit']}»: QEMU завершился с кодом {vm.qemu.returncode}")
                 vm.exited = True
                 result["checks"].append({"exit": st["exit"], "ok": True})
-            elif "relaunch" in st:                    # выключить машину и поднять её снова на ТОМ ЖЕ диске с другим набором устройств (extra):
-                vm.send("poweroff\r")                  # драйвер, установленный в первой фазе, нужен устройству, которого в первой фазе не было
-                end_t = time.time() + 30 * args.timeout_scale
+            elif "qmp_exit" in st:                    # команда QMP (например system_powerdown - нажатие кнопки питания), после неё машина должна выключиться сама
+                r = vm.qmp_cmd({"execute": st["qmp_exit"]})
+                if r is None or "error" in r:
+                    raise Fail(f"QMP «{st['qmp_exit']}»: {r}")
+                end_t = time.time() + st.get("within", 30) * args.timeout_scale
                 while vm.qemu.poll() is None and time.time() < end_t:
                     vm.drain(0.5)
-                if vm.qemu.poll() is None or vm.qemu.returncode != 0:
-                    raise Fail("relaunch: машина не выключилась сама")
+                if vm.qemu.poll() is None:
+                    raise Fail(f"после «{st['qmp_exit']}» машина не выключилась за {st.get('within', 30)} с")
                 vm.drain(0.5)
+                if vm.qemu.returncode != 0:
+                    raise Fail(f"после «{st['qmp_exit']}» QEMU завершился с кодом {vm.qemu.returncode}")
+                vm.exited = True
+                result["checks"].append({"qmp_exit": st["qmp_exit"], "ok": True})
+            elif "qmp" in st:                         # произвольная команда QMP без выключения машины (например system_wakeup после сна S3); wait_status - дождаться состояния машины (query-status)
+                if "wait_status" in st:
+                    end_t = time.time() + st.get("within", 60) * args.timeout_scale
+                    got = None
+                    while time.time() < end_t:
+                        r = vm.qmp_cmd({"execute": "query-status"})
+                        got = (r or {}).get("return", {}).get("status")
+                        if got == st["wait_status"]:
+                            break
+                        vm.drain(0.3)
+                    if got != st["wait_status"]:
+                        raise Fail(f"QMP: машина не перешла в состояние «{st['wait_status']}» за {st.get('within', 60)} с (сейчас «{got}»)")
+                    result["checks"].append({"qmp_status": st["wait_status"], "ok": True})
+                msg = {"execute": st["qmp"]}
+                if "args" in st:
+                    msg["arguments"] = st["args"]
+                r = vm.qmp_cmd(msg)
+                if r is None or "error" in r:
+                    raise Fail(f"QMP «{st['qmp']}»: {r}")
+                result["checks"].append({"qmp": st["qmp"], "ok": True})
+                if "after_status" in st:              # состояние машины после команды (например running после пробуждения)
+                    end_t = time.time() + st.get("within", 60) * args.timeout_scale
+                    got = None
+                    while time.time() < end_t:
+                        r = vm.qmp_cmd({"execute": "query-status"})
+                        got = (r or {}).get("return", {}).get("status")
+                        if got == st["after_status"]:
+                            break
+                        vm.drain(0.3)
+                    if got != st["after_status"]:
+                        raise Fail(f"QMP: после «{st['qmp']}» машина не перешла в «{st['after_status']}» (сейчас «{got}»)")
+                    result["checks"].append({"qmp_after_status": st["after_status"], "ok": True})
+            elif "num" in st:                         # числа, снятые capture: [больше, меньше, мин. разность, макс. разность]: names[больше] - names[меньше] в пределах
+                hi, lo, dmin, dmax = st["num"]
+                d = int(names[hi]) - int(names[lo])
+                ok = dmin <= d <= dmax
+                result["checks"].append({"num": f"{hi}-{lo}={d}", "range": [dmin, dmax], "ok": ok})
+                if not ok:
+                    raise Fail(f"числа: {hi} - {lo} = {d}, ожидалось от {dmin} до {dmax}")
+            elif "relaunch" in st:                  # выключить машину и поднять её снова на ТОМ ЖЕ диске с другим набором устройств (extra):
+                if st.get("hard"):                      # "hard": машина не дошла до оболочки (отказ загрузки) - выключать нечем, её гасят (как кнопкой питания)
+                    vm.qemu.kill()
+                    vm.qemu.wait(timeout=10)
+                    vm.drain(0.5)
+                else:
+                    vm.send("poweroff\r")              # драйвер, установленный в первой фазе, нужен устройству, которого в первой фазе не было
+                    end_t = time.time() + 30 * args.timeout_scale
+                    while vm.qemu.poll() is None and time.time() < end_t:
+                        vm.drain(0.5)
+                    if vm.qemu.poll() is None or vm.qemu.returncode != 0:
+                        raise Fail("relaunch: машина не выключилась сама")
+                    vm.drain(0.5)
+                if st.get("save_disk"):                 # снимок диска выключенной машины (host: «старая копия», А3: подмена диска старой копией)
+                    shutil.copyfile(vm.disk, os.path.join(vm.out, "disk-" + st["save_disk"] + ".img"))
+                if st.get("restore_disk"):              # вернуть снимок на место диска: то, что делает злоумышленник с носителем
+                    shutil.copyfile(os.path.join(vm.out, "disk-" + st["restore_disk"] + ".img"), vm.disk)
+                if st.get("esp"):                       # другой образ ESP (secureboot): выпуск 3 после выпуска 5 и т. п.
+                    shutil.copyfile(vm.fx["images"][st["esp"]], vm.sb_esp)
+                disk_ops(vm, st.get("disk_ops", []))                 # правка диска вне системы (журнал аудита и т. п.)
                 vm.restart(st["relaunch"])
+                if st.get("prompt", True):
+                    vm.expect(re.escape(PROMPT.decode()), sc.get("boot_timeout", 90), vm.phase_mark)
+                    time.sleep(1.0)
+                    mark = vm.phase_mark if st.get("from_start") else len(vm.log)     # from_start: строки самой загрузки (до приглашения) нужны шагам expect/capture
+                else:                                   # загрузка обязана отказать: приглашения нет, шаги ждут строки журнала с начала этой фазы
+                    time.sleep(1.0)
+                    mark = vm.phase_mark
+                result["checks"].append({"relaunch": True, "ok": True})
+            elif "crash" in st:                       # обрыв питания: машину убивают без выключения и поднимают снова на ТОМ ЖЕ диске (дополнительные устройства - в st["crash"])
+                vm.qemu.kill()
+                vm.qemu.wait(timeout=10)
+                disk_ops(vm, st.get("disk_ops", []))
+                vm.restart(st["crash"])
                 vm.expect(re.escape(PROMPT.decode()), sc.get("boot_timeout", 90), vm.phase_mark)
                 time.sleep(1.0)
                 mark = len(vm.log)
-                result["checks"].append({"relaunch": True, "ok": True})
+                result["checks"].append({"crash": True, "ok": True})
+            elif "pointer" in st:                     # поставить указатель в точку экрана: PS/2-мышь отдаёт только смещения, поэтому идём шагами
+                px, py = st["pointer"][0], st["pointer"][1]
+                cur = getattr(vm, "ptr", (640, 360))
+                dx, dy = px - cur[0], py - cur[1]
+                n = max(abs(dx), abs(dy)) // 40 + 1
+                for k in range(n):
+                    sx = dx * (k + 1) // n - dx * k // n
+                    sy = dy * (k + 1) // n - dy * k // n
+                    vm.qmp_cmd({"execute": "input-send-event", "arguments": {"events": [
+                        {"type": "rel", "data": {"axis": "x", "value": sx}}, {"type": "rel", "data": {"axis": "y", "value": sy}}]}})
+                    time.sleep(0.02)
+                vm.ptr = (px, py)
+                vm.pump(0.6)
+            elif "click" in st:                       # щелчок кнопкой мыши (left/right) там, где стоит указатель (сначала шаг "pointer")
+                btn = st["click"] if isinstance(st["click"], str) else "left"
+                for down in (True, False):
+                    vm.qmp_cmd({"execute": "input-send-event", "arguments": {"events": [{"type": "btn", "data": {"down": down, "button": btn}}]}})
+                    time.sleep(0.08)
+                vm.pump(0.4)
+            elif "mouse" in st:                       # поток движения мыши через QMP: кружит по экрану; hz - событий в секунду, step - пикселей за событие
+                m = st["mouse"]
+                hz, secs, step = m.get("hz", 125), m.get("seconds", 10), m.get("step", 8)
+                kind = m.get("kind", "rel")
+                import math
+                t_end = time.time() + secs * args.timeout_scale
+                t_next = time.time(); k = 0; sent = 0
+                while time.time() < t_end:
+                    ang = k * 0.05
+                    if kind == "abs":
+                        ev = [{"type": "abs", "data": {"axis": "x", "value": int(16000 + 12000 * math.cos(ang))}},
+                              {"type": "abs", "data": {"axis": "y", "value": int(16000 + 12000 * math.sin(ang))}}]
+                    else:
+                        ev = [{"type": "rel", "data": {"axis": "x", "value": int(step * math.cos(ang))}},
+                              {"type": "rel", "data": {"axis": "y", "value": int(step * math.sin(ang))}}]
+                    vm.qmp_cmd({"execute": "input-send-event", "arguments": {"events": ev}})
+                    k += 1; sent += 1
+                    t_next += 1.0 / hz
+                    d = t_next - time.time()
+                    if d > 0: time.sleep(d)
+                    else: vm.drain(0)
+                vm.log += f"[HOST] mouse: sent {sent} move events in {secs * args.timeout_scale} s\n".encode()
+                vm.pump(0.5)
+            elif "wmperf_gate" in st:                 # пороги плавности (ci/wmperf_policy.json, ci/wmperf_check.py) по периодам, где шло перетаскивание
+                import wmperf_check
+                sm, bad = wmperf_check.check(wmperf_check.load_policy(st["wmperf_gate"]), bytes(vm.log).decode(errors="replace"))
+                vm.log += ("[HOST] wmperf_gate: " + json.dumps(sm, ensure_ascii=False) + "\n").encode()
+                result["checks"].append({"wmperf_gate": st["wmperf_gate"], "samples": len(sm), "violations": bad, "ok": not bad})
+                if bad:
+                    raise Fail("wmperf_gate: " + "; ".join(bad))
+            elif "open_window" in st:                 # окно запускается через меню по F9 (печатается часть имени метки); не вышло с первого раза (медленная эмуляция теряет клавиши) - Esc и снова
+                ow = st["open_window"]
+                for attempt in range(4):
+                    vm.qmp_cmd({"execute": "send-key", "arguments": {"keys": [{"type": "qcode", "data": "f9"}]}})
+                    vm.pump(1.5)
+                    for ch in ow["launcher"]:
+                        vm.qmp_cmd({"execute": "send-key", "arguments": {"keys": [{"type": "qcode", "data": ch}]}})
+                        time.sleep(0.15)
+                    vm.pump(0.5)
+                    vm.qmp_cmd({"execute": "send-key", "arguments": {"keys": [{"type": "qcode", "data": "ret"}]}})
+                    vm.pump(4.0)
+                    wins, cur = wm_windows(vm)
+                    if any(ow["title"] in w["title"] and w["state"] == "shown" for w in wins):
+                        break
+                    vm.qmp_cmd({"execute": "send-key", "arguments": {"keys": [{"type": "qcode", "data": "esc"}]}})
+                    vm.pump(1.0)
+                else:
+                    raise Fail(f"open_window: окно «{ow['title']}» не открылось за 4 попытки")
+                result["checks"].append({"open_window": ow["title"], "attempts": attempt + 1, "ok": True})
+            elif "drag" in st:                        # перетаскивание окна за заголовок потоком движений мыши (PS/2: смещения): окно берётся по подстроке заголовка из списка [WMWIN] (команда fb)
+                d = st["drag"]
+                wins, cur = wm_windows(vm)
+                pick = [w for w in wins if d["window"] in w["title"] and w["state"] == "shown"]
+                if not pick:
+                    raise Fail(f"drag: нет показанного окна «{d['window']}»; окна: {[(w['title'], w['state']) for w in wins]}")
+                w0 = pick[0]
+                gy = w0["y"] + 18
+                cand = [w0["x"] + w0["w"] // 2] + list(range(w0["x"] + 90, w0["x"] + w0["w"] - 90, 25))   # заголовок: середина, иначе любое место без кнопок слева и подзаголовка справа
+                free = [x for x in cand if not any(o["id"] != w0["id"] and o["state"] == "shown" and o["x"] <= x < o["x"] + o["w"] and o["y"] <= gy < o["y"] + o["h"] for o in wins)]
+                gx = free[0] if free else cand[0]                                   # все места перекрыты другими окнами: берём середину (окно могло быть поднято наверх - проверка сдвига ниже)
+                ptr_move(vm, cur[0], cur[1], gx, gy)
+                vm.pump(0.4)
+                vm.qmp_cmd({"execute": "input-send-event", "arguments": {"events": [{"type": "btn", "data": {"down": True, "button": "left"}}]}})
+                vm.pump(0.2)
+                hz, secs, step = d.get("hz", 125), d.get("seconds", 8), d.get("step", 24)
+                rx, ry = d.get("range", (420, 200))
+                sx, sy = step, max(1, step // 2)
+                dirx, diry, tx, ty = 1, 1, 0, 0
+                t_end = time.time() + secs * args.timeout_scale
+                t_next = time.time(); sent = 0
+                while time.time() < t_end:
+                    vm.qmp_cmd({"execute": "input-send-event", "arguments": {"events": [
+                        {"type": "rel", "data": {"axis": "x", "value": sx * dirx}}, {"type": "rel", "data": {"axis": "y", "value": sy * diry}}]}})
+                    tx += sx; ty += sy; sent += 1
+                    if tx >= rx: dirx, tx = -dirx, 0
+                    if ty >= ry: diry, ty = -diry, 0
+                    t_next += 1.0 / hz
+                    dl = t_next - time.time()
+                    if dl > 0: time.sleep(dl)
+                    else: vm.drain(0)
+                vm.qmp_cmd({"execute": "input-send-event", "arguments": {"events": [{"type": "btn", "data": {"down": False, "button": "left"}}]}})
+                vm.log += f"[HOST] drag: window {w0['title']!r} from ({w0['x']},{w0['y']}), {sent} move events in {secs * args.timeout_scale} s\n".encode()
+                vm.pump(0.5)
+                wins2, cur2 = wm_windows(vm)
+                now = [w for w in wins2 if w["id"] == w0["id"]]
+                if not now or (now[0]["x"], now[0]["y"]) == (w0["x"], w0["y"]):
+                    raise Fail(f"drag: окно «{w0['title']}» не сдвинулось ({w0['x']},{w0['y']}): заголовок перекрыт другим окном или мышь не дошла")
+                vm.ptr = cur2
+                result["checks"].append({"drag": d["window"], "ok": True, "moved_to": [now[0]["x"], now[0]["y"]], "events": sent})
+            elif "redraw_compare" in st:              # кадр, собранный по частям, должен совпасть с кадром, перерисованным целиком (fb redraw): остатки старого положения окон дадут различия
+                rc = st["redraw_compare"]
+                wins, cur = wm_windows(vm)
+                masks = [(w["x"] - 8, w["y"] - 8, w["x"] + w["w"] + 8, w["y"] + w["h"] + 8) for w in wins if w["state"] == "shown" and any(t in w["title"] for t in rc.get("mask", []))]
+                masks.append((0, 0, 100000, 44))                                  # верхняя панель: часы и метры
+                masks.append((cur[0] - 24, cur[1] - 24, cur[0] + 40, cur[1] + 40))   # курсор
+                a = vm.screenshot_image(f"{i:02d}-{rc['name']}-partial")
+                masks.append((a.size[0] - 320, a.size[1] - 178, a.size[0] - 16, a.size[1] - 16))     # панель «Состояние системы» (живые метрики), геометрия как у damage_home в wm.c
+                vm.command("fb redraw", 30)
+                vm.pump(1.0)
+                b = vm.screenshot_image(f"{i:02d}-{rc['name']}-full")
+                vm.command("fb redraw", 30)
+                vm.pump(1.0)
+                c = vm.screenshot_image(f"{i:02d}-{rc['name']}-full2")
+                diff = image_diff(a, b, masks, noise=(b, c))                      # живые места (метрики справа) меняются и сами: два полных кадра подряд их показывают
+                vm.log += f"[HOST] redraw_compare {rc['name']}: {diff['n']} differing pixels outside masks, box {diff['box']}\n".encode()
+                ok = diff["n"] <= rc.get("max_diff", 0)
+                result["checks"].append({"redraw_compare": rc["name"], "diff_pixels": diff["n"], "box": diff["box"], "ok": ok})
+                if not ok:
+                    raise Fail(f"redraw_compare «{rc['name']}»: {diff['n']} точек отличаются от полной перерисовки (рамка {diff['box']}) - остатки отрисовки")
             elif "combo" in st:                       # одновременное нажатие (Alt+Shift - раскладка)
                 vm.qmp_cmd({"execute": "send-key", "arguments": {"keys": [{"type": "qcode", "data": k} for k in st["combo"]]}})
                 vm.pump(0.3)
@@ -449,6 +876,9 @@ def run(sc, args):
             elif "host_http" in st:                   # запрос с хозяина к серверу Киры (hostfwd)
                 port, path = st["host_http"]
                 vm.log += host_http(port, path).encode()
+            elif "host_rcon" in st:                   # удалённая консоль: клиент на хозяине через hostfwd
+                port, pw, cmds = st["host_rcon"]
+                vm.log += host_rcon(port, pw, cmds).encode()
             elif "host_udp" in st:                    # датаграмма с хозяина программе Киры (hostfwd udp)
                 port, msg = st["host_udp"]
                 vm.log += host_udp(port, msg).encode()
@@ -458,6 +888,29 @@ def run(sc, args):
             elif "host6_serve" in st:                 # серверы хозяина на [::1] для проверки IPv6 гостя
                 up, tp = st["host6_serve"]
                 vm.log += host6_serve(up, tp).encode()
+            elif "host_run" in st:                    # программа хозяина (например tools/auditverify.py на файлах, вынутых из диска): код возврата и вывод проверяются
+                hr = st["host_run"]
+                argv = [a.replace("{out}", vm.out) for a in hr["argv"]]
+                p = subprocess.run(argv, capture_output=True, text=True, timeout=120)
+                vm.log += ("[HOST-RUN] " + " ".join(os.path.basename(a) if a.startswith("/") else a for a in argv) + "\n").encode()
+                vm.log += "".join("[HOST-RUN] " + l + "\n" for l in (p.stdout + p.stderr).splitlines()).encode()
+                okrc = p.returncode == hr.get("rc", 0)
+                result["checks"].append({"host_run": argv[-1], "rc": p.returncode, "ok": okrc})
+                if not okrc:
+                    raise Fail(f"host_run {argv}: код {p.returncode}, ожидался {hr.get('rc', 0)}\n{(p.stdout + p.stderr)[-1500:]}")
+                for m in hr.get("must", []):
+                    ok = re.search(m, p.stdout + p.stderr) is not None
+                    result["checks"].append({"host_run_must": m, "ok": ok})
+                    if not ok:
+                        raise Fail(f"host_run: в выводе нет «{m}»\n{(p.stdout + p.stderr)[-1500:]}")
+            elif "save_log" in st:                    # строки журнала по образцу (первая группа) - в файл каталога сценария (например страницы экспорта audit export)
+                sl = st["save_log"]
+                lines = [m.group(1) for m in re.finditer(sl["pattern"].encode(), bytes(vm.log), re.M)]
+                with open(os.path.join(vm.out, sl["as"]), "w") as f:
+                    f.write("\n".join(l.decode(errors="replace") for l in lines) + "\n")
+                result["checks"].append({"save_log": sl["as"], "lines": len(lines), "ok": len(lines) >= sl.get("min", 1)})
+                if len(lines) < sl.get("min", 1):
+                    raise Fail(f"save_log: найдено {len(lines)} строк по «{sl['pattern']}», нужно {sl.get('min', 1)}")
             elif "sleep" in st:
                 end_t = time.time() + st["sleep"] * args.timeout_scale
                 while time.time() < end_t:
@@ -470,12 +923,36 @@ def run(sc, args):
                     result["checks"].append({"log": m, "ok": ok})
                     if not ok:
                         raise Fail(f"в журнале нет «{m}»")
+            elif "forbid_since" in st:                # этих строк нет в журнале с начала последней фазы (после relaunch): отказ загрузки не дошёл до ядра
+                for m in st["forbid_since"]:
+                    bad = re.search(m.encode(), bytes(vm.log[mark:]))
+                    result["checks"].append({"forbid_since": m, "ok": not bad})
+                    if bad:
+                        raise Fail(f"в журнале этой фазы «{bad.group(0).decode(errors='replace')}»")
             elif "log_forbid" in st:
                 for m in st["log_forbid"]:
                     bad = re.search(m.encode(), bytes(vm.log))
                     result["checks"].append({"log_forbid": m, "ok": not bad})
                     if bad:
                         raise Fail(f"в журнале «{bad.group(0).decode(errors='replace')}»")
+            elif "distinct" in st:                    # в журнале всех фаз не меньше count совпадений первой группы, и все значения разные (KASLR: база ядра при каждой загрузке своя)
+                vals = [m.group(1).decode(errors="replace") for m in re.finditer(st["distinct"].encode(), bytes(vm.log))]
+                result["checks"].append({"distinct": st["distinct"], "values": vals, "ok": len(vals) >= st.get("count", 2) and len(set(vals)) == len(vals)})
+                if len(vals) < st.get("count", 2):
+                    raise Fail(f"distinct: найдено {len(vals)} значений «{st['distinct']}», нужно {st.get('count', 2)}: {vals}")
+                if len(set(vals)) != len(vals):
+                    raise Fail(f"distinct: значения повторяются: {vals}")
+            elif "latency_policy" in st:              # время реакции (А8): вывод `latency` сверяется с границами файла политики; expect_fail - проверка мутацией
+                import latency_check
+                pol = latency_check.load_policy(os.path.join(os.path.dirname(os.path.abspath(__file__)), st["latency_policy"]))
+                outp = vm.command("latency", st.get("timeout", 90))
+                errs = latency_check.check(latency_check.parse(outp), pol)
+                result["checks"].append({"latency_policy": st["latency_policy"], "violations": errs, "expect_fail": bool(st.get("expect_fail")), "ok": bool(errs) == bool(st.get("expect_fail"))})
+                if st.get("expect_fail"):
+                    if not errs:
+                        raise Fail("мутация (искусственная задержка) не заметна: границы времени реакции соблюдены, а должны нарушиться")
+                elif errs:
+                    raise Fail("время реакции вне границ (%s):\n  " % st["latency_policy"] + "\n  ".join(errs))
             elif "responsive" in st:                  # система отвечает на команду не дольше заданного
                 t = time.time()
                 vm.command(st["responsive"], st.get("within", 5))
@@ -523,7 +1000,14 @@ def main():
         return 2
     fails = 0
     summary = []
+    skipped = 0
     for sc in chosen:
+        why = env_missing(sc.get("needs"), a.kvm)
+        if why:
+            print(f"SKIP {sc['name']:<22} {why}", flush=True)
+            summary.append({"name": sc["name"], "ok": None, "skipped": why})
+            skipped += 1
+            continue
         r = run(sc, a)
         mark = "OK  " if r["ok"] else "FAIL"
         line = f"{mark} {sc['name']:<22} {r['seconds']:>6} с" + (f"  загрузка {r.get('boot_seconds')} с" if r.get("boot_seconds") else "")

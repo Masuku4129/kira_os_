@@ -15,11 +15,14 @@
 #include "experience.h"
 #include "gfxsrv.h"
 #include "framegov.h"
+#include "ftstat.h"
 #include "proc.h"
 #include "progs.h"
 #include "platform.h"
 #include "virtio_gpu.h"
 #include "mind_sys.h"
+#include "bbring.h"
+#include "bbsave.h"
 #include "explorer.h"
 #include "apps.h"
 #include "icons.h"
@@ -28,6 +31,8 @@
 #include "console.h"
 #include "dock.h"
 #include "vfs.h"
+#include "kfs.h"
+#include "zstd.h"
 #include "spinlock.h"
 #include "cpu.h"
 
@@ -58,12 +63,28 @@ static struct {
     uint64_t start_ns;
     uint64_t mouse_events;
     uint64_t composed;        // кадры, в которых что-то перерисовывалось
+    int px_box[4];
+    uint64_t px_max, big_frames;   // самый большой кадр по точкам и число кадров больше 20000 точек (замер)
+    uint64_t max_gap_period;  // худший промежуток за период замера (не сбрасывается Разумом)
     uint64_t late;            // циклы, начавшиеся позже чем через 1,5 бюджета кадра
     uint64_t worst_gap_ns;    // самый большой промежуток между началами циклов
     uint64_t worst_busy_ns;   // самый тяжёлый цикл
     uint64_t last_t0;
     uint64_t pixels;          // собрано точек (все полосы всех кадров)
+    uint64_t pixels_p;        // то же за период замера (сбрасывается командой fb)
+    uint64_t ns_gfx, ns_mouse, ns_mid, ns_comp;   // замеры по этапам цикла: окна программ, мышь, обновление видов, сборка и показ
 } st;
+
+static volatile int redraw_req;                  /* команда fb redraw: целиком перерисовать экран в ближайшем кадре */
+
+/* Замер плавности (docs/WM_PERF.md): время кадра по кадрам, а не только среднее. Сбрасывается командой fb (период). */
+static fts_t fts_comp, fts_cycle;                 /* сборка и показ; весь цикл - только у кадров, где что-то рисовалось */
+static uint64_t pf_copy_ns, pf_flush_ns, pf_flush_px, pf_flush_n, pf_full, pf_drawn;
+static void present_timed(int x, int y, int w, int h) {
+    uint64_t t = clock_ns();
+    fb_present_rect(x, y, w, h);
+    __atomic_fetch_add(&pf_copy_ns, clock_ns() - t, __ATOMIC_RELAXED);
+}
 
 /* снимки данных для приложений */
 static mind_view_t mv;
@@ -107,14 +128,35 @@ static char side_names[SIDE_N][16];
 static int side_n;
 static char side_sig[SIDE_N * 17];                         /* что показано сейчас: пересобирать только при изменении */
 
-static void draw_mind(void) { if (wm_visible(w_mind)) { app_mind_draw(wm_content(w_mind), &mv, mind_page); wm_invalidate(w_mind); } }
+/* Цена окон Разума в цикле экрана (замер для ai cost): update_mind целиком и перерисовка окна «Разум». */
+static struct { uint64_t updates, upd_ns, upd_max, draws, draw_ns, draw_max; } mcost;
+/* Окно «Разум» рисуется карточками (apps.c): только те, у кого изменились значения, и не дольше бюджета за кадр; остаток
+   дорисовывается в следующих кадрах (mind_pending). Цикл экрана не получает разовой паузы в несколько миллисекунд раз в секунду. */
+#define MIND_DRAW_BUDGET_NS 300000ull
+static int mind_pending, mind_dirty;
+static void draw_mind(void) {
+    mind_pending = 0;
+    if (!wm_visible(w_mind)) { mind_dirty = 0; return; }
+    uint64_t t0 = clock_ns();
+    unsigned r = app_mind_draw_step(wm_content(w_mind), &mv, mind_page, MIND_DRAW_BUDGET_NS, clock_ns);
+    mind_pending = (r & APP_MIND_MORE) != 0;
+    if (r & APP_MIND_DREW) mind_dirty = 1;
+    if (!mind_pending && mind_dirty) { mind_dirty = 0; wm_invalidate_diff(w_mind); }       /* сравнение окна с показанным - один раз за все части */
+    if (!(r & APP_MIND_DREW)) return;
+    uint64_t d = clock_ns() - t0;
+    mcost.draws++; mcost.draw_ns += d; if (d > mcost.draw_max) mcost.draw_max = d;
+}
+void display_mind_cost(mind_draw_cost_t* o) {
+    o->updates = mcost.updates; o->upd_ns = mcost.upd_ns; o->upd_max = mcost.upd_max;
+    o->draws = mcost.draws; o->draw_ns = mcost.draw_ns; o->draw_max = mcost.draw_max; o->view_bytes = sizeof(mind_view_t);
+}
 
 static void draw_monitor(void) {
     if (!wm_visible(w_mon)) return;
     static thread_info_t ti[64];
     unsigned n = sched_snapshot(ti, 64);
     app_monitor_draw(wm_content(w_mon), &mv, n);
-    wm_invalidate(w_mon);
+    wm_invalidate_diff(w_mon);
 }
 
 static int cur_prog_pinned(void);
@@ -122,7 +164,7 @@ static int cur_prog_pinned(void);
 static void draw_files(void) {
     if (!wm_visible(w_files)) return;
     app_files_draw(wm_content(w_files), &ev, &files_hover, files_drop, files_status, cur_prog_pinned());
-    wm_invalidate(w_files);
+    wm_invalidate_diff(w_files);
 }
 
 static void settings_state(app_settings_t* s) {
@@ -133,18 +175,24 @@ static void settings_state(app_settings_t* s) {
     s->scr_w = scr->w; s->scr_h = scr->h; s->notify = notify_mode;
 }
 
-static void draw_settings(void) {
+/* Настройки: раз в секунду из update_mind окно перерисовывается, только если показанное изменилось (поверхность, состояние, наведение). */
+static struct { const void* px; int w, h, hover, valid; app_settings_t st; } set_shown;
+static void draw_settings(int force) {
     if (!wm_visible(w_set)) return;
-    app_settings_t s; settings_state(&s);
-    app_settings_draw(wm_content(w_set), &s, set_hover);
-    wm_invalidate(w_set);
+    app_settings_t s; __builtin_memset(&s, 0, sizeof s); settings_state(&s);
+    surface_t* c = wm_content(w_set);
+    if (!force && set_shown.valid && set_shown.px == c->px && set_shown.w == c->w && set_shown.h == c->h && set_shown.hover == set_hover &&
+        !__builtin_memcmp(&set_shown.st, &s, sizeof s)) return;
+    app_settings_draw(c, &s, set_hover);
+    set_shown.px = c->px; set_shown.w = c->w; set_shown.h = c->h; set_shown.hover = set_hover; set_shown.st = s; set_shown.valid = 1;
+    wm_invalidate_diff(w_set);
 }
 
 static void redraw_app(int id) {
-    if (id == w_mind) draw_mind();
+    if (id == w_mind) { app_mind_invalidate(); draw_mind(); }     /* окно открыто или вернулось: рисунок с нуля */
     else if (id == w_mon) draw_monitor();
     else if (id == w_files) draw_files();
-    else if (id == w_set) draw_settings();
+    else if (id == w_set) draw_settings(1);
 }
 
 static int open_app(int app) {
@@ -238,16 +286,30 @@ static void on_input(int id, int type, int x, int y, unsigned buttons) {
         int press = type == 4 && (buttons & 1) && !(files_btn & 1);
         int release = type == 4 && !(buttons & 1) && (files_btn & 1);
         int old_drop = files_drop, drop = -1;
-        if (type == 4) files_btn = buttons;
         if (type == 3 && drag.on && (buttons & 1)) {                    /* тащат: над другой панелью - подсветка цели */
             int dx = x - drag.x, dy = y - drag.y;
             if ((dx * dx + dy * dy > 64) && h.kind != APP_HIT_NONE && h.kind <= APP_HIT_SCROLL && h.panel != drag.panel) drop = h.panel;
             files_drop = drop;
         }
+        int rpress = type == 4 && (buttons & 2) && !(files_btn & 2);        /* правая кнопка: контекстное меню */
+        if (type == 4) files_btn = buttons;
+        if (rpress) {
+            if (h.kind == APP_HIT_ROW || h.kind == APP_HIT_PANEL) explorer_menu(h.panel, h.kind == APP_HIT_ROW ? h.row : -1, x, y);
+            else if (ev.fm.mode == FM_MODE_MENU) explorer_mouse(FM_MOUSE_CLICK, 0, -1);
+        }
+        if (press && ev.fm.mode == FM_MODE_MENU) {                           /* меню открыто: щелчок по пункту выполняет, мимо - закрывает */
+            if (h.kind == APP_HIT_MENU) explorer_mouse(FM_MOUSE_MENUPICK, 0, h.row);
+            else explorer_mouse(FM_MOUSE_CLICK, 0, -1);
+            press = 0;
+        }
         if (press) {
             files_status[0] = 0;
             uint64_t now = clock_ns();
-            if (h.kind == APP_HIT_ROW) {
+            if (h.kind == APP_HIT_TOOL) explorer_mouse(FM_MOUSE_CMD, -1, h.row);
+            else if (h.kind == APP_HIT_HEAD) explorer_mouse(FM_MOUSE_SORT, h.panel, h.row);
+            else if (h.kind == APP_HIT_CRUMB) { char pth[FM_PATH]; if (app_files_crumb_path(&ev, h.panel, h.row, pth, sizeof pth) == 0) explorer_goto(h.panel, pth); }
+            else if (h.kind == APP_HIT_SIDE) { char pth[FM_PATH]; if (app_files_side_path(&ev, h.row, pth, sizeof pth) == 0) explorer_goto(-1, pth); }
+            else if (h.kind == APP_HIT_ROW) {
                 int dbl = h.panel == files_click_panel && h.row == files_click_row && now - files_click_ns < 450000000ULL;
                 explorer_mouse(dbl ? FM_MOUSE_DOUBLE : FM_MOUSE_CLICK, h.panel, h.row);
                 files_click_panel = dbl ? -1 : h.panel; files_click_row = h.row; files_click_ns = now;
@@ -255,8 +317,8 @@ static void on_input(int id, int type, int x, int y, unsigned buttons) {
             } else if (h.kind == APP_HIT_PANEL) explorer_mouse(FM_MOUSE_CLICK, h.panel, -1);
             else if (h.kind == APP_HIT_SCROLL) explorer_page(h.panel, h.row < 0 ? -1 : 1);
             else if (h.kind == APP_HIT_REFRESH) explorer_refresh();
-            else if (h.kind == APP_HIT_HIDDEN) explorer_key(KEY_F9, 0);
-            else if (h.kind == APP_HIT_KEY) explorer_key(KEY_F1 + h.row, 0);
+            else if (h.kind == APP_HIT_HIDDEN) explorer_key(KEY_F9, 0, 0);
+            else if (h.kind == APP_HIT_KEY) explorer_key(KEY_F1 + h.row, 0, 0);
         }
         if (release) {
             if (drag.on && files_drop >= 0) explorer_mouse(FM_MOUSE_DROP, drag.panel, drag.row);
@@ -288,7 +350,7 @@ static void on_input(int id, int type, int x, int y, unsigned buttons) {
             else if (h == 40 || h == 41) mind_sys_set_telemetry(h - 40);
             else if (h >= 50 && h <= 52) notify_mode = h - 50;
         }
-        if (h != set_hover || press) { set_hover = h; draw_settings(); }
+        if (h != set_hover || press) { set_hover = h; draw_settings(1); }
         return;
     }
     if (id == w_mind || id == w_mon || id == w_con) return;
@@ -344,7 +406,7 @@ static void dock_log_changes(char (*run)[16], int nrun) {
 static void side_fill(int k, const char* name, int kind) {
     scpy(side_names[k], 0, name, 16);
     int p = scpy(side_hints[k], 0, name, (int)sizeof side_hints[k]);
-    p = scpy(side_hints[k], p, kind == SK_PINNED ? " · правая кнопка - открепить" : " · правая кнопка - закрепить", (int)sizeof side_hints[k]);
+    p = scpy(side_hints[k], p, kind == SK_PINNED ? " · правая кнопка - убрать из панели" : " · правая кнопка - закрепить в панели", (int)sizeof side_hints[k]);
     side_kind[k] = (unsigned char)kind;
     side[k] = (wm_side_item_t){ app_label(side_names[k]), side_names[k], dock_color(name), dock_icon(name), 0, kind == SK_RUN, side_hints[k], 0, app_desc(name) };
     if (side[k].icon == ICON_TERMINAL && name[0] >= 'a' && name[0] <= 'z') side[k].badge = (char)(name[0] - 32);
@@ -395,7 +457,7 @@ static void side_rebuild(int force) {
         side[k] = (wm_side_item_t){ side_labels[k], side_names[k], TH_TEXT_DIM, ICON_MORE, 0, 1, side_hints[k], 0, "Окон открыто больше, чем помещается в панели" };
     }
     side_kind[side_n] = SK_ADD;
-    side[side_n++] = (wm_side_item_t){ "Добавить программу", "", TH_TEXT_DIM, ICON_FOLDER, 1, 0, "откроет /bin в Проводнике", 0, "" };
+    side[side_n++] = (wm_side_item_t){ "Добавить программу", "", TH_TEXT_DIM, ICON_FOLDER, 1, 0, "откроет список программ в Проводнике", 0, "" };
     wm_side_set(side, side_n);
 }
 
@@ -431,6 +493,43 @@ static void on_launch(int index) {
         return;
     }
     launch_program(side_names[index]);
+}
+
+/* Пункт меню запуска, у программы окна нет: «@...» - окна оболочки, иначе программа из /bin. */
+static void on_launch_tag(const char* tag) {
+    if (tag[0] == '@') {
+        if (streq(tag, "@term")) open_app(APP_TERM);
+        else if (streq(tag, "@files")) open_app(APP_FILES);
+        else if (streq(tag, "@mon")) open_app(APP_MON);
+        else if (streq(tag, "@set")) open_app(APP_SET);
+        else if (streq(tag, "@mind")) open_app(APP_MIND);
+        else if (streq(tag, "@bin")) { open_app(APP_FILES); explorer_goto(-1, "/bin"); }
+        return;
+    }
+    launch_program(tag);
+}
+
+/* Меню запуска: окна оболочки и все программы таблицы, по группам (docs/UI_DESIGN.md, раздел 4). */
+static void launcher_items_init(void) {
+    static wm_launch_item_t it[48];
+    int n = 0;
+    static const struct { const char* label; const char* tag; const char* desc; int icon; int g; } shell_items[] = {
+        { "Терминал", "@term", "Консоль ядра: команды и журнал", ICON_TERMINAL, 0 },
+        { "Проводник", "@files", "Файлы и папки, флешки", ICON_FOLDER, 0 },
+        { "Монитор", "@mon", "Загрузка процессоров, память, процессы", ICON_MONITOR, 0 },
+        { "Настройки", "@set", "Время, уведомления, режим Разума", ICON_GEAR, 0 },
+        { "Разум", "@mind", "Состояние системы и предупреждения", ICON_BRAIN, 1 },
+    };
+    for (int g = 0; g < 4; g++) {
+        for (int i = 0; i < (int)(sizeof shell_items / sizeof shell_items[0]) && n < 46; i++)
+            if (shell_items[i].g == g) it[n++] = (wm_launch_item_t){ shell_items[i].label, shell_items[i].tag, shell_items[i].desc, shell_items[i].icon, g };
+        for (int i = 0; i < app_info_count() && n < 46; i++) {
+            const app_info_t* a = app_info_at(i);
+            if (app_group(a->sys) == g) it[n++] = (wm_launch_item_t){ a->title, a->sys, a->desc, a->icon, g };
+        }
+    }
+    it[n++] = (wm_launch_item_t){ "Все программы", "@bin", "Каталог /bin в Проводнике", ICON_FOLDER, 3 };
+    wm_launcher_set(it, n, app_group_names, 4);
 }
 
 static void on_side_alt(int index) {
@@ -495,16 +594,29 @@ static void mind_notify_latest(void) {
     wm_notify(title, e->text, level);
 }
 
+/* Батарея из ACPI: индикатор в верхней панели есть, только если платформа её нашла (platform_battery); нет батареи - ничего не рисуется. */
+static void update_battery(void) {
+    static unsigned bver = ~0u; static int had;
+    platform_battery_t b;
+    if (platform_battery(&b) != 0) { if (had) { had = 0; wm_set_battery(0, -1, 0); } return; }
+    if (had && b.version == bver) return;
+    had = 1; bver = b.version;
+    wm_set_battery(1, b.percent, b.charging);
+}
+
 static void update_mind(void) {
     uint32_t v = mind_sys_version();
     if (v == mv_ver) return;
+    uint64_t t0 = clock_ns();
     mv_ver = v;
     mind_sys_view(&mv);
     mind_notify_latest();
     if (mv.t) wm_set_meters(mv.busy, (int)(mv.cores > 64 ? 64 : mv.cores), (int)mv.mem_used, mv.health);
     draw_mind();
     draw_monitor();
-    draw_settings();
+    draw_settings(0);
+    uint64_t d = clock_ns() - t0;
+    mcost.updates++; mcost.upd_ns += d; if (d > mcost.upd_max) mcost.upd_max = d;
 }
 
 static void update_files(void) {
@@ -543,7 +655,7 @@ static int comp_mode(uint64_t now) {
 }
 
 /* Параллельная сборка - по умолчанию и при малейшей выгоде (она же разгружает поток экрана); на одно ядро уходим, только если оно
-   дешевле на 25% в двух пробах подряд: шум замера не должен сгонять сборку с ядер. Пауза между пробами растёт вдвое до минуты. */
+   дешевле на 15% в двух пробах подряд (на телефоне замер дал 53,3 против 65,9 мкс на 1000 точек - это 19%, прежний порог 25% его не ловил): шум замера не должен сгонять сборку с ядер. Пауза между пробами растёт вдвое до минуты. */
 static void comp_note(int mode, uint64_t ns, uint64_t px) {
     if (px < 20000) return;                                   /* мелкие кадры не показательны: накладные расходы */
     uint64_t c = ns * 1000 / px;
@@ -551,7 +663,7 @@ static void comp_note(int mode, uint64_t ns, uint64_t px) {
     cs.n[mode]++;
     if (cs.probe && --cs.probe == 0 && cs.n[0] >= 8 && cs.n[1] >= 8) {
         uint32_t other = !cs.par;
-        int better = other ? (cs.cost[1] * 100 < cs.cost[0] * 95) : (cs.cost[0] * 100 < cs.cost[1] * 75);
+        int better = other ? (cs.cost[1] * 100 < cs.cost[0] * 95) : (cs.cost[0] * 100 < cs.cost[1] * 85);
         if (better) {
             if (!other && ++cs.confirm < 2) { cs.next_ns = 0; return; }   /* уход на одно ядро - после повторной пробы */
             cs.confirm = 0; cs.par = other; cs.gap_ns = 30000000000ULL;
@@ -578,6 +690,30 @@ static void governor(uint64_t now) {
     framegov_second(&gov, (uint32_t)df, (uint32_t)dl, fx_req);
 }
 
+/* ---------------- чёрный ящик: кадры дольше бюджета и паузы цикла ----------------
+   Запись - одна проверка на кадр; сами события идут в кольцо в памяти без замков (bbring.c). Мелкие превышения (до 50 мс) - не чаще двух в
+   секунду, заметные - не чаще десяти: остальные учитываются в счётчиках и худших значениях, но кольцо не заполняют. */
+#define BB_FRAME_WARN_NS   50000000ULL
+#define BB_FRAME_SEVERE_NS 250000000ULL
+#define BB_GAP_NS          250000000ULL       /* цикл должен начинаться каждые ~17 мс */
+#define BB_GAP_SEVERE_NS   1000000000ULL
+static bb_gate_t bb_gate_small, bb_gate_big;
+
+static uint32_t us16(uint64_t ns) { uint64_t u = ns / 1000; return u > 65535 ? 65535 : (uint32_t)u; }
+
+static void frame_note(uint64_t elapsed, uint64_t px, uint64_t gfx_ns, uint64_t input_ns, uint64_t mid_ns, uint64_t comp_ns) {
+    uint64_t now_ms = clock_ns() / 1000000ULL;
+    uint32_t us = elapsed / 1000 > 0xFFFFFFFFu ? 0xFFFFFFFFu : (uint32_t)(elapsed / 1000), skipped = 0;
+    int big = elapsed >= BB_FRAME_WARN_NS;
+    if (!bb_gate_pass(big ? &bb_gate_big : &bb_gate_small, now_ms, big ? 10 : 2, &skipped)) { bb_note_suppressed(BB_FRAME, us); return; }
+    const char* who = "сборка"; uint64_t top = comp_ns;
+    if (gfx_ns > top) { top = gfx_ns; who = "gfx"; }
+    if (input_ns > top) { top = input_ns; who = "ввод"; }
+    if (mid_ns > top) { top = mid_ns; who = "середина"; }
+    bb_event(BB_FRAME, elapsed >= BB_FRAME_SEVERE_NS ? BB_SEV_SEVERE : big ? BB_SEV_WARN : BB_SEV_INFO, us, px > 0xFFFFFFFFu ? 0xFFFFFFFFu : (uint32_t)px,
+             us16(gfx_ns) << 16 | us16(input_ns), us16(mid_ns) << 16 | us16(comp_ns), skipped > 255 ? 255 : (uint8_t)skipped, who);
+}
+
 /* ---------------- цикл ---------------- */
 
 static void display_main(void* arg) {
@@ -592,12 +728,18 @@ static void display_main(void* arg) {
         if (st.last_t0 && t0) {
             uint64_t gap = t0 - st.last_t0;
             if (gap > st.worst_gap_ns) st.worst_gap_ns = gap;
+            if (gap > st.max_gap_period) st.max_gap_period = gap;
             if (gap > FRAME_NS + FRAME_NS / 2) st.late++;
+            if (gap >= BB_GAP_NS)
+                bb_event(BB_GAP, gap >= BB_GAP_SEVERE_NS ? BB_SEV_SEVERE : BB_SEV_WARN, (uint32_t)(gap / 1000000ULL), BB_GAP_DISPLAY, 0, 0, 0, "display");
         }
         st.last_t0 = t0;
         int timed = t0 != 0;
 
+        uint64_t s0 = clock_ns();
         gfx_server_run();                 // окна приложений Ring 3: создание, перерисовка, закрытие
+        uint64_t gfx_d = clock_ns() - s0;
+        st.ns_gfx += gfx_d;
 
         if (wm_launcher_active()) {       // поиск и запуск: клавиатура у него
             input_event_t ke;
@@ -607,7 +749,7 @@ static void display_main(void* arg) {
             int own = w_files >= 0 && wm_visible(w_files) && wm_top() == w_files;
             __atomic_store_n(&files_focus, own || wm_launcher_active(), __ATOMIC_RELEASE);
             input_event_t ke;
-            while (own && input_pop(&ke)) if (ke.type == INPUT_KEY_DOWN && !(ke.key >= KEY_LSHIFT && ke.key <= KEY_CAPS)) explorer_key(ke.key, ke.ch);   // модификаторы - не команды
+            while (own && input_pop(&ke)) if (ke.type == INPUT_KEY_DOWN && !(ke.key >= KEY_LSHIFT && ke.key <= KEY_CAPS)) explorer_key(ke.key, ke.ch, ke.mods);   // модификаторы - не команды
         }
         if (__atomic_load_n(&rq_pending, __ATOMIC_ACQUIRE)) {      // команда «files»: открыть Проводник на этих путях
             char l[FM_PATH], r[FM_PATH];
@@ -619,6 +761,7 @@ static void display_main(void* arg) {
             if (l[0]) explorer_goto(0, l);
         }
 
+        if (redraw_req) { redraw_req = 0; wm_invalidate_all(); }
         int hk = input_take_hotkey();     // F11 - на весь экран, F10 - свернуть на фон, F9 - поиск и запуск
         if (hk == KEY_F9) wm_launcher_toggle();
         else if (hk) {
@@ -627,18 +770,24 @@ static void display_main(void* arg) {
             else if (hk == KEY_F10) wm_minimize(top);
         }
 
+        uint64_t s1 = clock_ns();
         mouse_event_t me;
         while (input_pop_mouse(&me)) {
             st.mouse_events++;
             if (me.abs) wm_mouse_abs(me.ax, me.ay, me.buttons); /* планшет/сенсор: абсолютная точка экрана */
             else wm_mouse(me.dx, me.dy, me.buttons);
         }
+        uint64_t mouse_d = clock_ns() - s1;
+        st.ns_mouse += mouse_d;
+        uint64_t s2 = clock_ns();
 
         int y0 = 0, y1 = 0;
         unsigned n = fbcon_update(&y0, &y1);
         if (n && y1 > y0) wm_invalidate_rows(w_con, y0, y1);
 
         update_mind();
+        update_battery();
+        if (mind_pending) draw_mind();                     /* остаток карточек окна «Разум» с прошлого кадра */
         update_files();
 
         uint64_t now0 = clock_ns();
@@ -654,23 +803,71 @@ static void display_main(void* arg) {
         wm_set_fx(fx_req == FGOV_FX_AUTO ? (int)gov.fx : fx_req);
         wm_anim((uint32_t)(now0 / 1000000ULL), mv.activity);
 
+        uint64_t mid_d = clock_ns() - s2;
+        st.ns_mid += mid_d;
         uint64_t tp0 = clock_ns();
         uint64_t px = 0;
         int cmode = comp_mode(tp0);
         wm_set_runner(cmode ? kpar_run : 0);
-        if (wm_compose_par(fb_present_rect, &px)) { st.composed++; st.pixels += px; }
+        if (wm_compose_par(present_timed, &px)) { st.composed++; pf_drawn++; st.pixels_p += px; { const fb_info_t* fi = fb_get_info(); if (px * 10 >= (uint64_t)fi->width * fi->height * 7) pf_full++; } st.pixels += px; if (px > st.px_max) { st.px_max = px; wm_last_damage(st.px_box); } if (px > 20000) st.big_frames++; }
         st.present_ns = clock_ns() - tp0;
+        st.ns_comp += st.present_ns;
         comp_note(cmode, st.present_ns, px);
-        fb_frame_done();                                   /* virtio-gpu: изменённое - устройству (без кадрового буфера в памяти устройства) */
+        uint64_t tf0 = clock_ns();
+        uint64_t fpx = fb_frame_done();                    /* virtio-gpu: изменённое - устройству (без кадрового буфера в памяти устройства) */
+        if (fpx) { pf_flush_ns += clock_ns() - tf0; pf_flush_px += fpx; pf_flush_n++; }
+        if (px) fts_push(&fts_comp, (uint32_t)((st.present_ns + clock_ns() - tf0) / 1000));
         st.frames++;
 
         uint64_t now = clock_ns();
         uint64_t elapsed = now - t0;
+        if (px) fts_push(&fts_cycle, (uint32_t)(elapsed / 1000));
         if (timed) { st.busy_ns += elapsed; if (elapsed > st.worst_busy_ns) st.worst_busy_ns = elapsed; }
+        if (timed && elapsed > FRAME_NS) frame_note(elapsed, px, gfx_d, mouse_d, mid_d, st.present_ns);
         uint32_t ticks = 1;
         if (elapsed < FRAME_NS) { uint64_t rest = FRAME_NS - elapsed; ticks = (uint32_t)((rest + TICK_NS - 1) / TICK_NS); if (ticks < 1) ticks = 1; }
         sched_sleep_ticks(ticks);
     }
+}
+
+/* Обои: /etc/wallpaper.kwp (формат KWP1, см. wallpaper.h). Нет файла или он испорчен - остаётся заставка. */
+static void wm_release(void* ptr, uint64_t bytes);
+
+/* Читает файл целиком в выделенные страницы; 0 - нет файла или не хватило памяти. */
+static uint8_t* read_whole(const char* path, uint64_t* len) {
+    kfs_stat_t st;
+    if (kfs_stat(path, &st) != 0 || st.size < 12 || st.size > (64u << 20)) return 0;
+    uint8_t* buf = (uint8_t*)gfx_alloc_pages(st.size);
+    if (!buf) return 0;
+    for (uint64_t off = 0; off < st.size;) {
+        uint64_t part = st.size - off > (1u << 20) ? (1u << 20) : st.size - off;
+        int64_t got = kfs_read(path, off, buf + off, part);
+        if (got <= 0) { wm_release(buf, st.size); return 0; }
+        off += (uint64_t)got;
+    }
+    *len = st.size;
+    return buf;
+}
+
+/* Обои: /etc/wallpaper.kwp.zst (KWP1, сжатый Zstandard) или несжатый /etc/wallpaper.kwp. Буфер живёт всё время работы. */
+static void load_wallpaper(void) {
+    uint64_t zn = 0;
+    uint8_t* z = read_whole("/etc/wallpaper.kwp.zst", &zn);
+    if (z) {
+        int64_t raw = zstd_frame_content_size(z, zn);
+        zstd_work* work = raw > 12 && raw <= (int64_t)(12 + 4096ull * 4096 * 3) ? (zstd_work*)gfx_alloc_pages(zstd_work_size()) : 0;
+        uint8_t* out = work ? (uint8_t*)gfx_alloc_pages((uint64_t)raw) : 0;
+        size_t got = 0;
+        int rc = out ? zstd_decompress(z, zn, out, (size_t)raw, &got, work) : -1;
+        if (work) wm_release(work, zstd_work_size());
+        wm_release(z, zn);
+        if (rc == ZSTD_OK && wm_wallpaper_set(out, got) == 0) return;
+        if (out) wm_release(out, (uint64_t)raw);
+        uart_print("[KIRA DISPLAY] wallpaper.kwp.zst: bad file, falling back\n");
+    }
+    uint64_t n = 0;
+    uint8_t* buf = read_whole("/etc/wallpaper.kwp", &n);
+    if (buf && wm_wallpaper_set(buf, n) != 0) wm_release(buf, n);
 }
 
 static void* wm_alloc(uint64_t bytes) { return gfx_alloc_pages(bytes); }
@@ -687,8 +884,11 @@ int display_init(unsigned long mbi) {
     if (rc != 0 && virtio_gpu_probe() == 0) rc = 0;
     if (rc != 0 && platform_fb_probe() == 0) rc = 0;            /* ARM: ramfb, simple-framebuffer из дерева устройств */
     if (rc != 0) return rc;
-    wm_ops_t ops = { wm_alloc, on_visibility, on_input, on_launch, on_resize, on_tab, on_side_alt, wm_release };
+    wm_ops_t ops = { wm_alloc, on_visibility, on_input, on_launch, on_resize, on_tab, on_side_alt, wm_release, on_launch_tag };
+    load_wallpaper();
     wm_init(fb_surface(), &ops);
+    wm_prof_set_clock(clock_ns);
+    launcher_items_init();
     surface_t* fbs = fb_surface();
     w_con = wm_create_ex("Терминал", WM_AUTO, WM_AUTO, CON_W, CON_H, WM_RESIZABLE, fbs->w, fbs->h);   // можно растянуть до размера экрана
     if (w_con < 0) { uart_print("[KIRA DISPLAY] cannot allocate window surfaces.\n"); return -7; }
@@ -731,6 +931,8 @@ void display_get_stats(uint64_t* loops, uint64_t* late, uint64_t* worst_gap_ns) 
     st.worst_gap_ns = 0;                       /* худший промежуток - за период между вызовами */
 }
 
+void display_request_redraw(void) { redraw_req = 1; }
+
 void display_request_files(const char* left, const char* right) {
     uint64_t fl = spin_lock_irqsave(&rq_lk);
     scpy(rq_l, 0, left ? left : "", FM_PATH); scpy(rq_r, 0, right ? right : "", FM_PATH);
@@ -738,7 +940,11 @@ void display_request_files(const char* left, const char* right) {
     spin_unlock_irqrestore(&rq_lk, fl);
 }
 
+void display_files_state(void) { explorer_state_log(); }
+
 int display_kbd_owner(void) { return __atomic_load_n(&files_focus, __ATOMIC_ACQUIRE); }
+
+static void inv_out(uintptr_t ra, uint32_t n) { uart_print("[INVAL] caller "); uart_print_hex(ra); uart_print(" x"); uart_print_dec(n); uart_print("\n"); }
 
 void display_print_info(void) {
     const fb_info_t* i = fb_get_info();
@@ -762,7 +968,73 @@ void display_print_info(void) {
     uart_print(", worst gap "); uart_print_dec(st.worst_gap_ns / 1000);
     uart_print(" us, worst cycle "); uart_print_dec(st.worst_busy_ns / 1000);
     uart_print(" us, budget "); uart_print_dec(FRAME_NS / 1000);
-    uart_print(" us\n\n");
+    uart_print(" us\n");
+    /* период с прошлого вызова: для замеров (разница счётчиков, худшие значения сбрасываются) */
+    static uint64_t p_frames, p_comp, p_late, p_mouse, p_t, p_busy, p_gfx, p_mm, p_mid, p_cmp, p_in, p_drop;
+    uint64_t nowp = clock_ns();
+    uint32_t in_n = input_mouse_pushed(), drop_n = input_mouse_dropped();
+    uint64_t dt = nowp - p_t;
+    uint64_t df = st.frames - p_frames;
+    uart_print("[PERIOD] ms "); uart_print_dec(dt / 1000000);
+    uart_print(" frames "); uart_print_dec(df);
+    uart_print(" drawn "); uart_print_dec(st.composed - p_comp);
+    uart_print(" late "); uart_print_dec(st.late - p_late);
+    { int cx_, cy_; wm_cursor(&cx_, &cy_); uart_print(" cursor "); uart_print_dec((uint64_t)cx_); uart_print(","); uart_print_dec((uint64_t)cy_); }
+    uart_print(" px_max "); uart_print_dec(st.px_max); uart_print(" box "); for (int i_ = 0; i_ < 4; i_++) { uart_print_dec((uint64_t)st.px_box[i_]); uart_print(i_ < 3 ? "," : ""); } uart_print(" big_frames "); uart_print_dec(st.big_frames); st.px_max = 0; st.big_frames = 0;
+    { static uint64_t p_px; uart_print(" px_per_drawn "); uart_print_dec((st.composed - p_comp) ? (st.pixels - p_px) / (st.composed - p_comp) : 0); p_px = st.pixels; }
+    uart_print(" mouse_in "); uart_print_dec(in_n - p_in);
+    uart_print(" mouse_used "); uart_print_dec(st.mouse_events - p_mouse);
+    uart_print(" mouse_lost "); uart_print_dec(drop_n - p_drop);
+    uart_print(" worst_gap_us "); uart_print_dec(st.max_gap_period / 1000);
+    uart_print(" worst_cycle_us "); uart_print_dec(st.worst_busy_ns / 1000);
+    uart_print(" busy_avg_us "); uart_print_dec(df ? (st.busy_ns - p_busy) / df / 1000 : 0);
+    uart_print(" gfx_avg_us "); uart_print_dec(df ? (st.ns_gfx - p_gfx) / df / 1000 : 0);
+    uart_print(" mouse_avg_us "); uart_print_dec(df ? (st.ns_mouse - p_mm) / df / 1000 : 0);
+    uart_print(" mid_avg_us "); uart_print_dec(df ? (st.ns_mid - p_mid) / df / 1000 : 0);
+    uart_print(" compose_avg_us "); uart_print_dec(df ? (st.ns_comp - p_cmp) / df / 1000 : 0);
+    uart_print("\n");
+    {   /* плавность: время кадра по кадрам (сборка + передача устройству), пересчитанные точки, этапы (docs/WM_PERF.md) */
+        wm_prof_t pr; wm_prof_take(&pr);
+        uint64_t dn = fts_count(&fts_comp);
+        uart_print("[WMPERF] drawn "); uart_print_dec(dn);
+        uart_print(" comp_avg_us "); uart_print_dec(fts_avg(&fts_comp));
+        uart_print(" comp_p99_us "); uart_print_dec(fts_p99(&fts_comp));
+        uart_print(" comp_max_us "); uart_print_dec(fts_max(&fts_comp));
+        uart_print(" cycle_p99_us "); uart_print_dec(fts_p99(&fts_cycle));
+        uart_print(" cycle_max_us "); uart_print_dec(fts_max(&fts_cycle));
+        uart_print(" px_per_frame "); uart_print_dec(dn ? st.pixels_p / dn : 0);
+        uart_print(" full_frames "); uart_print_dec(pf_full);
+        uart_print(" flush_px_per_frame "); uart_print_dec(pf_flush_n ? pf_flush_px / pf_flush_n : 0);
+        uart_print(" flush_us_per_frame "); uart_print_dec(pf_flush_n ? pf_flush_ns / pf_flush_n / 1000 : 0);
+        uart_print(" copy_us_per_frame "); uart_print_dec(dn ? pf_copy_ns / dn / 1000 : 0);
+        uart_print(" bg_us "); uart_print_dec(dn ? pr.bg_ns / dn / 1000 : 0);
+        uart_print(" panel_us "); uart_print_dec(dn ? pr.panel_ns / dn / 1000 : 0);
+        uart_print(" content_us "); uart_print_dec(dn ? pr.content_ns / dn / 1000 : 0);
+        uart_print(" ui_us "); uart_print_dec(dn ? pr.ui_ns / dn / 1000 : 0);
+        uart_print(" content_px "); uart_print_dec(dn ? pr.content_px / dn : 0);
+        uart_print(" scaled_px "); uart_print_dec(dn ? pr.scaled_px / dn : 0);
+        uart_print(" rects "); uart_print_dec(dn ? pr.rects / dn : 0);
+        uart_print("\n\n");
+        fts_reset(&fts_comp); fts_reset(&fts_cycle);
+        pf_copy_ns = pf_flush_ns = pf_flush_px = pf_flush_n = pf_full = pf_drawn = 0; st.pixels_p = 0;
+    }
+    p_frames = st.frames; p_comp = st.composed; p_late = st.late; p_mouse = st.mouse_events; p_t = nowp; p_busy = st.busy_ns;
+    p_gfx = st.ns_gfx; p_mm = st.ns_mouse; p_mid = st.ns_mid; p_cmp = st.ns_comp; p_in = in_n; p_drop = drop_n;
+    st.max_gap_period = 0; st.worst_busy_ns = 0;
+    {   /* чёрный ящик: сводка событий и состояние сброса на диск (подробно - команда bb) */
+        char l[512];
+        bb_summary(l, sizeof l); uart_print(l); uart_print("\n");
+        bbsave_status(l, sizeof l); uart_print(l); uart_print("\n");
+    }
+    for (int id = 0; id < WM_MAX_WIN; id++) {          /* положения окон: по ним сценарии стенда берут окно за заголовок */
+        int wx, wy, ww, wh; const char* tt;
+        int vis = wm_window_info(id, &wx, &wy, &ww, &wh, &tt);
+        if (vis < 0) continue;
+        uart_print("[WMWIN] id "); uart_print_dec((uint64_t)id); uart_print(" x "); uart_print_dec((uint64_t)(wx < 0 ? 0 : wx));
+        uart_print(" y "); uart_print_dec((uint64_t)(wy < 0 ? 0 : wy)); uart_print(" w "); uart_print_dec((uint64_t)ww);
+        uart_print(" h "); uart_print_dec((uint64_t)wh); uart_print(vis ? " hidden \"" : " shown \""); uart_print(tt); uart_print("\"\n");
+    }
+    wm_invalidate_report(inv_out);
 }
 
 void display_panic_flush(void) {

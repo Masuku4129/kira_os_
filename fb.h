@@ -18,8 +18,10 @@ typedef struct {
 int fb_init(unsigned long mbi_addr);
 /* Готовый кадровый буфер 32 бита 0x00RRGGBB в ОЗУ (virtio-gpu, ramfb): front - его адрес для ядра. flush - сообщить
    устройству изменённую область (0 - не нужно); зовётся один раз за кадр с охватом всех изменений (fb_frame_done). */
+/* Перед fb_attach_linear: 1 - память кадра обычная кэшируемая ОЗУ, которую устройство читает согласованно; кадр собирается прямо в неё (без заднего буфера). */
+void fb_set_direct_ok(int ok);
 int fb_attach_linear(uint64_t phys, void* front, uint32_t w, uint32_t h, uint32_t pitch, void (*flush)(int x, int y, int w, int h));
-void fb_frame_done(void);
+uint64_t fb_frame_done(void);   /* возвращает число точек, отправленных устройству (0 - ничего) */
 int fb_available(void);
 const fb_info_t* fb_get_info(void);
 

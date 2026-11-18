@@ -94,6 +94,16 @@ const app_info_t* app_info(const char* name) {
     for (int i = 0; i < NAPPS; i++) if (same(apps[i].sys, name)) return &apps[i];
     return 0;
 }
+const char* const app_group_names[4] = { "Основные", "Система", "Сеть и диагностика", "Дополнительно" };
+int app_group(const char* n) {
+    static const struct { const char* name; int g; } t[] = {
+        { "edit", 0 }, { "view", 0 },
+        { "drvman", 1 }, { "wasm", 1 }, { "kcc", 1 },
+        { "fetch", 2 }, { "serve", 2 }, { "udpecho", 2 }, { "net6", 2 }, { "rec", 2 }, { "melody", 2 },
+    };
+    for (int i = 0; i < (int)(sizeof t / sizeof t[0]); i++) if (same(t[i].name, n)) return t[i].g;
+    return 3;                                    /* paint, cube3d, plasma, burn, mt, ipc, fpu, drvget и прочие */
+}
 const char* app_label(const char* name) { const app_info_t* a = app_info(name); return a ? a->title : name; }
 const char* app_desc(const char* name) { const app_info_t* a = app_info(name); return a ? a->desc : ""; }
 

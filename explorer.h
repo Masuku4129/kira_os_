@@ -24,8 +24,10 @@ typedef struct {
 } exp_view_t;
 
 void     explorer_init(void);                       /* после файловой системы; запускает поток */
-void     explorer_key(int key, int ch);             /* клавиша: KEY_* из input.h и символ */
+void     explorer_key(int key, int ch, int mods);   /* клавиша: KEY_* из input.h, символ и модификаторы INPUT_MOD_* */
 void     explorer_mouse(int kind, int panel, int row);   /* FM_MOUSE_*: строка row панели panel */
+void     explorer_menu(int panel, int row, int x, int y);   /* правая кнопка: строка row панели panel, место щелчка (x,y) в окне */
+void     explorer_state_log(void);                   /* команда fmstate: рабочий поток печатает строку состояния (проверка стенда) */
 void     explorer_page(int panel, int dir);         /* страница вверх (-1) / вниз (1) по щелчку на полосе прокрутки */
 void     explorer_goto(int panel, const char* path);/* панель panel (-1 - активная) открывает каталог */
 void     explorer_refresh(void);

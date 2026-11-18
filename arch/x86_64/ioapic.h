@@ -18,7 +18,12 @@ int ioapic_init(const acpi_info_t* a);
 int ioapic_route_isa(const acpi_info_t* a, unsigned isa_irq, uint32_t dest_apic_id);
 /* Линия PCI INTx на ISA-номер irq: уровень, активный низкий (если MADT не говорит иное), вектор 32+irq, размаскирована. 0 - успех. */
 int ioapic_route_pci(const acpi_info_t* a, unsigned isa_irq, uint32_t dest_apic_id);
+int ioapic_route_gsi(const acpi_info_t* a, uint32_t gsi, uint8_t vector, uint32_t dest);   /* линия PCI по номеру GSI на заданный вектор */
+void ioapic_mask_gsi(const acpi_info_t* a, uint32_t gsi, int masked);
 void ioapic_mask_isa(const acpi_info_t* a, unsigned isa_irq, int masked);
 unsigned ioapic_entry_count(void);
+/* Сон S3: снимок и возврат всех записей перенаправления и номеров IOAPIC. save: 0 - готово; restore: 0 - все записи легли как были. */
+int ioapic_save(void);
+int ioapic_restore(void);
 
 #endif

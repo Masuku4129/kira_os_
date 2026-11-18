@@ -511,6 +511,7 @@ static int jit_build(void) {
     u32 total = 0;
     for (u32 i = 0; i < nfuncs; i++) {
         if (funcs[i].type >= ntypes) return -1;
+        if (funcs[i].import && (funcs[i].imp_id == IMP_SETJMP || funcs[i].imp_id == IMP_LONGJMP || funcs[i].imp_id == IMP_SPILL)) return -1;   /* снимки состояния есть только у интерпретатора */
         if (!funcs[i].import) total += (u32)(funcs[i].end - funcs[i].code);
     }
     u64 cap = 16ull * total + 192ull * nfuncs + 8192;             /* код получается в 2-4 раза больше байт WASM; не хватит - модуль остаётся интерпретатору */

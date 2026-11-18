@@ -1,10 +1,17 @@
+#include "auditev.h"
 #include "fscmd.h"
+#include "trustanchor.h"
 #include "kfs.h"
 #include "blk.h"
 #include "uart.h"
 #include "vfs.h"
 #include "heap.h"
 #include "experience.h"
+#include "sysseal.h"
+#include "json.h"
+#include "sha256.h"
+#include "kdrv.h"
+#include "kdrv_sig.h"
 
 static void fail(const char* what, int e) {
     uart_print(what); uart_print(": "); uart_print(kfs_strerror(e)); uart_print("\n");
@@ -170,6 +177,7 @@ void fscmd_format(const char* arg) {
     int r = kfs_format(d, KFS_BASE_LBA);
     if (r) { fail("format", r); return; }
     if (d != blk_primary()) { blk_set_primary(d); experience_attach(); }
+    audit_event(AUD_K_MOUNT, audit_cmd_source(), AUD_R_OK, 0, 0, 0, "kirafs", "formatted and mounted (all data erased)");
     uart_print("KiraFS создана и подключена");
     if (inf) { uart_print(" на "); uart_print(inf->id); }
     uart_print(".\n");
@@ -180,15 +188,124 @@ void fs_init(void) {
     if (!d) return;                              /* без диска ФС нет; сообщение уже дал experience_init */
     int r = kfs_mount(d, KFS_BASE_LBA);
     if (r == 0) {
+        trustanchor_fs_mounted();                /* откат диска: эпоха тома против якоря в TPM; до первой записи, в безопасном режиме том только читается */
         kfs_info_t i; kfs_info(&i);
         uart_print("[KIRA FS] KiraFS mounted: "); uart_print_dec((uint64_t)i.free_blocks * 4); uart_print(" KB free");
         if (i.repaired) { uart_print(", repaired after unclean shutdown: "); uart_print_dec(i.repaired); }
         uart_print(".\n");
+        audit_event(AUD_K_MOUNT, AUD_SRC_SYSTEM, AUD_R_OK, 0, 0, i.free_blocks * 4, "kirafs", i.repaired ? "mounted, repaired after unclean shutdown" : "mounted");
+        (void)fs_verify_seal(1);                 /* печать системы: одна строка в журнал; подробности - команда verify */
     } else if (r == KFS_ERR_NOFS) {
         uart_print("[KIRA FS] No KiraFS on disk. Type 'format yes' to create one.\n");
     } else {
         uart_print("[KIRA FS] Mount failed: "); uart_print(kfs_strerror(r)); uart_print(" (data untouched; see 'format').\n");
+        audit_event(AUD_K_MOUNT, AUD_SRC_SYSTEM, AUD_R_FAIL, 0, 0, (uint32_t)-r, "kirafs", kfs_strerror(r));
     }
+}
+
+/* Печать системы (sysseal.h): хэш файла считается кусками, целиком в памяти файл не держится. */
+static int seal_hash_file(void* ctx, const char* path, uint64_t* size, uint8_t hash[32]) {
+    uint8_t* buf = (uint8_t*)ctx;
+    kfs_stat_t st;
+    if (kfs_stat(path, &st) != 0 || st.type != KFS_FILE) return -1;
+    sha256_ctx_t c; sha256_init(&c);
+    for (uint64_t off = 0; off < st.size;) {
+        uint64_t part = st.size - off > 65536 ? 65536 : st.size - off;
+        int64_t got = kfs_read(path, off, buf, (size_t)part);
+        if (got <= 0) return -1;
+        sha256_update(&c, buf, (size_t)got);
+        off += (uint64_t)got;
+    }
+    sha256_final(&c, hash);
+    *size = st.size;
+    return 0;
+}
+static void seal_bad(void* ctx, const char* path, const char* why) { (void)ctx; uart_print("  "); uart_print(path); uart_print(": "); uart_print(why); uart_print("\n"); }
+
+/* 0 - печать совпала, 1 - расхождения, -1 - печати нет или она не читается. quiet: печатать только итог. */
+int fs_verify_seal(int quiet) {
+    kfs_stat_t st;
+    if (!kfs_mounted() || kfs_stat(SEAL_PATH, &st) != 0 || st.size == 0 || st.size > (1u << 20)) return -1;
+    uint8_t* m = kmalloc((size_t)st.size);
+    uint8_t* buf = kmalloc(65536);
+    uint8_t (*leaves)[32] = kmalloc(SEAL_MAX_FILES * 32);
+    int rc = -1;
+    if (m && buf && leaves && kfs_read(SEAL_PATH, 0, m, (size_t)st.size) == (int64_t)st.size) {
+        seal_report rep;
+        if (seal_check(m, (size_t)st.size, seal_hash_file, buf, leaves, quiet ? 0 : seal_bad, &rep) == 0) {
+            uart_print("[KIRA SEAL] "); uart_print_dec(rep.files); uart_print(" файлов в печати: совпало "); uart_print_dec(rep.ok);
+            if (rep.changed) { uart_print(", изменено "); uart_print_dec(rep.changed); }
+            if (rep.missing) { uart_print(", нет "); uart_print_dec(rep.missing); }
+            uart_print(rep.root_ok ? "; корень Меркла верен" : "; КОРЕНЬ МЕРКЛА НЕ СХОДИТСЯ (печать повреждена)");
+            uart_print("\n");
+            rc = (rep.changed || rep.missing || !rep.root_ok) ? 1 : 0;
+            int miss = 0, sr = kdrv_seal_sig_check(m, (size_t)st.size, &miss);   /* подпись издателя */
+            if (sr == 0) uart_print("[KIRA SEAL] подпись издателя верна (Ed25519): печать выпущена владельцем ключа\n");
+            else if (miss) uart_print("[KIRA SEAL] печать не подписана издателем (защита от порчи, но не от подмены образа)\n");
+            else { uart_print("[KIRA SEAL] ПОДПИСЬ ПЕЧАТИ НЕВЕРНА: "); uart_print(kdrv_sig_strerror(sr)); uart_print("\n"); rc = 1; }
+        } else {
+            uart_print("[KIRA SEAL] печать не разбирается: ошибка "); uart_print_dec((uint64_t)(-rep.format)); uart_print("\n");
+        }
+    } else if (!quiet) uart_print("[KIRA SEAL] не хватило памяти или печать не читается\n");
+    kfree(leaves); kfree(buf); kfree(m);
+    return rc;
+}
+
+void fscmd_anchor(const char* arg) { trustanchor_command(arg); }
+
+void fscmd_verify(const char* arg) {
+    (void)arg;
+    if (!need_fs()) return;
+    int r = fs_verify_seal(0);
+    if (r < 0) uart_print("печати нет: /etc/system.cbor пишет kfstool seal при сборке образа\n");
+    else if (r == 0) uart_print("образ цел: все файлы /bin и /etc совпали с печатью\n");
+    else uart_print("ВНИМАНИЕ: образ отличается от печати (порча носителя или подмена файлов)\n");
+}
+
+/* json файл [путь]: проверка JSON-файла и выборка значения по пути (a.b[2].c). Файл читается целиком (до 64 КБ), разбор без выделения памяти. */
+void fscmd_json(const char* arg) {
+    if (!need_fs()) return;
+    arg = skip_sp(arg);
+    unsigned a = word_len(arg);
+    if (!a) { uart_print("использование: json файл [путь]   (например: json /data/настройки.json окна[0].ширина)\n"); return; }
+    const char* pa = skip_sp(arg + a);
+    unsigned pl = word_len(pa);
+    static char jpath[KFS_NAME_MAX * 4 + 4], jsel[64];
+    const char* fp = mkpath(arg, a);
+    unsigned k = 0; while (fp[k] && k < sizeof jpath - 1) { jpath[k] = fp[k]; k++; } jpath[k] = 0;
+    if (pl >= sizeof jsel) { uart_print("json: путь внутри документа слишком длинный\n"); return; }
+    for (k = 0; k < pl; k++) jsel[k] = pa[k];
+    jsel[pl] = 0;
+    kfs_stat_t st;
+    int r = vfs_stat(jpath, &st);
+    if (r) { fail(jpath, r); return; }
+    if (st.type != KFS_FILE) { fail(jpath, KFS_ERR_ISDIR); return; }
+    if (st.size > 65536) { uart_print("json: файл больше 64 КБ\n"); return; }
+    char* buf = (char*)kmalloc(st.size ? (size_t)st.size : 1);
+    if (!buf) { uart_print("json: не хватает памяти\n"); return; }
+    int64_t got = vfs_read(jpath, 0, buf, (size_t)st.size);
+    if (got != (int64_t)st.size) { fail(jpath, got < 0 ? (int)got : KFS_ERR_IO); kfree(buf); return; }
+    json_val v;
+    r = json_get(buf, (size_t)st.size, jsel, &v);
+    if (r == JSON_ERR_NOTFOUND) uart_print("json: по этому пути ничего нет\n");
+    else if (r == JSON_ERR_PATH) uart_print("json: путь записан неверно (нужно вида a.b[2].c)\n");
+    else if (r == JSON_ERR_DEPTH) uart_print("json: слишком глубокая вложенность (больше 16)\n");
+    else if (r) uart_print("json: документ не является правильным JSON\n");
+    else {
+        static const char* const names[] = { "", "null", "bool", "число", "строка", "массив", "объект" };
+        uart_print(names[v.type]); uart_print(": ");
+        char tmp[161];
+        if (v.type == JSON_STR) {
+            long n = json_string(&v, tmp, sizeof tmp);
+            if (n >= 0) uart_print(tmp); else uart_print("(строка длиннее 160 байт)");
+        } else {
+            size_t n = v.n > 160 ? 160 : v.n;
+            for (size_t i = 0; i < n; i++) tmp[i] = v.p[i];
+            tmp[n] = 0; uart_print(tmp); if (v.n > 160) uart_print("...");
+        }
+        uart_print("\n");
+    }
+    kfree(buf);
 }
 
 /* cp откуда куда: копирование между любыми томами (флешка <-> системный диск). Файл читается целиком в память. */
@@ -208,6 +325,10 @@ void fscmd_cp(const char* arg) {
     if (r) { fail(src, r); return; }
     if (st.type != KFS_FILE) { fail(src, KFS_ERR_ISDIR); return; }
     if (st.size != (size_t)st.size) { fail(src, KFS_ERR_FBIG); return; }
+    if (vfs_clone(src, dp) == 0) {                                          /* оба пути на системном диске: данные не копируются */
+        uart_print(src); uart_print(" -> "); uart_print(dp); uart_print(": "); uart_print_dec(st.size); uart_print(" байт (общие блоки, место не занято)\n");
+        return;
+    }
     uint8_t* buf = (uint8_t*)kmalloc(st.size ? (size_t)st.size : 1);
     if (!buf) { uart_print("cp: не хватает памяти\n"); return; }
     int64_t got = vfs_read(src, 0, buf, (size_t)st.size);

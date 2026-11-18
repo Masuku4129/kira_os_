@@ -1,5 +1,6 @@
 #include "usb.h"
 #include "pci.h"
+#include "iommu.h"
 
 /* UHCI (USB 1.1, Intel): регистры в портах ввода-вывода (BAR4), расписание в памяти:
    список кадров (1024 указателя) -> очереди (QH) прерывающих каналов -> очередь управляющих передач.
@@ -374,7 +375,63 @@ static void uhci_ports(usb_hc_t* hc) {
 
 /* ---------------- запуск ---------------- */
 
-int uhci_start(usb_hc_t* hc, const void* pd) {
+/* Проверка принуждения IOMMU: список кадров указывает на страницу, которая устройству НЕ выдана; первое же чтение
+   расписания должно кончиться записью нарушения. Нет нарушения - изоляция не объявляется (домен снимается). */
+static int uhci_enforced(uhci_t* u, const pci_dev_t* p) {
+    uint64_t cp;
+    void* c = usb_dma_alloc(4096, &cp, 1);                          /* намеренно без выдачи */
+    if (!c) return 0;
+    uint32_t before = iommu_fault_count(p);
+    iommu_expect_fault(p, 1);
+    outw((uint16_t)(u->io + USBINTR), 0);
+    outw((uint16_t)(u->io + FRNUM), 0);
+    outl((uint16_t)(u->io + FRBASE), (uint32_t)cp);
+    outw((uint16_t)(u->io + USBSTS), 0xFFFF);
+    outw((uint16_t)(u->io + USBCMD), CMD_RS | CMD_CF | CMD_MAXP);
+    int seen = 0;
+    for (uint32_t i = 0; i < 200 && !seen; i++) {
+        usb_sleep_ms(1);
+        (void)iommu_fault_poll();
+        seen = iommu_fault_count(p) > before;
+    }
+    iommu_expect_fault(p, 0);
+    outw((uint16_t)(u->io + USBCMD), 0);
+    return seen;
+}
+
+/* Сон S3: контроллер останавливается (USBCMD = 0); после сна проходит тот же путь, что при первом пуске: общий сброс шины, сброс контроллера, адрес списка кадров,
+   пуск. Расписание в памяти прежнее, очереди пустые (устройства отключены программно). */
+static int uhci_suspend(usb_hc_t* hc) {
+    uhci_t* u = (uhci_t*)hc->priv;
+    outw((uint16_t)(u->io + USBINTR), 0);
+    outw((uint16_t)(u->io + USBCMD), 0);
+    for (int i = 0; i < 20 && !(inw((uint16_t)(u->io + USBSTS)) & STS_HALTED); i++) usb_sleep_ms(1);
+    return (inw((uint16_t)(u->io + USBSTS)) & STS_HALTED) ? 0 : -1;
+}
+static int uhci_resume(usb_hc_t* hc) {
+    uhci_t* u = (uhci_t*)hc->priv;
+    if (inw((uint16_t)(u->io + USBCMD)) == 0xFFFF) return -1;          /* порты ввода-вывода не отвечают */
+    outw((uint16_t)(u->io + USBCMD), 0);
+    outw((uint16_t)(u->io + USBCMD), CMD_GRESET);
+    usb_sleep_ms(20);
+    outw((uint16_t)(u->io + USBCMD), 0);
+    usb_sleep_ms(10);
+    outw((uint16_t)(u->io + USBCMD), CMD_HCRESET);
+    for (int i = 0; i < 100 && (inw((uint16_t)(u->io + USBCMD)) & CMD_HCRESET); i++) usb_sleep_ms(1);
+    if (inw((uint16_t)(u->io + USBCMD)) & CMD_HCRESET) return -2;
+    for (int i = 0; i <= QH_BULK; i++) u->qh[i].elem = LP_T;
+    for (int i = 0; i < 128; i++) u->addr_used[i] = 0;
+    outw((uint16_t)(u->io + USBINTR), 0);
+    outw((uint16_t)(u->io + FRNUM), 0);
+    outl((uint16_t)(u->io + FRBASE), (uint32_t)(uintptr_t)u->frames);
+    outb((uint16_t)(u->io + SOFMOD), 0x40);
+    outw((uint16_t)(u->io + USBSTS), 0xFFFF);
+    outw((uint16_t)(u->io + USBCMD), CMD_RS | CMD_CF | CMD_MAXP);
+    usb_sleep_ms(5);
+    return (inw((uint16_t)(u->io + USBSTS)) & STS_HALTED) ? -3 : 0;
+}
+
+static int uhci_start_dev(usb_hc_t* hc, const void* pd, int iso) {
     const pci_dev_t* p = (const pci_dev_t*)pd;
     if (nctl >= 8) { usb_log("[KIRA USB] more than 8 UHCI controllers: the rest are not used\n"); return -1; }
     if (!p->bar[4].io || !p->bar[4].base) { usb_log("[KIRA USB] UHCI without I/O BAR4: skipped\n"); return -1; }
@@ -417,6 +474,19 @@ int uhci_start(usb_hc_t* hc, const void* pd) {
     outw((uint16_t)(u->io + USBCMD), CMD_HCRESET);
     for (int i = 0; i < 100 && (inw((uint16_t)(u->io + USBCMD)) & CMD_HCRESET); i++) usb_sleep_ms(1);
     if (inw((uint16_t)(u->io + USBCMD)) & CMD_HCRESET) { usb_log("[KIRA USB] UHCI reset timeout\n"); return -1; }
+    if (iso) {
+        if (iommu_map(p, phys, phys, 4096ull * 13, IOMMU_R | IOMMU_W) != 0) {
+            usb_log("[KIRA IOMMU] UHCI: could not grant DMA memory, controller stays passthrough\n");
+            iommu_release_device(p); iso = 0;
+        } else if (uhci_enforced(u, p)) {
+            usb_log("[KIRA IOMMU] UHCI: enforcement check passed - DMA to memory that was not granted is blocked.\n");
+        } else {
+            usb_log("[KIRA IOMMU] UHCI: no DMA fault seen in the enforcement check: isolation NOT confirmed, controller stays passthrough.\n");
+            iommu_release_device(p); iso = 0;
+        }
+        outw((uint16_t)(u->io + USBCMD), CMD_HCRESET);                /* после проверки: контроллер больше не читает расписание */
+        for (int i = 0; i < 100 && (inw((uint16_t)(u->io + USBCMD)) & CMD_HCRESET); i++) usb_sleep_ms(1);
+    }
     outw((uint16_t)(u->io + USBINTR), 0);
     outw((uint16_t)(u->io + FRNUM), 0);
     outl((uint16_t)(u->io + FRBASE), (uint32_t)phys);
@@ -438,7 +508,16 @@ int uhci_start(usb_hc_t* hc, const void* pd) {
     hc->intr_open = uhci_intr_open; hc->intr_poll = uhci_intr_poll;
     hc->bulk_open = uhci_bulk_open; hc->bulk_xfer = uhci_bulk_xfer; hc->bulk_reset = uhci_bulk_reset;
     hc->pipe_close = uhci_pipe_close; hc->ports = uhci_ports; hc->release = uhci_release;
+    hc->suspend = uhci_suspend; hc->resume = uhci_resume;
     nctl++;
     usb_log("[KIRA USB] UHCI at I/O "); usb_log_hex(u->io); usb_log(", "); usb_log_dec(u->nports); usb_log(" ports, polled schedule\n");
     return 0;
+}
+
+int uhci_start(usb_hc_t* hc, const void* pd) {
+    const pci_dev_t* p = (const pci_dev_t*)pd;
+    int iso = iommu_isolate_device(p) == 0;                       /* свой домен VT-d без отображений - до включения bus mastering */
+    int r = uhci_start_dev(hc, pd, iso);
+    if (r != 0 && iso) iommu_release_device(p);
+    return r;
 }

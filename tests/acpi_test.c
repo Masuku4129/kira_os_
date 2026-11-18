@@ -142,6 +142,26 @@ int main(void){
         static const uint8_t t[] = { 0x08, '_', 'S', '5', '_', 0x12 };                         /* обрезано */
         CHECK(acpi_find_s5(t, sizeof t, &a, &b) != 0);
     }
+    {   /* \_S3 (как у QEMU: Package(4){1, 1, 0, 0}), общий поиск Sx, значение для PM1_CNT, разбор FACS */
+        uint8_t a = 9, b = 9;
+        static const uint8_t s3[] = { 0x10, 0x20, 0x08, '_', 'S', '3', '_', 0x12, 0x0A, 0x04, 0x0A, 0x01, 0x0A, 0x01, 0x00, 0x00 };
+        CHECK(acpi_find_sx(s3, sizeof s3, '3', &a, &b) == 0 && a == 1 && b == 1);
+        CHECK(acpi_find_sx(s3, sizeof s3, '5', &a, &b) != 0);                              /* S5 в этой таблице нет */
+        static const uint8_t s3b[] = { 0x08, '_', 'S', '3', '_', 0x12, 0x06, 0x04, 0x01, 0x00, 0x00, 0x00 };
+        CHECK(acpi_find_sx(s3b, sizeof s3b, '3', &a, &b) == 0 && a == 1 && b == 0);
+        CHECK(acpi_find_sx(s3, 9, '3', &a, &b) != 0);                                      /* обрезано */
+        /* SLP_TYP в битах 12:10, SLP_EN бит 13, остальное (SCI_EN бит 0) сохраняется */
+        CHECK(acpi_pm1_sleep_value(0x0001, 1) == (0x0001 | (1 << 10) | (1 << 13)));
+        CHECK(acpi_pm1_sleep_value(0x1C01, 5) == (0x0001 | (5 << 10) | (1 << 13)));
+        CHECK(acpi_pm1_sleep_value(0x0001, 0xFF) == (0x0001 | (7 << 10) | (1 << 13)));
+        uint8_t f[64]; memset(f, 0, sizeof f); memcpy(f, "FACS", 4); f[4] = 64;
+        uint32_t w32 = 0x9F000, hw = 0x1234; uint64_t w64 = 0x100000000ull; memcpy(f + 12, &w32, 4); memcpy(f + 8, &hw, 4); memcpy(f + 24, &w64, 8); f[32] = 2;
+        acpi_facs_t fc;
+        CHECK(acpi_facs_parse(f, sizeof f, &fc) == 0 && fc.valid && fc.wake32 == 0x9F000 && fc.wake64 == 0x100000000ull && fc.hw_signature == 0x1234 && fc.version == 2);
+        CHECK(acpi_facs_parse(f, 20, &fc) != 0);                                           /* меньше минимального */
+        f[0] = 'X'; CHECK(acpi_facs_parse(f, sizeof f, &fc) != 0); f[0] = 'F';
+        f[4] = 24; CHECK(acpi_facs_parse(f, sizeof f, &fc) == 0 && fc.wake32 == 0x9F000 && fc.wake64 == 0);   /* короткая FACS (ACPI 1.0): 64-бит поля нет */
+    }
     printf("acpi: all parser checks passed (incl. Intel MP tables, BIOS scan)\n");
     return 0;
 }

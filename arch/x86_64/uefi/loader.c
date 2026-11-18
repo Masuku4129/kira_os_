@@ -16,6 +16,24 @@
 #include <stdint.h>
 #include <stddef.h>
 #include "uefi_kbi.h"
+#include "bootinfo.h"
+#ifdef KIRA_SECURE_BOOT
+/* Доверенный режим (сборка KIRA_SECURE=1, docs/SECURE_BOOT.md): ключ выпуска вшит, ядро и initrd без валидной подписи не загружаются. */
+#include "bootsig.h"
+#include "sha256.h"
+#include "kira_bootkey.h"            /* kira_boot_pubkey[32]: создаёт build_uefi.sh из KIRA_BOOT_PUBKEY */
+#include "tpm2.h"                    /* команды NV-памяти TPM: монотонный счётчик номера выпуска (А3) */
+#include "rollback.h"                /* политика отката: выпуск против счётчика TPM и вшитого порога */
+#ifndef KIRA_MIN_IMAGE_VERSION
+#define KIRA_MIN_IMAGE_VERSION 0u    /* нижний порог номера выпуска (защита от отката); повышается при выпуске, А3 */
+#endif
+#ifndef KIRA_REQUIRE_SB
+#define KIRA_REQUIRE_SB 1            /* без включённого Secure Boot цепочка не начинается с прошивки: отказ */
+#endif
+#ifndef KIRA_REQUIRE_TPM
+#define KIRA_REQUIRE_TPM 0           /* 1: без TPM и успешного внесения в PCR загрузка отклоняется */
+#endif
+#endif
 
 #define KIRA_ELF_MAGIC       0x464c457f
 #define KIRA_ELFCLASS64      2
@@ -28,6 +46,7 @@
 #define KIRA_BOOTSTRAP_LIMIT (1ull << 30)
 #define KIRA_MAX_KERNEL_SPAN (128ull * 1024ull * 1024ull)
 #define KIRA_KERNEL_PATH     L"\\EFI\\KIRA\\KIRA.ELF"
+#define KIRA_SIG_PATH        L"\\EFI\\KIRA\\KIRA.SIG"
 #define KIRA_BOOTINFO_PAGES  32 /* enough for the bounded 4096-entry KBI memory map */
 
 typedef struct __attribute__((packed)) {
@@ -91,9 +110,13 @@ static BOOLEAN range_valid(UINT64 offset, UINT64 length, UINT64 total)
     return offset <= total && length <= total - offset;
 }
 
-static EFI_STATUS read_kernel_image(EFI_HANDLE image,
-                                    VOID **buffer,
-                                    UINTN *buffer_size)
+/* Читает файл ESP целиком в пул памяти (1..max_size байт). Один и тот же буфер затем проверяется и разбирается: между проверкой
+   подписи и загрузкой нет повторного чтения, поэтому файл нельзя подменить между ними. */
+static EFI_STATUS read_esp_file(EFI_HANDLE image,
+                                const CHAR16 *path,
+                                UINT64 max_size,
+                                VOID **buffer,
+                                UINTN *buffer_size)
 {
     EFI_LOADED_IMAGE *loaded = NULL;
     EFI_SIMPLE_FILE_SYSTEM_PROTOCOL *fs = NULL;
@@ -117,7 +140,7 @@ static EFI_STATUS read_kernel_image(EFI_HANDLE image,
     if (EFI_ERROR(status))
         return status;
 
-    status = uefi_call_wrapper(root->Open, 5, root, &file, KIRA_KERNEL_PATH, EFI_FILE_MODE_READ, 0);
+    status = uefi_call_wrapper(root->Open, 5, root, &file, (CHAR16 *)path, EFI_FILE_MODE_READ, 0);
     if (EFI_ERROR(status)) {
         uefi_call_wrapper(root->Close, 1, root);
         return status;
@@ -137,7 +160,7 @@ static EFI_STATUS read_kernel_image(EFI_HANDLE image,
         return status;
     }
 
-    if (info->FileSize == 0 || info->FileSize > 128ull * 1024ull * 1024ull) {
+    if (info->FileSize == 0 || info->FileSize > max_size) {
         uefi_call_wrapper(g_bs->FreePool, 1, info);
         uefi_call_wrapper(file->Close, 1, file);
         uefi_call_wrapper(root->Close, 1, root);
@@ -168,11 +191,336 @@ static EFI_STATUS read_kernel_image(EFI_HANDLE image,
     return EFI_SUCCESS;
 }
 
+static EFI_STATUS read_kernel_image(EFI_HANDLE image,
+                                    VOID **buffer,
+                                    UINTN *buffer_size)
+{
+    return read_esp_file(image, KIRA_KERNEL_PATH, 128ull * 1024ull * 1024ull,
+                         buffer, buffer_size);
+}
+
+/* ---------- Доверенная загрузка (А2): состояние Secure Boot, проверка подписи ядра, измерения TPM ---------- */
+
+static UINT32 g_trust_flags;        /* KBI_TRUST_*: уходит ядру в заголовке BootInfo */
+
+static EFI_GUID kira_global_variable_guid = {
+    0x8be4df61, 0x93ca, 0x11d2,
+    {0xaa, 0x0d, 0x00, 0xe0, 0x98, 0x03, 0x2b, 0x8c}
+};
+
+/* Прямой вывод в COM1 (0x3F8), если порт есть: сообщения о доверии должны быть видны на последовательной консоли и там, где прошивка
+   не делает её консолью вывода. Порт не настраивается (это сделала прошивка или сделает ядро): только ожидание готовности передатчика. */
+static int com1_present(void)
+{
+    UINT8 v;
+    __asm__ __volatile__("outb %0, %1" : : "a"((UINT8)0xA5), "Nd"((UINT16)0x3FF));
+    __asm__ __volatile__("inb %1, %0" : "=a"(v) : "Nd"((UINT16)0x3FF));
+    return v == 0xA5;
+}
+
+static void com1_puts(const char *s)
+{
+    UINT32 spin;
+    if (!com1_present())
+        return;
+    for (; *s; ++s) {
+        UINT8 lsr = 0;
+        for (spin = 0; spin < 200000u; ++spin) {
+            __asm__ __volatile__("inb %1, %0" : "=a"(lsr) : "Nd"((UINT16)0x3FD));
+            if (lsr & 0x20)
+                break;
+        }
+        __asm__ __volatile__("outb %0, %1" : : "a"((UINT8)*s), "Nd"((UINT16)0x3F8));
+    }
+}
+
+/* Одно сообщение о доверенной загрузке: на экран («KIRA BOOT: ...») и в COM1 («[KIRA BOOT] ...»). Только ASCII. */
+static void boot_log(const char *text)
+{
+    Print(L"KIRA BOOT: %a\r\n", text);
+    com1_puts("[KIRA BOOT] ");
+    com1_puts(text);
+    com1_puts("\r\n");
+}
+
+#ifdef KIRA_SECURE_BOOT
+static void boot_log_rc(const char *prefix, const char *text)
+{
+    char line[200];
+    UINTN n = 0, i;
+    for (i = 0; prefix[i] && n < sizeof(line) - 1; ++i) line[n++] = prefix[i];
+    for (i = 0; text[i] && n < sizeof(line) - 1; ++i) line[n++] = text[i];
+    line[n] = 0;
+    boot_log(line);
+}
+#endif
+
+/* Читает однобайтовую глобальную переменную UEFI. 0 - прочитана, иначе нет такой переменной или она неверного размера. */
+static int read_global_u8(const CHAR16 *name, UINT8 *value)
+{
+    UINTN size = sizeof(*value);
+    UINT32 attrs = 0;
+    EFI_STATUS status = uefi_call_wrapper(g_st->RuntimeServices->GetVariable, 5, (CHAR16 *)name,
+                                          &kira_global_variable_guid, &attrs, &size, value);
+    return (EFI_ERROR(status) || size != sizeof(*value)) ? -1 : 0;
+}
+
+/* Состояние Secure Boot из переменных SecureBoot и SetupMode. Возвращает 1, если Secure Boot включён и ключи заведены. */
+static int collect_secure_boot_state(void)
+{
+    UINT8 sb = 0, setup = 0;
+    int have_sb = read_global_u8(L"SecureBoot", &sb) == 0;
+    int have_setup = read_global_u8(L"SetupMode", &setup) == 0;
+
+    if (have_sb) {
+        g_trust_flags |= KBI_TRUST_SB_KNOWN;
+        if (sb == 1) g_trust_flags |= KBI_TRUST_SB_ENABLED;
+    }
+    if (have_setup && setup == 1)
+        g_trust_flags |= KBI_TRUST_SETUP_MODE;
+
+    if (!have_sb)
+        boot_log("Secure Boot: state unknown (firmware has no SecureBoot variable)");
+    else if (sb != 1)
+        boot_log("Secure Boot: disabled");
+    else if (have_setup && setup == 1)
+        boot_log("Secure Boot: enabled but firmware is in Setup Mode (no platform key, signatures prove nothing)");
+    else
+        boot_log("Secure Boot: enabled (firmware verified the signature of this loader)");
+    return have_sb && sb == 1 && !(have_setup && setup == 1);
+}
+
+#ifdef KIRA_SECURE_BOOT
+/* Отказ доверенной загрузки: понятная причина на экран и в COM1, пауза, чтобы её успели прочитать, затем возврат ошибки прошивке.
+   Небезопасного пути нет: ядро не загружено, управление ему не передаётся. */
+static EFI_STATUS secure_refuse(const char *what, const char *why)
+{
+    boot_log("TRUSTED BOOT REFUSED: the kernel is NOT started");
+    boot_log_rc("  object: ", what);
+    boot_log_rc("  reason: ", why);
+    boot_log("  fix: install an image signed with the release key (tools/sbsign_image.sh, docs/SECURE_BOOT.md)");
+    (VOID)uefi_call_wrapper(g_bs->Stall, 1, (UINTN)5000000);
+    return EFI_SECURITY_VIOLATION;
+}
+
+static UINT32 g_image_version;
+static bootsig_t g_sig;
+static VOID *g_sig_blob;
+static UINTN g_sig_blob_size;
+
+/* TCG2: внесение данных в PCR и журнал событий (EV_IPL). Структуры по спецификации TCG EFI Protocol; в GNU-EFI их нет. */
+typedef struct __attribute__((packed)) {
+    UINT32 header_size;
+    UINT16 header_version;
+    UINT32 pcr_index;
+    UINT32 event_type;
+} kira_tcg2_event_header;
+typedef struct __attribute__((packed)) {
+    UINT32 size;
+    kira_tcg2_event_header header;
+    UINT8 event[48];
+} kira_tcg2_event;
+typedef struct {
+    UINT8 size;
+    UINT8 structure_major, structure_minor, protocol_major, protocol_minor;
+    UINT32 hash_algorithm_bitmap;
+    UINT32 supported_event_logs;
+    UINT8 tpm_present;
+    UINT16 max_command_size;
+    UINT16 max_response_size;
+    UINT32 manufacturer_id;
+    UINT32 number_of_pcr_banks;
+    UINT32 active_pcr_banks;
+} kira_tcg2_capability;
+typedef struct kira_tcg2_protocol kira_tcg2_protocol;
+struct kira_tcg2_protocol {
+    EFI_STATUS (EFIAPI *get_capability)(kira_tcg2_protocol *, kira_tcg2_capability *);
+    VOID *get_event_log;
+    EFI_STATUS (EFIAPI *hash_log_extend_event)(kira_tcg2_protocol *, UINT64, EFI_PHYSICAL_ADDRESS, UINT64, kira_tcg2_event *);
+    EFI_STATUS (EFIAPI *submit_command)(kira_tcg2_protocol *, UINT32, UINT8 *, UINT32, UINT8 *);
+    VOID *get_active_pcr_banks, *set_active_pcr_banks, *get_result_of_set_active_pcr_banks;
+};
+static EFI_GUID kira_tcg2_guid = {
+    0x607f766c, 0x7455, 0x42be,
+    {0x93, 0x0b, 0xe4, 0xd7, 0x6d, 0xb2, 0x72, 0x0f}
+};
+#define KIRA_PCR_BOOT_PAYLOAD 9u        /* манифест, ядро и initrd (как у Linux initrd: PCR 9); PCR 4 и 7 заполняет сама прошивка */
+#define KIRA_EV_IPL 0x0000000Du
+
+static kira_tcg2_protocol *g_tcg2;
+static int g_measure_failed;
+static int g_measured_any;
+
+static void tcg2_locate(void)
+{
+    kira_tcg2_capability cap;
+    EFI_STATUS status = uefi_call_wrapper(g_bs->LocateProtocol, 3, &kira_tcg2_guid, NULL, (VOID **)&g_tcg2);
+    if (EFI_ERROR(status) || !g_tcg2) {
+        g_tcg2 = NULL;
+        return;
+    }
+    SetMem(&cap, sizeof(cap), 0);
+    cap.size = sizeof(cap);
+    status = uefi_call_wrapper(g_tcg2->get_capability, 2, g_tcg2, &cap);
+    if (EFI_ERROR(status) || !cap.tpm_present)
+        g_tcg2 = NULL;
+}
+
+/* Внести файл в PCR 9: прошивка сама считает хэш всех активных банков (SHA-256 и др.) и пишет событие в журнал. Ошибка запоминается. */
+static void measure_blob(const char *label, const VOID *data, UINTN size)
+{
+    kira_tcg2_event ev;
+    UINTN n = 0;
+    EFI_STATUS status;
+
+    if (!g_tcg2)
+        return;
+    SetMem(&ev, sizeof(ev), 0);
+    while (label[n] && n < sizeof(ev.event)) { ev.event[n] = (UINT8)label[n]; ++n; }
+    ev.size = (UINT32)(sizeof(ev.size) + sizeof(ev.header) + n);
+    ev.header.header_size = sizeof(ev.header);
+    ev.header.header_version = 1;
+    ev.header.pcr_index = KIRA_PCR_BOOT_PAYLOAD;
+    ev.header.event_type = KIRA_EV_IPL;
+    status = uefi_call_wrapper(g_tcg2->hash_log_extend_event, 5, g_tcg2, (UINT64)0,
+                               (EFI_PHYSICAL_ADDRESS)(UINTN)data, (UINT64)size, &ev);
+    if (EFI_ERROR(status)) {
+        g_measure_failed = 1;
+        boot_log_rc("TPM: measurement failed for ", label);
+    } else {
+        g_measured_any = 1;
+    }
+}
+
+/* Чтение PCR 9 из самого TPM (TPM2_PCR_Read, банк SHA-256) и печать значения: оператор и проверяющий видят итог измерений и могут
+   сверить его с расчётом по файлам образа (SECURE_BOOT.md). Значение приходит из TPM, не вычисляется загрузчиком. */
+static void report_pcr(void)
+{
+    static const UINT8 cmd[] = {
+        0x80, 0x01,                   /* TPM_ST_NO_SESSIONS */
+        0x00, 0x00, 0x00, 0x14,       /* размер команды: 20 байт */
+        0x00, 0x00, 0x01, 0x7e,       /* TPM_CC_PCR_Read */
+        0x00, 0x00, 0x00, 0x01,       /* один выбор банка */
+        0x00, 0x0b,                   /* TPM_ALG_SHA256 */
+        0x03,                         /* размер маски PCR: 3 байта */
+        0x00, 0x02, 0x00              /* PCR 9 */
+    };
+    UINT8 in[sizeof(cmd)], rsp[64];
+    char line[96];
+    static const char hex[] = "0123456789abcdef";
+    UINTN i, n = 0;
+    EFI_STATUS status;
+    const char head[] = "TPM: PCR 9 (SHA-256) = ";
+
+    if (!g_tcg2 || !g_tcg2->submit_command)
+        return;
+    for (i = 0; i < sizeof(cmd); ++i) in[i] = cmd[i];
+    SetMem(rsp, sizeof(rsp), 0);
+    status = uefi_call_wrapper(g_tcg2->submit_command, 5, g_tcg2, (UINT32)sizeof(in), in, (UINT32)sizeof(rsp), rsp);
+    /* ответ: заголовок 10 + счётчик 4 + выбор 4+6 + список digest 4 + размер 2 = 30, затем 32 байта значения */
+    if (EFI_ERROR(status) || rsp[6] != 0 || rsp[7] != 0 || rsp[8] != 0 || rsp[9] != 0 || rsp[28] != 0 || rsp[29] != 32) {
+        boot_log("TPM: PCR 9 could not be read back");
+        return;
+    }
+    for (i = 0; head[i]; ++i) line[n++] = head[i];
+    for (i = 0; i < 32; ++i) {
+        line[n++] = hex[rsp[30 + i] >> 4];
+        line[n++] = hex[rsp[30 + i] & 15];
+    }
+    line[n] = 0;
+    boot_log(line);
+}
+
+/* ---------- Защита от отката образа (А3): монотонный счётчик номера выпуска в TPM ----------
+   Загрузчик только СВЕРЯЕТ выпуск из подписанного манифеста со счётчиком (и создаёт счётчик при первом использовании TPM). Поднимает счётчик
+   ядро - после подтверждённой «хорошей» загрузки (docs/SECURE_BOOT.md): иначе выпуск, который не заработал, уже закрыл бы путь назад к рабочему. */
+static int tcg2_xfer(void *ctx, const uint8_t *cmd, size_t n, uint8_t *rsp, size_t *rl)
+{
+    UINT8 in[TPM2_MAX_CMD];
+    UINTN i;
+    UINT32 size;
+    (VOID)ctx;
+    if (!g_tcg2 || !g_tcg2->submit_command || n > sizeof(in))
+        return -1;
+    for (i = 0; i < n; ++i) in[i] = cmd[i];
+    SetMem(rsp, *rl, 0);
+    if (EFI_ERROR(uefi_call_wrapper(g_tcg2->submit_command, 5, g_tcg2, (UINT32)n, in, (UINT32)*rl, rsp)))
+        return -1;
+    size = (UINT32)rsp[2] << 24 | (UINT32)rsp[3] << 16 | (UINT32)rsp[4] << 8 | rsp[5];
+    if (size < 10 || size > *rl)
+        return -1;
+    *rl = size;
+    return 0;
+}
+
+/* Строка «текст N текст N текст» в журнал загрузки: числа печатаются десятичными (журнал загрузки - только ASCII). */
+static void boot_log_nums(const char *a, uint64_t x, const char *b, uint64_t y, const char *c)
+{
+    char line[200], tmp[24];
+    UINTN n = 0, i, k;
+    for (i = 0; a[i] && n < sizeof(line) - 1; ++i) line[n++] = a[i];
+    if (b) {
+        k = 0; if (!x) tmp[k++] = '0'; while (x) { tmp[k++] = (char)('0' + x % 10); x /= 10; }
+        while (k && n < sizeof(line) - 1) line[n++] = tmp[--k];
+        for (i = 0; b[i] && n < sizeof(line) - 1; ++i) line[n++] = b[i];
+        k = 0; if (!y) tmp[k++] = '0'; while (y) { tmp[k++] = (char)('0' + y % 10); y /= 10; }
+        while (k && n < sizeof(line) - 1) line[n++] = tmp[--k];
+        for (i = 0; c && c[i] && n < sizeof(line) - 1; ++i) line[n++] = c[i];
+    }
+    line[n] = 0;
+    boot_log(line);
+}
+
+/* Сверка выпуска со счётчиком. Возвращает EFI_SUCCESS (загрузка разрешена) или отказ через secure_refuse. Порядок решения - rb_release_boot_check (rollback.c),
+   тот же код проверяют хост-тесты. */
+static EFI_STATUS release_counter_check(void)
+{
+    rb_release_result_t res;
+    int r = rb_release_boot_check(g_tcg2 ? tcg2_xfer : NULL, NULL, g_image_version, KIRA_MIN_IMAGE_VERSION, KIRA_REQUIRE_TPM, &res);
+
+    if (res.created)
+        boot_log("rollback: TPM release counter created (first use of this TPM)");
+    if (res.tpm_err)
+        boot_log_rc("rollback: TPM release counter is not usable: ", tpm2_strerror(res.tpm_err));
+    if (r != RB_OK) {
+        if (r == RB_E_ROLLBACK_TPM)
+            boot_log_nums("rollback: release ", g_image_version, " is older than the TPM counter ", res.counter, " (rollback refused)");
+        return secure_refuse("signed manifest KIRA.SIG", rb_release_strerror(r));
+    }
+    if (res.src == RB_SRC_TPM_COUNTER) {
+        g_trust_flags |= KBI_TRUST_ROLLBACK_TPM;
+        boot_log_nums("rollback: release ", g_image_version, " is not older than the TPM counter ", res.counter, " (the kernel raises the counter after a confirmed good boot)");
+    } else {
+        boot_log_nums("rollback: no TPM counter: only the embedded minimum release ", KIRA_MIN_IMAGE_VERSION,
+                      " protects from rollback; release ", g_image_version, "");
+    }
+    return EFI_SUCCESS;
+}
+
+/* Манифест KIRA.SIG: чтение, проверка подписи вшитым ключом и порога версии. */
+static EFI_STATUS secure_verify_manifest(EFI_HANDLE image)
+{
+    EFI_STATUS status = read_esp_file(image, KIRA_SIG_PATH, BOOTSIG_MAX_LEN, &g_sig_blob, &g_sig_blob_size);
+    int rc;
+
+    if (status == EFI_NOT_FOUND)
+        return secure_refuse("\\EFI\\KIRA\\KIRA.SIG", "signed manifest is missing: an unsigned image is not booted");
+    if (EFI_ERROR(status))
+        return secure_refuse("\\EFI\\KIRA\\KIRA.SIG", "cannot read the signed manifest (empty or too large)");
+    rc = bootsig_parse_verify((const uint8_t *)g_sig_blob, g_sig_blob_size, kira_boot_pubkey,
+                              KIRA_MIN_IMAGE_VERSION, &g_sig);
+    if (rc != BOOTSIG_OK)
+        return secure_refuse("\\EFI\\KIRA\\KIRA.SIG", bootsig_strerror(rc));
+    g_image_version = g_sig.image_version;
+    return EFI_SUCCESS;
+}
+#endif
 
 #define KIRA_INITRD_PATH L"\\EFI\\KIRA\\INITRD.IMG"
 #define KIRA_INITRD_MAX_SIZE (64ull * 1024ull * 1024ull)
 #define KIRA_CMDLINE_MAX 1024u
 
+#ifndef KIRA_SECURE_BOOT   /* в доверенном режиме командная строка из NVRAM не принимается */
 static char g_boot_command_line[KIRA_CMDLINE_MAX];
 
 static EFI_STATUS collect_command_line(EFI_HANDLE image,
@@ -237,6 +585,7 @@ static EFI_STATUS collect_command_line(EFI_HANDLE image,
     }
     return EFI_SUCCESS;
 }
+#endif
 
 /* INITRD.IMG is optional. When present it is loaded into reserved physical
    pages below the kernel's 1-GiB bootstrap identity map and retained after
@@ -306,6 +655,20 @@ static EFI_STATUS load_boot_module(EFI_HANDLE image,
         (VOID)uefi_call_wrapper(g_bs->FreePages, 2, module_base, pages);
         goto fail;
     }
+#ifdef KIRA_SECURE_BOOT
+    /* Хэш считается по уже загруженным страницам, из которых ядро и будет читать модуль: подмена после проверки невозможна.
+       Файл, которого нет в подписанном манифесте, не принимается так же, как изменённый. */
+    {
+        int rc = bootsig_check_file(&g_sig, BOOTSIG_NAME_INITRD, (const VOID *)(UINTN)module_base, file_size);
+        if (rc != BOOTSIG_OK) {
+            SetMem((VOID *)(UINTN)module_base, pages * KIRA_PAGE_SIZE, 0);
+            (VOID)uefi_call_wrapper(g_bs->FreePages, 2, module_base, pages);
+            status = secure_refuse("\\EFI\\KIRA\\INITRD.IMG", bootsig_strerror(rc));
+            goto fail;
+        }
+        measure_blob("INITRD.IMG", (const VOID *)(UINTN)module_base, file_size);
+    }
+#endif
 
     info->module_base = module_base;
     info->module_size = file_size;
@@ -602,6 +965,15 @@ static EFI_STATUS find_rsdp(UINT64 *address)
     return *address ? EFI_SUCCESS : EFI_NOT_FOUND;
 }
 
+#ifdef KIRA_SECURE_BOOT
+static int has_load_options(EFI_HANDLE image)
+{
+    EFI_LOADED_IMAGE *loaded = NULL;
+    EFI_STATUS status = uefi_call_wrapper(g_bs->HandleProtocol, 3, image, &LoadedImageProtocol, (VOID **)&loaded);
+    return !EFI_ERROR(status) && loaded && loaded->LoadOptions && loaded->LoadOptionsSize > sizeof(CHAR16);
+}
+#endif
+
 EFI_STATUS EFIAPI efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *system_table)
 {
     EFI_STATUS status;
@@ -626,12 +998,45 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *system_table)
     g_bs = system_table->BootServices;
 
     Print(L"KIRA OS UEFI loader\r\n");
+    {
+        int sb_ok = collect_secure_boot_state();
+#ifdef KIRA_SECURE_BOOT
+        boot_log("trusted mode: the kernel must be signed with the release key embedded in this loader");
+        if (!sb_ok && KIRA_REQUIRE_SB)
+            return secure_refuse("Secure Boot", "Secure Boot is not enabled with enrolled keys: the chain of trust does not start in firmware");
+        if (!sb_ok)
+            boot_log("WARNING: continuing without firmware Secure Boot (KIRA_REQUIRE_SB=0): the loader itself is not verified");
+        tcg2_locate();
+        status = secure_verify_manifest(image);
+        if (EFI_ERROR(status))
+            return status;
+        status = release_counter_check();       /* откат образа: выпуск против монотонного счётчика TPM (А3) */
+        if (EFI_ERROR(status))
+            return status;
+        g_trust_flags |= KBI_TRUST_ENFORCING;
+#else
+        (VOID)sb_ok;
+#endif
+    }
 
     status = read_kernel_image(image, &kernel_image, &kernel_image_size);
     if (EFI_ERROR(status)) {
         print_error(L"cannot read kernel image", status);
         return status;
     }
+#ifdef KIRA_SECURE_BOOT
+    {
+        /* Сверка идёт по тому же буферу, который затем разбирается как ELF: между проверкой и загрузкой файл не перечитывается. */
+        int rc = bootsig_check_file(&g_sig, BOOTSIG_NAME_KERNEL, kernel_image, kernel_image_size);
+        if (rc != BOOTSIG_OK) {
+            uefi_call_wrapper(g_bs->FreePool, 1, kernel_image);
+            return secure_refuse("\\EFI\\KIRA\\KIRA.ELF", bootsig_strerror(rc));
+        }
+        boot_log("kernel KIRA.ELF: SHA-256 and size match the signed manifest");
+        measure_blob("KIRA.SIG", g_sig_blob, g_sig_blob_size);
+        measure_blob("KIRA.ELF", kernel_image, kernel_image_size);
+    }
+#endif
 
     status = load_elf64(kernel_image, kernel_image_size,
                         &kernel_entry, &kernel_base, &kernel_size);
@@ -652,16 +1057,44 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *system_table)
     (VOID)collect_gop(&kbi_info);
     (VOID)find_rsdp(&kbi_info.rsdp);
 
+#ifdef KIRA_SECURE_BOOT
+    /* Командная строка из загрузочной записи NVRAM никем не подписана: в доверенном режиме она не принимается. */
+    if (has_load_options(image)) {
+        g_trust_flags |= KBI_TRUST_CMDLINE_IGNORED;
+        boot_log("command line from the firmware boot entry is ignored in trusted mode (it is not signed)");
+    }
+#else
     status = collect_command_line(image, &kbi_info);
     if (EFI_ERROR(status)) {
         print_error(L"unsupported UEFI command line", status);
         return status;
     }
+#endif
     status = load_boot_module(image, &kbi_info);
+#ifdef KIRA_SECURE_BOOT
+    if (status == EFI_NOT_FOUND && bootsig_find(&g_sig, BOOTSIG_NAME_INITRD))
+        return secure_refuse("\\EFI\\KIRA\\INITRD.IMG", "file listed in the signed manifest is missing (removed)");
+#endif
     if (status != EFI_NOT_FOUND && EFI_ERROR(status)) {
         print_error(L"cannot load optional INITRD.IMG", status);
         return status;
     }
+#ifdef KIRA_SECURE_BOOT
+    if (KIRA_REQUIRE_TPM && (!g_tcg2 || !g_measured_any || g_measure_failed))
+        return secure_refuse("TPM", "measured boot is required (KIRA_REQUIRE_TPM=1) but the boot payload could not be measured");
+    g_trust_flags |= KBI_TRUST_SIG_VERIFIED;
+    if (g_measured_any && !g_measure_failed)
+        g_trust_flags |= KBI_TRUST_MEASURED;
+    if (g_trust_flags & KBI_TRUST_MEASURED)
+        report_pcr();
+    boot_log(g_trust_flags & KBI_TRUST_MEASURED ? "TPM: boot payload measured into PCR 9" :
+             g_tcg2 ? "TPM: present but the boot payload was not measured" : "TPM: not present, boot is not measured");
+    boot_log("trusted boot: signature verified, handing off to the kernel");
+    kbi_info.trust_flags = g_trust_flags;
+    kbi_info.image_version = g_image_version;
+#else
+    kbi_info.trust_flags = g_trust_flags;
+#endif
 
     /*
      * Allocate a generously sized memory-map buffer. If firmware reports

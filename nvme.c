@@ -4,6 +4,11 @@
 #include "uart.h"
 #include "kmutex.h"
 #include "msi.h"
+#ifndef KIRA_HOST_TEST
+#include "iommu.h"
+#include "pmm.h"
+#include "devpm.h"
+#endif
 
 /* NVMe: регистры в памяти (BAR0), очереди команд и завершений в памяти, «дверные звонки» по смещению 0x1000 с шагом
    из CAP.DSTRD. Порядок по спецификации NVMe 1.4: выключить контроллер (CC.EN = 0, ждать CSTS.RDY = 0), очереди
@@ -41,6 +46,7 @@ typedef struct {
     char model[41];
     int index;
     kmutex_t mx;                        /* пространства имён одного контроллера делят очередь и буфер */
+    volatile int asleep;                /* сон S3: контроллер остановлен, команд не принимает */
     int irq;                            /* завершения приходят прерыванием MSI-X/MSI (вектор 0 обеих очередей) */
     irqwait_t iw;
     uint8_t keep[PAGE];                 /* хвостовой блок при записи неполных блоков 4 КБ */
@@ -78,7 +84,7 @@ static int wait_rdy(nvme_ctl_t* c, uint32_t want) {
 
 /* Отправить команду в очередь qi (0 - администратора) и дождаться завершения. Код состояния (0 - успех) или -1. */
 static int submit(nvme_ctl_t* c, int qi, uint32_t* cmd, uint32_t* result) {
-    if (c->dead) return -1;
+    if (c->dead || c->asleep) return -1;
     uint16_t cid = ++c->cid;
     cmd[0] = (cmd[0] & 0xFFFFu) | (uint32_t)cid << 16;
     volatile uint32_t* e = (volatile uint32_t*)(c->q[qi].sq + (uint32_t)c->q[qi].tail * 64);
@@ -234,10 +240,80 @@ static void add_ns(nvme_ctl_t* c, uint32_t nsid) {
     blk_register(&n->dev, nm, c->model);
 }
 
+/* Set Features (число очередей), Create I/O CQ, Create I/O SQ: общий порядок для первого пуска и пробуждения из сна. 0 - готово. */
+static int io_queues(nvme_ctl_t* c) {
+    uint32_t cmd[16] = { 0x09 };                                        /* Set Features: одна пара очередей */
+    cmd[10] = 0x07; cmd[11] = 0;
+    submit(c, 0, cmd, 0);
+    uint32_t cq[16] = { 0x05 };                                         /* Create I/O Completion Queue 1 */
+    cq[6] = (uint32_t)c->q[1].cq_phys; cq[7] = (uint32_t)(c->q[1].cq_phys >> 32);
+    cq[10] = (uint32_t)(QN - 1) << 16 | 1u;
+    cq[11] = c->irq ? 3u : 1u;                                          /* непрерывная; IEN - прерывания (вектор 0) */
+    if (submit(c, 0, cq, 0) != 0) { uart_print("[KIRA NVMe] Create I/O CQ failed\n"); return -1; }
+    uint32_t sq[16] = { 0x01 };                                         /* Create I/O Submission Queue 1 -> CQ 1 */
+    sq[6] = (uint32_t)c->q[1].sq_phys; sq[7] = (uint32_t)(c->q[1].sq_phys >> 32);
+    sq[10] = (uint32_t)(QN - 1) << 16 | 1u; sq[11] = (1u << 16) | 1u;
+    if (submit(c, 0, sq, 0) != 0) { uart_print("[KIRA NVMe] Create I/O SQ failed\n"); return -1; }
+    return 0;
+}
+
+#ifndef KIRA_HOST_TEST
+/* Сон S3. suspend: контроллер получает штатное выключение (CC.SHN = 1, ждём CSTS.SHST = 2), затем CC.EN = 0: ни DMA, ни прерываний. Данные уже на носителе
+   (blk_flush_all сделал Flush каждому пространству имён). resume: очереди обнуляются, контроллер проходит тот же путь запуска (AQA/ASQ/ACQ, CC.EN, очереди
+   ввода-вывода), каждое пространство имён проверяется Identify - размер тот же. Регистры BAR, MSI-X и бит мастера шины к этому моменту вернул хук "pci", отображения
+   DMA - хук IOMMU. Контроллер, не принявший сброс или другой после сна, считается не вернувшимся (журнал, устройство отключается). */
+static int nvme_suspend(void* ctx) {
+    nvme_ctl_t* c = (nvme_ctl_t*)ctx;
+    if (c->dead) return 0;
+    kmutex_lock(&c->mx);
+    c->asleep = 1;
+    kmutex_unlock(&c->mx);
+    w32(c->regs, R_CC, (r32(c->regs, R_CC) & ~(3u << 14)) | (1u << 14));      /* SHN = 01: нормальное выключение */
+    blk_wait_t w; blk_wait_begin(&w, c->timeout_ms);
+    do { if (((r32(c->regs, 0x1C) >> 2) & 3u) == 2u) break; } while (blk_wait_step(&w));
+    w32(c->regs, R_CC, r32(c->regs, R_CC) & ~1u);
+    if (wait_rdy(c, 0)) { c->asleep = 0; uart_print("[KIRA SLEEP] nvme: controller did not stop; sleep refused.\n"); return -1; }
+    return 0;
+}
+static int nvme_resume(void* ctx) {
+    nvme_ctl_t* c = (nvme_ctl_t*)ctx;
+    if (c->dead) return 0;
+    uint8_t* z = c->mem;
+    for (uint32_t i = 0; i < 4 * PAGE; i++) z[i] = 0;                    /* очереди: пустые, фазовый бит 1 */
+    for (int qi = 0; qi < 2; qi++) { c->q[qi].tail = c->q[qi].head = 0; c->q[qi].phase = 1; c->q[qi].qid = (uint16_t)qi; }
+    volatile uint8_t* rg = c->regs;
+    if (r32(rg, R_CSTS) == 0xFFFFFFFFu) { c->dead = 1; return -1; }
+    w32(rg, R_CC, r32(rg, R_CC) & ~1u);
+    if (wait_rdy(c, 0)) { c->dead = 1; return -2; }
+    w32(rg, R_AQA, (uint32_t)(QN - 1) << 16 | (QN - 1));
+    w64(rg, R_ASQ, c->q[0].sq_phys);
+    w64(rg, R_ACQ, c->q[0].cq_phys);
+    w32(rg, R_CC, (6u << 16) | (4u << 20) | 1u);
+    if (wait_rdy(c, 1)) { c->dead = 1; return -3; }
+    c->asleep = 0;
+    if (io_queues(c)) { c->dead = 1; return -4; }
+    c->q[1].qid = 1;
+    for (int i = 0; i < nns; i++) {
+        nvme_ns_t* n = &nss[i];
+        if (n->c != c) continue;
+        if (admin_identify(c, 0, n->nsid) != 0 || (*(const uint64_t*)c->buf << n->shift) != n->dev.sectors) {
+            uart_print("[KIRA SLEEP] nvme: namespace "); uart_print(n->dev.name); uart_print(" changed or disappeared during sleep.\n");
+            c->dead = 1; return -5;
+        }
+    }
+    return 0;
+}
+#endif
+
 static void nvme_irq(void* ctx) { irqwait_fire(&((nvme_ctl_t*)ctx)->iw); }
 
 static void ctl_init(const pci_dev_t* pd, int ci) {
     if (pd->bar[0].io || !pd->bar[0].base || pd->bar[0].size < 0x2000) { uart_print("[KIRA NVMe] controller without BAR0: skipped\n"); return; }
+    int iso = 0;
+    (void)iso;
+#ifndef KIRA_HOST_TEST
+    iso = iommu_isolate_device(pd) == 0;                                /* свой домен VT-d без отображений - до включения bus mastering */
+#endif
     pci_enable(pd, PCI_CMD_MEM | PCI_CMD_MASTER | PCI_CMD_INTX_OFF);
     nvme_ctl_t* c = &ctls[ci];
     for (unsigned i = 0; i < sizeof *c; i++) ((uint8_t*)c)[i] = 0;
@@ -275,6 +351,33 @@ static void ctl_init(const pci_dev_t* pd, int ci) {
 
     w32(rg, R_CC, r32(rg, R_CC) & ~1u);                                 /* выключить */
     if (wait_rdy(c, 0)) { uart_print("[KIRA NVMe] controller does not stop\n"); return; }
+#ifndef KIRA_HOST_TEST
+    if (iso) {
+        /* Проверка принуждения IOMMU: очередь команд указывает на невыданную память, звонок в дверной колокольчик - контроллер идёт за командой
+           и должен получить отказ (запись нарушения). Не получил - изоляция не объявляется, домен снимается. */
+        uint64_t cp; void* cm = virtio_dma_alloc(PAGE, &cp);
+        int seen = 0;
+        if (cm) {
+            uint32_t before = iommu_fault_count(pd);
+            iommu_expect_fault(pd, 1);
+            w32(rg, R_AQA, (uint32_t)(QN - 1) << 16 | (QN - 1));
+            w64(rg, R_ASQ, cp); w64(rg, R_ACQ, cp);
+            w32(rg, R_CC, (6u << 16) | (4u << 20) | 1u);
+            if (wait_rdy(c, 1) == 0) {
+                w32(rg, 0x1000, 1);                                     /* хвост очереди администратора: одна команда */
+                for (uint32_t i = 0; i < 200000 && !seen; i++) { (void)iommu_fault_poll(); seen = iommu_fault_count(pd) > before; if (!seen) cpu_relax(); }
+            }
+            iommu_expect_fault(pd, 0);
+            w32(rg, R_CC, r32(rg, R_CC) & ~1u);
+            (void)wait_rdy(c, 0);
+            pmm_free_contiguous(cp, 1);
+        }
+        if (seen) uart_print("[KIRA IOMMU] nvme: enforcement check passed - DMA to memory that was not granted is blocked.\n");
+        else { uart_print("[KIRA IOMMU] nvme: no DMA fault seen in the enforcement check: isolation NOT confirmed, device stays passthrough.\n"); iommu_release_device(pd); iso = 0; }
+        if (iso && (iommu_map(pd, c->mem_phys, c->mem_phys, 5 * PAGE, IOMMU_R | IOMMU_W) || iommu_map(pd, c->buf_phys, c->buf_phys, BOUNCE, IOMMU_R | IOMMU_W) ||
+                    iommu_map(pd, c->prp_phys, c->prp_phys, PAGE, IOMMU_R | IOMMU_W))) { uart_print("[KIRA NVMe] could not grant buffers to the controller\n"); return; }
+    }
+#endif
     w32(rg, R_AQA, (uint32_t)(QN - 1) << 16 | (QN - 1));
     w64(rg, R_ASQ, c->q[0].sq_phys);
     w64(rg, R_ACQ, c->q[0].cq_phys);
@@ -291,20 +394,16 @@ static void ctl_init(const pci_dev_t* pd, int ci) {
     uart_print_dec((vs >> 8) & 0xFF); uart_print(", namespaces "); uart_print_dec(nn);
     uart_print(c->irq ? ", completion by interrupt\n" : ", polled\n");
 
-    uint32_t cmd[16] = { 0x09 };                                        /* Set Features: одна пара очередей */
-    cmd[10] = 0x07; cmd[11] = 0;
-    submit(c, 0, cmd, 0);
-    uint32_t cq[16] = { 0x05 };                                         /* Create I/O Completion Queue 1 */
-    cq[6] = (uint32_t)c->q[1].cq_phys; cq[7] = (uint32_t)(c->q[1].cq_phys >> 32);
-    cq[10] = (uint32_t)(QN - 1) << 16 | 1u;
-    cq[11] = c->irq ? 3u : 1u;                                          /* непрерывная; IEN - прерывания (вектор 0) */
-    if (submit(c, 0, cq, 0) != 0) { uart_print("[KIRA NVMe] Create I/O CQ failed\n"); return; }
-    uint32_t sq[16] = { 0x01 };                                         /* Create I/O Submission Queue 1 -> CQ 1 */
-    sq[6] = (uint32_t)c->q[1].sq_phys; sq[7] = (uint32_t)(c->q[1].sq_phys >> 32);
-    sq[10] = (uint32_t)(QN - 1) << 16 | 1u; sq[11] = (1u << 16) | 1u;
-    if (submit(c, 0, sq, 0) != 0) { uart_print("[KIRA NVMe] Create I/O SQ failed\n"); return; }
+    if (io_queues(c)) return;
     c->q[1].qid = 1;
     c->used = 1;
+#ifndef KIRA_HOST_TEST
+    {   /* реестр хранит указатель на имя: у каждого контроллера своя статическая строка */
+        static char hn[MAXCTL][8];
+        char* t = hn[ci]; t[0] = 'n'; t[1] = 'v'; t[2] = 'm'; t[3] = 'e'; t[4] = (char)('0' + ci / 10 % 10); t[5] = (char)('0' + ci % 10); t[6] = 0;
+        (void)devpm_register(t, nvme_suspend, nvme_resume, c);
+    }
+#endif
 
     /* активные пространства имён (NVMe 1.1+); у старых - перебор 1..NN */
     static uint32_t list[1024];

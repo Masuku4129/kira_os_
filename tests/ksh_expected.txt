@@ -1,0 +1,561 @@
+### t01_basic
+5 a b 5x def 3 16
+b a hi bt
+big
+i=1
+i=2
+i=3
+n=3
+match
+f:A:2:A B
+rc=3
+6
+abc-42- 3.14|ff
+a
+b
+2 o.txt
+o.txt
+t01_basic.sh
+t01_basic.sh
+x is 5
+[p]
+[q]
+[r]
+2 q
+9 1 16 10
+done
+[код 4]
+### t02_expand
+$a x  y x y \n $a $a a"b it's
+p q-p q p q-p q
+3:one:two words:three
+<one>
+<two words>
+<three>
+<one two words three>
+<one>
+<two>
+<words>
+<three>
+1
+[a]
+[b]
+[]
+[c]
+unset empty  
+ empty set 
+val val set set
+assigned assigned
+usr/local/lib/file.tar.gz file.tar.gz /usr/local/lib/file.tar /usr/local/lib/file
+26 8
+6 привет
+nested a b
+inner
+7 9 3 -1 17 1 0 1 -1
+10 10 20 20 100
+31 8 1 -2
+1 0
+a1.txt a2.txt a1.txt a2.txt a1.txt b1.log *.txt *.log nomatch*
+f=a1.txt
+f=a2.txt
+~ ~ a b
+[] [] [x]
+multi
+line
+abcd
+joined
+a\b a\\b a$b a`b a\zb
+end
+a:b::cx
+end
+[]
+0
+[код 0]
+### t03_control
+t1
+e1
+elif
+neg
+and1
+or1
+chain
+chain2
+!true=1
+u0
+u1
+u2
+w1
+w3
+w4
+1x
+1z
+2x
+2z
+1x
+1y
+2x
+after
+arg-one
+arg-two
+pos=p
+pos=q
+empty-for=0
+2
+upper-or-lower
+quoted
+nomatch=0
+empty-case
+range
+notrange
+txt
+fact=3628800
+fib=144
+g args: 1 one 
+rc=7
+g args: 3 one two
+rc=7
+inner
+outer
+changed
+lp3
+lp2
+lp1
+r=5
+f1-old
+f1-new
+ksh: f1: команда не найдена
+w=2
+sub=2
+out=1
+group=3
+exit-sub=3
+4
+e-ok
+still
+[код 1]
+### t04_builtins
+ab
+x	y\zAB
+no\tesc
+-- -n
+
+abc|  abc|abc  |ab
+42 -7 3 10 ff FF h %
+00042|+5| 5|  3.1|1.234500e+03|0.0001
+a
+b|a\nb
+[one]
+[two]
+[three]
+a=1
+b=2
+no args
+0
+|
+AB
+65
+16
+8
+   7|7   |
+абв ёж
+e1
+f1
+d1
+d0
+s1
+s0
+e0
+z
+n
+n0
+eq
+ne
+neq
+i1
+i2
+i3
+i4
+i5
+i6
+and
+or
+not
+notand
+paren
+test-works
+lone-n
+empty-false
+str
+nostr
+bang-str
+ksh: test: ожидалось целое число: abc
+rc=2
+ksh: [: нет закрывающей ]
+rc=2
+5 -3 42 3 2
+1
+0
+1
+1
+7
+0
+4
+6
+bcd
+9
+ksh: expr: деление на ноль
+rc=2
+ksh: expr: нужно выражение
+rc=2
+0
+rc=1
+one
+two
+three
+four
+     1	one
+     2	two
+     3	three
+     4	four
+one
+two
+one
+4
+4 4 19 lines.txt
+4 lines.txt
+4 lines.txt
+19 lines.txt
+4 4 lines.txt
+1 1 f.txt
+5 5 итого
+3
+5
+content
+x
+content
+content
+e.txt
+f.txt
+h.txt
+lines.txt
+t04_builtins.sh
+ksh: cp: h.txt и h.txt - один файл
+       8 f.txt
+      19 lines.txt
+    3103 t04_builtins.sh
+ksh: ls: nope: нет такого файла
+f.txt
+rm-f=0
+ksh: rm: nope: нет такого файла
+rm=1
+/
+ksh: cd: каталогов нет (песочница плоская)
+cd=1
+export x='1'
+export y='2'
+b c
+[]
+ksh: shift: параметров только 0
+shift=1
+eval 5
+a b c
+5
+[]
+sourced p 2
+rc=7 sv=from-source
+sourced 0
+7
+one|two|three four five
+[lead  trail]
+back\slash
+backslash
+got l1
+got l2
+last=l3
+root -> x:0
+bob -> y:1:2
+prompt> val
+ksh: /dev/null: недопустимое имя (до 40 знаков A-Za-z0-9._-, первый - буква или цифра, без каталогов)
+1
++ echo traced
+traced
++ set +x
+untraced
+[код 0]
+### t05_redirect
+one
+two
+three
+3
+over
+0 empty.txt
+made.txt
+ksh: noprog_cmd: команда не найдена
+1
+to-err
+a
+b
+out1
+err1
+out2
+err2
+2
+in f: hello
+piped
+line1
+line2
+line3
+[line1][]
+[line2][]
+[line3][]
+loop.txt: 3
+r.txt: 1
+n=3
+got data
+b
+a
+plain 2 cmd $esc \ back
+literal $x $(cmd) \n
+also literal $x
+tab stripped
+  keeps spaces
+2
+x=val
+inside if val
+first
+second
+subst
+12
+abc
+1
+ksh: name with space: недопустимое имя (до 40 знаков A-Za-z0-9._-, первый - буква или цифра, без каталогов)
+ksh: dir/file: недопустимое имя (до 40 знаков A-Za-z0-9._-, первый - буква или цифра, без каталогов)
+ksh: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: недопустимое имя (до 40 знаков A-Za-z0-9._-, первый - буква или цифра, без каталогов)
+ksh: nofile: нет такого файла
+rc=1
+ok
+r1.txt
+r2.txt
+a
+ksh: nofile: нет такого файла
+over
+[код 1]
+### t06_errors
+ksh: nonexistent_cmd: команда не найдена
+rc=127
+ksh: строка 1: неожиданный конец, ожидалось fi
+rc=2
+ksh: строка 1: синтаксическая ошибка около «)»
+rc=2
+ksh: строка 1: синтаксическая ошибка около «fi»
+rc=2
+ksh: строка 1: синтаксическая ошибка около «esac»
+rc=2
+ksh: не закрыта кавычка или скобка
+rc=2
+ksh: строка 1: фоновый запуск (&) не поддерживается
+rc=2
+ksh: строка 1: ожидалось имя переменной, найдено «1x»
+rc=2
+ksh: строка 1: неожиданный конец ввода
+rc=2
+ksh: строка 1: неожиданный конец, ожидалось имя файла после перенаправления
+rc=2
+12
+rc=0
+ksh: строка 1: синтаксическая ошибка около «)»
+rc=2
+ksh: документ-вставка не закрыт ограничителем EOF
+rc=2
+ksh: арифметика: деление на ноль
+rc=1
+ksh: арифметика: неожиданный конец выражения
+rc=1
+ksh: арифметика: лишние символы: 2
+rc=1
+ksh: арифметика: 09: неверное число
+rc=1
+ksh: арифметика: деление на ноль
+x=[] rc=1
+ksh: novar: must be set
+[код 1]
+### t07_misc
+ok
+ksh: u1: параметр не задан
+rc=1
+rc=1
+e-ok
+e-ok2
+rc=0
+g=2
+f=3
+top=1
+unset 5
+10 10 11 11
+tmp: 
+after: []
+in-y
+out-[]
+tmp
+one
+1 2
+xy
+z=[] 1
+dynamic
+backtick
+via-var
+quoted-var
+after-empty
+empty-subst
+aend
+40
+41
+ksh: a:b: недопустимое имя (до 40 знаков A-Za-z0-9._-, первый - буква или цифра, без каталогов)
+ksh: .hidden: недопустимое имя (до 40 знаков A-Za-z0-9._-, первый - буква или цифра, без каталогов)
+t07_misc.sh
+ksh: rm: .hidden: недопустимое имя
+deep-paren-reported
+deep-subst-reported
+deep-if-reported
+deep-rc=1
+recursion-reported
+shallow=0
+done
+[код 0]
+### t08_edge
+ksh: break: вне цикла
+rc=1
+ksh: continue: вне цикла
+rc=1
+ksh: return: только в функции или в source
+rc=1
+ksh: local: только внутри функции
+rc=1
+exit-in-func-sub=9
+g=4
+after-break
+ksh: break: вне цикла
+ksh: break: вне цикла
+fn-loop-done
+a,b,c a b c a b c
+abc
+a b c
+[][] 0 0
+none none
+[]
+r=x rc=1
+r=x rc=0
+r=[] rc=1
+a|b:c
+[a][b]
+[only][]
+y z
+x
+neg-pipe=1
+neg2=0
+neg3=1
+pipe-last=1
+pipe-last2=0
+4
+2 3 6
+0
+n1
+n2
+in
+sub
+alt
+cmd-case
+paren-pat
+multi-line
+q
+quoted-q
+quoted-no
+contains
+var-pat
+unq-var-pat
+q-var-pat
+args=0
+args=1
+args=2
+args=0
+args=1
+args=2
+x|y
+y|z
+inner-n
+inner-still-defined
+then-on-next-line
+a
+b
+a
+b
+c
+33
+2xh
+1
+2
+ab
+a
+b
+ab#cd
+#notcomment #also
+end
+[код 0]
+### c_simple
+hi
+3 ksh 0
+[код 0]
+### c_exit
+[код 3]
+### c_status
+st=1
+[код 0]
+### c_nocode
+ksh: после -c нужен код
+[код 2]
+### bad_option
+ksh: неизвестный ключ -q. Использование: ksh [-e -x -u] файл [арги] | ksh -c код | ksh
+[код 2]
+### flag_e
+a
+[код 1]
+### flag_x
++ echo traced
+traced
+[код 0]
+### no_script
+ksh: absent.sh: нет такого файла
+[код 127]
+### bad_script_name
+ksh: dir/x.sh: недопустимое имя (до 40 знаков A-Za-z0-9._-, первый - буква или цифра, без каталогов)
+[код 127]
+### repl_session
+ksh> ksh> 3
+ksh> > > three
+ksh> > > ksh> fn arg
+ksh> 1
+2
+ksh> > multi
+line
+ksh> > > heredoc 3
+ksh> ksh> 0
+ksh> ksh: nosuchcmd: команда не найдена
+ksh> 0
+ksh> > a
+ksh> > ksh: строка 2: синтаксическая ошибка около «fi»
+ksh> after-error
+ksh> ksh> got=inputline
+ksh> > a
+b
+ksh> ksh> 2
+ksh> 
+[код 5]
+### repl_eof
+ksh> first
+ksh> > > ksh> second
+ksh> > 
+ksh: строка 2: неожиданный конец ввода
+[код 2]
+### repl_empty
+ksh> 
+[код 0]

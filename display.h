@@ -9,8 +9,10 @@
 // показывает их один поток.
 int  display_init(unsigned long mbi_addr);   // 0 - экран есть; <0 - работаем без него
 void display_print_info(void);
+void display_request_redraw(void);          /* полная перерисовка экрана в ближайшем кадре (команда fb redraw) */
 /* Команда «files»: открыть Проводник; левая и правая панель - на этих каталогах ("" - не менять). Из любого потока. */
 void display_request_files(const char* left, const char* right);
+void display_files_state(void);   /* команда fmstate */
 int  display_kbd_owner(void);                /* 1 - клавиатуру читает Проводник (консоль её не трогает) */
 void display_panic_flush(void);              // синхронно вывести журнал на экран (паника/исключение)
 // Для Разума: циклов дисплея и опозданий с начала (растут), худший промежуток между циклами с прошлого вызова.
@@ -20,5 +22,7 @@ int display_get_fx(void);
 /* Композитор сам выбирает, собирать кадр на всех ядрах или на одном: по замеренной цене на этой машине (на эмуляторе
    с одним настоящим потоком параллельная сборка только дороже). par - сейчас параллельно; цена 1000 точек, нс. */
 void display_compositor_stats(uint32_t* par, uint32_t* ns_kpx_par, uint32_t* ns_kpx_ser);               // уровень анимации фона 0..3 (решает Разум)
+struct mind_draw_cost;
+void display_mind_cost(struct mind_draw_cost* out);                 /* замер: цена окон Разума в цикле экрана (ai cost) */
 
 #endif

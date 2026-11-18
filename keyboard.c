@@ -2,8 +2,8 @@
 #include "spinlock.h"
 #include "pic.h"
 #include "uart.h"
-#include "console.h"
 #include "input.h"
+#include "devpm.h"
 
 #define PS2_DATA   0x60
 #define PS2_STATUS 0x64
@@ -31,6 +31,7 @@ static int ctl_cmd(uint8_t c) { if (wait_in_clear()) return -1; outb(PS2_CMD, c)
 static int ctl_data(uint8_t d) { if (wait_in_clear()) return -1; outb(PS2_DATA, d); return 0; }
 static void flush_output(void) { for (int i = 0; i < 64 && (inb(PS2_STATUS) & ST_OUT); i++) (void)inb(PS2_DATA); }
 
+static int mouse_cmd_fwd(uint8_t c);
 /* Общий обработчик IRQ1 (клавиатура) и IRQ12 (мышь): контроллер 8042 отдаёт оба потока
    через один порт данных, различает их бит AUX в регистре состояния. */
 /* Чтение состояния и байта данных должно быть неделимым: если бы два ядра одновременно увидели «байт готов»,
@@ -48,8 +49,41 @@ static void ps2_irq(void) {
         else input_push_scancode(b);
     }
     spin_unlock_irqrestore(&ps2_lock, f);
-    console_note_event();
+    input_note_event();
     // EOI отправляет irq_dispatch
+}
+
+/* Сон S3: контроллер 8042 после пробуждения в состоянии сброса (порты, прерывания, передача данных устройств выключены или по умолчанию).
+   Байт конфигурации запоминается; после сна он возвращается, клавиатуре и мыши (если она была) снова разрешается передача. Всё под замком обработчика
+   прерываний: байты подтверждений (0xFA) читает хук сам, их не должен принять обработчик как нажатия. */
+static int kbd_present, mouse_present;
+static uint8_t ps2_cfg;
+static int ps2_dev_cmd(int aux, uint8_t c) {
+    if (aux) return mouse_cmd_fwd(c);
+    if (ctl_data(c) || wait_out_full()) return -1;
+    return inb(PS2_DATA) == 0xFA ? 0 : -2;
+}
+static int ps2_suspend(void* ctx) {
+    (void)ctx;
+    uint64_t f = spin_lock_irqsave(&ps2_lock);
+    int rc = 0;
+    if (ctl_cmd(0x20) || wait_out_full()) rc = -1; else ps2_cfg = inb(PS2_DATA);
+    spin_unlock_irqrestore(&ps2_lock, f);
+    return rc;
+}
+static int ps2_resume(void* ctx) {
+    (void)ctx;
+    uint64_t f = spin_lock_irqsave(&ps2_lock);
+    int rc = 0;
+    flush_output();
+    if (mouse_present && ctl_cmd(0xA8)) rc = -1;                     /* порт мыши */
+    if (!rc && (ctl_cmd(0xAE) || ctl_cmd(0x60) || ctl_data(ps2_cfg))) rc = -2;   /* порт клавиатуры и байт конфигурации (прерывания, трансляция) */
+    flush_output();
+    if (!rc && kbd_present && ps2_dev_cmd(0, 0xF4)) rc = -3;          /* клавиатура: разрешить передачу сканкодов */
+    if (!rc && mouse_present && (ps2_dev_cmd(1, 0xF6) || ps2_dev_cmd(1, 0xF4))) rc = -4;
+    flush_output();
+    spin_unlock_irqrestore(&ps2_lock, f);
+    return rc;
 }
 
 int keyboard_init(void) {
@@ -58,6 +92,8 @@ int keyboard_init(void) {
         return -1;
     }
     pic_unmask_irq(1);
+    kbd_present = 1;
+    (void)devpm_register("ps2", ps2_suspend, ps2_resume, 0);
     uart_print("[KIRA KEYBOARD] PS/2 IRQ1 handler registered (decoded by the input layer).\n");
     return 0;
 }
@@ -69,6 +105,7 @@ static int mouse_cmd(uint8_t c) {
     if (wait_out_full()) return -2;
     return inb(PS2_DATA) == 0xFA ? 0 : -3;            /* ACK */
 }
+static int mouse_cmd_fwd(uint8_t c) { return mouse_cmd(c); }
 
 /* Вызывать ДО включения прерываний: ответы устройства читаются опросом. */
 int mouse_init(void) {
@@ -84,6 +121,7 @@ int mouse_init(void) {
     flush_output();
     if (irq_register_handler(12, keyboard_handler) != 0) return -1;
     pic_unmask_irq(12);
+    mouse_present = 1;
     uart_print("[KIRA MOUSE] PS/2 mouse enabled (IRQ12, 3-byte packets).\n");
     return 0;
 fail:

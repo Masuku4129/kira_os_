@@ -46,6 +46,11 @@ int  virtio_attach(virtio_dev_t* v, const pci_dev_t* pci);
 int  virtio_begin(virtio_dev_t* v, uint64_t want);
 int  virtio_queue_setup(virtio_dev_t* v, virtq_t* q, uint16_t index, uint16_t max_size);
 void virtio_driver_ok(virtio_dev_t* v);
+/* Сон S3: stop - сбросить устройство (ни DMA, ни прерываний); resume_begin - после пробуждения: сброс, ACK, DRIVER, прежние признаки (v->features),
+   FEATURES_OK (0 - готово); queue_resume - очередь на прежней памяти (кольца обнуляются, счётчики с нуля). После них - буферы заново и virtio_driver_ok. */
+void virtio_stop(virtio_dev_t* v);
+int  virtio_resume_begin(virtio_dev_t* v);
+int  virtio_queue_resume(virtio_dev_t* v, virtq_t* q);
 void virtio_fail(virtio_dev_t* v);                      /* FAILED + сброс: устройство больше не пишет в нашу память */
 /* Отправляет цепочку буферов (до 8) и ждёт завершения. 0 - готово, -1 - таймаут. */
 int  virtq_run(virtq_t* q, const virtq_buf_t* bufs, int n);
@@ -63,13 +68,23 @@ int  virtio_dma_grant(virtio_dev_t* v, uint64_t phys, uint32_t bytes);
    (записана ошибка DMA), 0 - ошибки не было (изоляция не подтверждена), -1 - устройство не согласует
    VIRTIO_F_ACCESS_PLATFORM, его DMA идёт мимо IOMMU. Устройство после проверки сброшено. */
 int  virtio_iommu_check(virtio_dev_t* v);
+/* Общий порядок изоляции устройства virtio (как у диска и сети): virtio_iso_open ДО virtio_attach (домен VT-d без отображений),
+   virtio_iso_confirm ПОСЛЕ него (проверка принуждения по очереди qidx; не подтвердилась - домен снимается, устройство остаётся
+   сквозным и работает как раньше), затем virtio_begin(.. | VIRTIO_F_ACCESS_PLATFORM) и virtio_dma_grant на каждый буфер. */
+int  virtio_iso_open(const pci_dev_t* p);
+int  virtio_iso_confirm(virtio_dev_t* v, const char* name, uint16_t qidx, int device_writes);   /* 1 - изолировано */
+int  virtio_iommu_check_q(virtio_dev_t* v, uint16_t qidx, int device_writes);   /* то же, но по выбранной очереди */
 
 /* Непрерывная память для DMA (обнулена). Возвращает указатель; *phys - адрес для устройства. 0 - нет памяти. */
 void* virtio_dma_alloc(uint32_t bytes, uint64_t* phys);
+int   virtio_dma_last_uncached(void);                      /* 1 - последний блок выдан из пула без кэша (плата без согласованности): процессору он медленный, рисовать в нём кадр нельзя */
 
 /* Блочное устройство virtio-blk. NULL - такого устройства нет или оно не поднялось. */
 struct blk_dev;
 struct blk_dev* virtio_blk_probe(void);
+/* Устройство PCI, которое взял (или пытался взять) встроенный драйвер virtio-blk; 0 - не искал. Ядро пользуется одним диском virtio-blk: остальные
+   не заняты никем, и kdrv.c отдаёт их драйверам Ring 3 (CAP_BLKDEV). */
+const pci_dev_t* virtio_blk_pci(void);
 
 #ifdef KIRA_HOST_TEST
 uint64_t host_mmio_read(const volatile void* a, int size);

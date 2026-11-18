@@ -1,0 +1,14 @@
+name: docs
+# Проверка основных документов: наличие, заполнение, даты «Обновлено», указатель, план, каталог подсистем.
+# Отдельный файл, потому что ci.yml пропускает изменения только в документах.
+on:
+  push:
+  pull_request:
+jobs:
+  check-docs:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 ci/check_docs.py
+      - run: python3 ci/check_licenses.py
+      - run: python3 ci/test_check_licenses.py

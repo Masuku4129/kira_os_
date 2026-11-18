@@ -53,7 +53,6 @@ static void fmt_age(char* out, uint32_t s) {
 
 /* ---------------- текст ---------------- */
 
-static int ncp(const char* s) { int n = 0; while (*s) { if ((*s & 0xC0) != 0x80) n++; s++; } return n; }
 
 #define text_fit ui_text_fit
 
@@ -110,65 +109,101 @@ static uint32_t kind_color(int k) {
     }
 }
 
-static void orb(surface_t* s, int cx, int cy, const mind_view_t* v) {
-    static const uint32_t col[4] = { TH_CYAN, TH_GREEN, TH_PURPLE, TH_AMBER };
-    const unsigned val[4] = { v->c_resp, v->c_room, v->c_bal, v->c_stab };   /* каждая часть здоровья - 0..100 */
-    ui_disc(s, cx, cy, 86, TH_PURPLE, 14);
-    ui_disc(s, cx, cy, 52, 0x00060B16, 255);
-    for (int i = 0; i < 4; i++) {
-        int ro = 84 - i * 9, ri = ro - 6;
-        ui_ring(s, cx, cy, ri, ro, TRACK, 255);
-        unsigned sweep = val[i] >= 100 ? 3600 : val[i] * 36;
-        ui_arc(s, cx, cy, ri, ro, 0, (int)sweep, col[i]);
+
+
+
+/* Панель Mind читает только опубликованный снимок ядра.
+   Разделы - крупная стеклянная панель сверху; страницы рисуются ниже неё в подповерхности (их координаты не меняются). */
+#define MIND_NAV_H 46
+#define MIND_NAV_W 580
+static const char* const mind_names[6] = { "Состояние", "Прогноз", "Обучение", "Решения", "Процессы", "Оборудование" };
+/* Ширина ячейки пропорциональна подписи, вместе они занимают всю панель. */
+static int mind_nav_geom(int i, int* x) {
+    int tw[6], sum = 0;
+    for (int k = 0; k < 6; k++) { tw[k] = gfx_text_width(mind_names[k]) + 20; sum += tw[k]; }
+    int room = MIND_NAV_W - 8, px = 14;
+    for (int k = 0; k < i; k++) px += tw[k] * room / sum;
+    *x = px;
+    return (i == 5 ? 14 + room - px : tw[i] * room / sum);
+}
+static void mind_tabs_draw(surface_t* s, unsigned page) {
+    gfx_rect(s, 0, 0, s->w, MIND_NAV_H, TH_CONTENT);
+    ui_round_rect(s, 10, 7, MIND_NAV_W, 34, TH_RADIUS, TH_SURF_BAR, 255);
+    ui_round_frame(s, 10, 7, MIND_NAV_W, 34, TH_RADIUS, TH_EDGE, 255);
+    for (int i = 0; i < 6; i++) {
+        int x, cw = mind_nav_geom(i, &x);
+        if (i == (int)page) {
+            ui_round_rect(s, x, 10, cw, 28, TH_RADIUS, ui_state_bg(UI_ST_SELECTED, TH_SURF_BAR), 255);
+            gfx_rect(s, x + 2, 10 + 26, cw - 4, 2, TH_ACCENT);
+        }
+        int lw = gfx_text_width(mind_names[i]); if (lw > cw - 8) lw = cw - 8;
+        ui_text_fit(s, x + (cw - lw) / 2, 16, mind_names[i], cw - 8, i == (int)page ? TH_FG : TH_FG_DIM);
     }
-    char t[8]; app_fmt_u(t, v->health);
-    int tw = ui_text_smooth_width(t, 40);
-    ui_text_smooth(s, cx - tw / 2, cy - 26, t, 40, health_color(v->health));
-    gfx_text(s, cx - gfx_text_width("здоровье") / 2, cy + 16, "здоровье", TH_TEXT_FAINT, -1);
+}
+int app_mind_hit(int x, int y) {
+    if (y < 10 || y >= 38) return -1;
+    for (int i = 0; i < 6; i++) { int px, cw = mind_nav_geom(i, &px); if (x >= px && x < px + cw) return i; }
+    return -1;
+}
+static void mind_page_status(surface_t* s, const mind_view_t* v, const char* msg) {
+    char r[32]; int p = cat(r, 0, "здоровье "); p = cat_u(r, p, v->health); cat(r, p, "%");
+    ui_statusbar(s, s->h - TH_BAR_H, msg, TH_TEXT_DIM, r);
 }
 
-static void mind_draw_state(surface_t* s, const mind_view_t* v) {
-    gfx_fill(s, TH_CONTENT);
-    char t[96]; int p;
-
-    /* здоровье и настроение */
-    card(s, 10, 10, 200, 320, 0, 0);
-    orb(s, 110, 104, v);
+static void m0_health(surface_t* s, const mind_view_t* v) {
+    char t[128]; int p = 0; (void)t; (void)p; (void)v;
+    /* здоровье: одно крупное число и четыре подписанные шкалы, из которых оно сложено */
+    card(s, 10, 10, 200, 320, "ЗДОРОВЬЕ СИСТЕМЫ", health_color(v->health));
+    char hv[8]; app_fmt_u(hv, v->health);
+    int hw = ui_text_smooth_width(hv, 56);
+    ui_text_smooth(s, 110 - (hw + 36) / 2, 38, hv, 56, health_color(v->health));
+    gfx_text(s, 110 - (hw + 36) / 2 + hw + 4, 72, "/100", TH_TEXT_FAINT, -1);
     const char* mood = v->mood[0] ? v->mood : "просыпается";
-    gfx_text(s, 110 - gfx_text_width(mood) / 2, 196, mood, TH_TEXT, -1);
+    { int mw = gfx_text_width(mood); if (mw > 190) mw = 190; ui_text_fit(s, 110 - mw / 2, 108, mood, 190, TH_TEXT); }      /* длинный текст не вылезает за карточку: кэш не оставит следов */
     p = cat(t, 0, v->mode ? "действует" : "наблюдает");
     p = cat(t, p, " · квант "); p = cat_u(t, p, v->quantum_ms); cat(t, p, " мс");
-    gfx_text(s, 110 - gfx_text_width(t) / 2, 216, t, v->mode ? TH_GREEN : TH_TEXT_DIM, -1);
-    p = cat(t, 0, "анимация "); p = cat_u(t, p, v->fx); cat(t, p, v->fx_user == MIND_FX_AUTO ? " · авто" : " · вручную");
-    gfx_text(s, 110 - gfx_text_width(t) / 2, 234, t, TH_TEXT_FAINT, -1);
-    /* из чего сложено здоровье: кольца снаружи внутрь */
-    gfx_rect(s, 22, 256, 176, 1, CARD_EDGE);
+    { int tw = gfx_text_width(t); if (tw > 190) tw = 190; ui_text_fit(s, 110 - tw / 2, 128, t, 190, v->mode ? TH_GREEN : TH_TEXT_DIM); }
+    gfx_rect(s, 22, 156, 176, 1, CARD_EDGE);
     static const char* const part[4] = { "отклик", "запас", "равновесие", "стабильность" };
     static const uint32_t pcol[4] = { TH_CYAN, TH_GREEN, TH_PURPLE, TH_AMBER };
     const unsigned pval[4] = { v->c_resp, v->c_room, v->c_bal, v->c_stab };
     for (int i = 0; i < 4; i++) {
-        int y = 264 + i * 16;
-        ui_disc(s, 27, y + 8, 4, pcol[i], 255);
-        gfx_text(s, 38, y, part[i], TH_TEXT_DIM, -1);
+        int y = 168 + i * 36;
+        gfx_text(s, 24, y, part[i], TH_TEXT_DIM, -1);
         app_fmt_u(t, pval[i]);
-        gfx_text(s, 198 - gfx_text_width(t), y, t, pval[i] >= 70 ? TH_TEXT : pval[i] >= 40 ? TH_AMBER : TH_RED, -1);
+        gfx_text(s, 196 - gfx_text_width(t), y, t, pval[i] >= 70 ? TH_TEXT : pval[i] >= 40 ? TH_AMBER : TH_RED, -1);
+        ui_round_rect(s, 24, y + 20, 172, 6, 3, TRACK, 255);
+        unsigned pv = pval[i] > 100 ? 100 : pval[i];
+        if (pv) ui_round_rect(s, 24, y + 20, (int)(172 * pv / 100) < 6 ? 6 : (int)(172 * pv / 100), 6, 3, pcol[i], 255);
     }
 
-    /* сигналы: значение, отклонение от нормы, минута истории */
+}
+
+static void m0_sigframe(surface_t* s, const mind_view_t* v) {
+    (void)v;
     card(s, 220, 10, 370, 320, "СИГНАЛЫ И НОРМЫ", TH_CYAN);
-    for (int k = 0; k < MIND_SIG_N; k++) {
-        int y = 38 + k * 36;
-        int az = v->z_x10[k] < 0 ? -v->z_x10[k] : v->z_x10[k];
-        int learning = v->learned[k] < 60;
-        uint32_t vc = learning ? TH_TEXT_DIM : az >= 40 ? TH_RED : az >= 25 ? TH_AMBER : TH_TEXT;
-        gfx_text(s, 232, y + 2, mind_signal_name(k), TH_TEXT_DIM, -1);
-        p = cat_x100(t, 0, v->cur_x100[k]); cat(t, p, short_unit[k]);
-        gfx_text(s, 446 - gfx_text_width(t), y + 2, t, vc, -1);
-        uint32_t sc = learning ? TH_TEXT_FAINT : az >= 25 ? vc : ui_mix(TH_CYAN, TH_PURPLE, (unsigned)k * 32);
-        gfx_rect(s, 456, y + 20, 124, 1, TRACK);
-        spark(s, 456, y + 1, 124, 20, v->hist[k], v->hpos, sc, 1);
-    }
-
+}
+/* Одна строка сигнала: значение, отклонение от нормы, минута истории. Строка - отдельная карточка кэша, поэтому перерисовка
+   сигналов делится на кадры (8 маленьких частей вместо одной крупной). */
+static void m0_sig_row(surface_t* s, const mind_view_t* v, int k) {
+    char t[128]; int p;
+    int y = 38 + k * 36;
+    if (k == 0) gfx_rect(s, 232, 39, 346, 1, TH_EDGE);       /* линия под заголовком карточки: стирание строки задевает её, рисуем снова */
+    int az = v->z_x10[k] < 0 ? -v->z_x10[k] : v->z_x10[k];
+    int learning = v->learned[k] < 60;
+    uint32_t vc = learning ? TH_TEXT_DIM : az >= 40 ? TH_RED : az >= 25 ? TH_AMBER : TH_TEXT;
+    gfx_text(s, 232, y + 2, mind_signal_name(k), TH_TEXT_DIM, -1);
+    p = cat_x100(t, 0, v->cur_x100[k]); cat(t, p, short_unit[k]);
+    { int tw = gfx_text_width(t); if (tw > 216) tw = 216; ui_text_fit(s, 446 - tw, y + 2, t, 216, vc); }   /* не шире строки: не вылезает за карточку */
+    uint32_t sc = learning ? TH_TEXT_FAINT : az >= 25 ? vc : ui_mix(TH_CYAN, TH_PURPLE, (unsigned)k * 32);
+    gfx_rect(s, 456, y + 20, 124, 1, TRACK);
+    spark(s, 456, y + 1, 124, 20, v->hist[k], v->hpos, sc, 1);
+}
+#define SIGROW(n) static void m0_sig##n(surface_t* s, const mind_view_t* v) { m0_sig_row(s, v, n); }
+SIGROW(0) SIGROW(1) SIGROW(2) SIGROW(3) SIGROW(4) SIGROW(5) SIGROW(6) SIGROW(7)
+_Static_assert(MIND_SIG_N == 8, "строки сигналов окна Разума: по карточке на сигнал");
+static void m0_counters(surface_t* s, const mind_view_t* v) {
+    char t[128]; int p = 0; (void)t; (void)p; (void)v;
     /* счётчики */
     card(s, 10, 340, 580, 40, 0, 0);
     char age[32]; fmt_age(age, v->lifetime_s);
@@ -183,6 +218,10 @@ static void mind_draw_state(surface_t* s, const mind_view_t* v) {
     gfx_text(s, x, 352, t, TH_PURPLE, -1); x += gfx_text_width(t) + 22;
     if (v->kills) { p = cat(t, 0, "остановок "); p = cat_u(t, p, v->kills); text_fit(s, x, 352, t, 588 - x, TH_RED); }
 
+}
+
+static void m0_journal(surface_t* s, const mind_view_t* v) {
+    char t[128]; int p = 0; (void)t; (void)p; (void)v;
     /* журнал */
     card(s, 10, 390, 580, 140, "ЖУРНАЛ РЕШЕНИЙ", TH_PURPLE);
     int y = 414;
@@ -196,40 +235,22 @@ static void mind_draw_state(surface_t* s, const mind_view_t* v) {
         int lines = text_wrap(s, 112, y, v->j[i].text, 470, (514 - y) >= 36 ? 2 : 1, 17, i == 0 ? TH_TEXT : TH_TEXT_DIM);
         y += lines * 17 + 4;
     }
+}
+
+static void m0_status(surface_t* s, const mind_view_t* v) {
+    char t[128]; int p = 0; (void)t; (void)p; (void)v;
     /* полоса состояния: последнее решение и здоровье */
     char hr[32]; p = cat(hr, 0, "здоровье "); p = cat_u(hr, p, v->health); cat(hr, p, "%");
     if (v->nj) ui_statusbar(s, s->h - TH_BAR_H, v->j[0].text, kind_color(v->j[0].kind), hr);
     else ui_statusbar(s, s->h - TH_BAR_H, "Разум изучает нормы этой машины", TH_TEXT_DIM, hr);
 }
 
-
-/* Панель Mind читает только опубликованный снимок ядра. */
-static void mind_tabs_draw(surface_t* s, unsigned page) {
-    static const char* const names[6] = { "Состояние", "Прогноз", "Обучение", "Решения", "Процессы", "Оборудование" };
-    int y = s->h - TH_BAR_H - 42;
-    for (int i = 0; i < 6; i++) {
-        int x = 10 + i * 96;
-        ui_round_rect(s, x, y, 93, 30, 7, i == (int)page ? ui_mix(CARD, TH_CYAN, 48) : TH_TRACK, 255);
-        ui_round_frame(s, x, y, 93, 30, 7, i == (int)page ? TH_CYAN : CARD_EDGE, 255);
-        if (i == (int)page) ui_round_rect(s, x + 14, y + 27, 65, 2, 1, TH_CYAN, 255);
-        ui_text_fit(s, x + 5, y + 9, names[i], 83, i == (int)page ? TH_TEXT : TH_TEXT_DIM);
-    }
-}
-int app_mind_hit(int x, int y) {
-    if (x < 10 || x >= 583 || y < 558 || y >= 588) return -1;
-    int i = (x - 10) / 96;
-    return i >= 0 && i < 6 && x < 10 + i * 96 + 93 ? i : -1;
-}
-static void mind_page_status(surface_t* s, const mind_view_t* v, const char* msg) {
-    char r[32]; int p = cat(r, 0, "здоровье "); p = cat_u(r, p, v->health); cat(r, p, "%");
-    ui_statusbar(s, s->h - TH_BAR_H, msg, TH_TEXT_DIM, r);
-}
-static void mind_draw_forecast(surface_t* s, const mind_view_t* v) {
-    gfx_fill(s, TH_CONTENT);
+static void m1_risk(surface_t* s, const mind_view_t* v) {
+    char t[128]; int p = 0; (void)t; (void)p; (void)v;
     card(s, 10, 10, 580, 145, "ПРОГНОЗ ОТКЛИКА ЭКРАНА · СЛЕДУЮЩАЯ СЕКУНДА", TH_CYAN);
     unsigned risk = v->risk > 100 ? 100 : v->risk;
     uint32_t c = risk >= 70 ? TH_RED : risk >= 40 ? TH_AMBER : TH_GREEN;
-    char t[96]; int p = cat(t, 0, "вероятность опоздания: "); p = cat_u(t, p, risk); cat(t, p, "%");
+    p = cat(t, 0, "вероятность опоздания: "); p = cat_u(t, p, risk); cat(t, p, "%");
     ui_text_bold(s, 28, 54, t, c);
     ui_round_rect(s, 28, 84, 540, 18, 8, TRACK, 255);
     if (risk) ui_round_rect(s, 28, 84, (int)(540 * risk / 100), 18, 8, c, 255);
@@ -237,26 +258,43 @@ static void mind_draw_forecast(surface_t* s, const mind_view_t* v) {
         const char* why = v->risk_why >= 0 && v->risk_why < MNET_F ? mind_feature_name(v->risk_why) : "признак не выделен";
         p = cat(t, 0, "главный фактор: "); cat(t, p, why); gfx_text(s, 28, 120, t, TH_TEXT_DIM, -1);
     } else gfx_text(s, 28, 120, "Модель пока не заслужила доверия: предупреждения не используются", TH_AMBER, -1);
+}
+
+static void m1_history(surface_t* s, const mind_view_t* v) {
+    char t[128]; int p = 0; (void)t; (void)p; (void)v;
     card(s, 10, 165, 280, 160, "ИСТОРИЯ ПРОГНОЗОВ", TH_PURPLE);
     p = cat(t, 0, "прогнозов: "); p = cat_u(t, p, v->forecasts); gfx_text(s, 26, 204, t, TH_TEXT, -1);
     p = cat(t, 0, "примеров: "); p = cat_u(t, p, v->net_n); gfx_text(s, 26, 232, t, TH_TEXT_DIM, -1);
     p = cat(t, 0, "положительных: "); p = cat_u(t, p, v->net_pos); gfx_text(s, 26, 260, t, TH_TEXT_DIM, -1);
+}
+
+static void m1_quality(surface_t* s, const mind_view_t* v) {
+    char t[128]; int p = 0; (void)t; (void)p; (void)v;
     card(s, 300, 165, 290, 160, "КАЧЕСТВО ПРЕДУПРЕЖДЕНИЙ", TH_GREEN);
     p = cat(t, 0, "точность: "); p = cat_u(t, p, v->net_prec); cat(t, p, "%"); gfx_text(s, 316, 204, t, TH_TEXT, -1);
     p = cat(t, 0, "полнота: "); p = cat_u(t, p, v->net_rec); cat(t, p, "%"); gfx_text(s, 316, 232, t, TH_TEXT, -1);
     p = cat(t, 0, "доверие: "); cat(t, p, v->net_trusted ? "подтверждено" : "не подтверждено");
     gfx_text(s, 316, 260, t, v->net_trusted ? TH_GREEN : TH_AMBER, -1);
+}
+
+static void m1_limits(surface_t* s, const mind_view_t* v) {
+    char t[128]; int p = 0; (void)t; (void)p; (void)v;
     card(s, 10, 335, 580, 190, "ОГРАНИЧЕНИЯ ПРОГНОЗА", TH_BLUE);
     gfx_text(s, 26, 376, "Оценивается только вероятность задержки экрана на следующей секунде.", TH_TEXT_DIM, -1);
     gfx_text(s, 26, 402, "Это не универсальный прогноз производительности всей системы.", TH_TEXT_DIM, -1);
     gfx_text(s, 26, 438, "При недостаточном доверии модель не используется для предупреждений.", TH_TEXT_FAINT, -1);
     gfx_text(s, 26, 474, "Причина указана, только если ядро выделило значимый признак.", TH_TEXT_FAINT, -1);
+}
+
+static void m1_status(surface_t* s, const mind_view_t* v) {
+    char t[128]; int p = 0; (void)t; (void)p; (void)v;
     mind_page_status(s, v, "прогноз · диагностическая оценка, не команда управления");
 }
-static void mind_draw_training(surface_t* s, const mind_view_t* v) {
-    gfx_fill(s, TH_CONTENT);
+
+static void m2_state(surface_t* s, const mind_view_t* v) {
+    char t[128]; int p = 0; (void)t; (void)p; (void)v;
     card(s, 10, 10, 580, 125, "СОСТОЯНИЕ ОБУЧЕНИЯ", TH_PURPLE);
-    char t[96]; int p = cat(t, 0, "примеров: "); p = cat_u(t, p, v->net_n);
+    p = cat(t, 0, "примеров: "); p = cat_u(t, p, v->net_n);
     p = cat(t, p, " · положительных: "); p = cat_u(t, p, v->net_pos); gfx_text(s, 26, 48, t, TH_TEXT, -1);
     p = cat(t, 0, "точность: "); p = cat_u(t, p, v->net_prec); p = cat(t, p, "% · полнота: ");
     p = cat_u(t, p, v->net_rec); cat(t, p, "%"); gfx_text(s, 26, 74, t, TH_TEXT_DIM, -1);
@@ -264,6 +302,10 @@ static void mind_draw_training(surface_t* s, const mind_view_t* v) {
     { unsigned f = v->net_loss_x1e4 % 10000; t[p++] = (char)('0' + f / 1000); t[p++] = (char)('0' + f / 100 % 10); t[p++] = (char)('0' + f / 10 % 10); t[p++] = (char)('0' + f % 10); t[p] = 0; }
     gfx_text(s, 26, 100, t, TH_TEXT_DIM, -1);
     gfx_text(s, 370, 100, v->net_trusted ? "модель доверенная" : "модель не доверенная", v->net_trusted ? TH_GREEN : TH_AMBER, -1);
+}
+
+static void m2_weights(surface_t* s, const mind_view_t* v) {
+    char t[128]; int p = 0; (void)t; (void)p; (void)v;
     card(s, 10, 145, 580, 380, "ВЕСА ПРИЗНАКОВ · Q16", TH_CYAN);
     for (int i = 0; i < MNET_F; i++) {
         int x = i / 6 ? 310 : 26, y = 182 + (i % 6) * 52;
@@ -278,12 +320,17 @@ static void mind_draw_training(surface_t* s, const mind_view_t* v) {
         unsigned fill = (unsigned)(mag > 4LL * MNET_ONE ? 4LL * MNET_ONE : mag) * 145 / (4 * MNET_ONE);
         if (fill) ui_round_rect(s, x + 112, y + 23, (int)fill, 5, 2, value < 0 ? TH_AMBER : TH_GREEN, 255);
     }
+}
+
+static void m2_status(surface_t* s, const mind_view_t* v) {
+    char t[128]; int p = 0; (void)t; (void)p; (void)v;
     mind_page_status(s, v, v->lv_seed ? "обучение · стартовая модель содержит семя опыта" : "обучение · опыт текущей машины");
 }
-static void mind_draw_decisions(surface_t* s, const mind_view_t* v) {
-    gfx_fill(s, TH_CONTENT);
+
+static void m3_summary(surface_t* s, const mind_view_t* v) {
+    char t[128]; int p = 0; (void)t; (void)p; (void)v;
     card(s, 10, 10, 580, 90, "СВОДКА РЕШЕНИЙ", TH_PURPLE);
-    char t[128]; int p = cat(t, 0, "решений: "); p = cat_u(t, p, v->decisions);
+    p = cat(t, 0, "решений: "); p = cat_u(t, p, v->decisions);
     p = cat(t, p, " · отклонений: "); p = cat_u(t, p, v->anomalies);
     p = cat(t, p, " · остановок: "); p = cat_u(t, p, v->kills); gfx_text(s, 26, 48, t, TH_TEXT, -1);
     uint32_t lever_backs = 0;
@@ -291,6 +338,10 @@ static void mind_draw_decisions(surface_t* s, const mind_view_t* v) {
     p = cat(t, 0, "изменений рычагов: "); p = cat_u(t, p, v->lv_changes);
     p = cat(t, p, " · их откатов: "); p = cat_u(t, p, lever_backs);
     p = cat(t, p, " · общих: "); p = cat_u(t, p, v->lv_general); gfx_text(s, 26, 74, t, TH_TEXT_DIM, -1);
+}
+
+static void m3_levers(surface_t* s, const mind_view_t* v) {
+    char t[128]; int p = 0; (void)t; (void)p; (void)v;
     card(s, 10, 110, 580, 415, "АДАПТИВНЫЕ ПАРАМЕТРЫ · 13–30", TH_CYAN);
     for (int i = 0; i < ML_N; i++) {
         int x = i / 9 ? 310 : 26, y = 142 + (i % 9) * 40;
@@ -302,13 +353,18 @@ static void mind_draw_decisions(surface_t* s, const mind_view_t* v) {
         else q = cat_u(val, q, (uint64_t)v->lv[i].val);
         cat(val, q, mind_lever_unit(i)); text_fit(s, x, y + 17, val, 164, TH_CYAN);
         text_fit(s, x + 170, y + 5, state, 94, c);
-        char stats[32]; q = cat(stats, 0, "пробы "); q = cat_u(stats, q, v->lv[i].trials);
+        char stats[48]; q = cat(stats, 0, "пробы "); q = cat_u(stats, q, v->lv[i].trials);
         q = cat(stats, q, " · успех "); q = cat_u(stats, q, v->lv[i].wins); text_fit(s, x + 170, y + 21, stats, 94, TH_TEXT_FAINT);
     }
+}
+
+static void m3_status(surface_t* s, const mind_view_t* v) {
+    char t[128]; int p = 0; (void)t; (void)p; (void)v;
     mind_page_status(s, v, "решения · параметры ядра проверяются и откатываются при ухудшении");
 }
-static void mind_draw_processes(surface_t* s, const mind_view_t* v) {
-    gfx_fill(s, TH_CONTENT);
+
+static void m4_list(surface_t* s, const mind_view_t* v) {
+    char t[128]; int p = 0; (void)t; (void)p; (void)v;
     card(s, 10, 10, 580, 515, "ПРОЦЕССЫ · СНИМОК ЯДРА", TH_BLUE);
     static const int x[6] = { 24, 72, 224, 284, 360, 444 };
     static const char* const h[6] = { "PID", "ПРОГРАММА", "ПОТОКИ", "ЦП", "ПАМЯТЬ", "ВЕС / ЛИМИТ" };
@@ -329,10 +385,15 @@ static void mind_draw_processes(surface_t* s, const mind_view_t* v) {
         else { q = cat_u(t, q, v->p[i].limit); cat(t, q, "%"); }
         text_fit(s, x[5], y, t, 128, TH_TEXT_DIM);
     }
+}
+
+static void m4_status(surface_t* s, const mind_view_t* v) {
+    char t[128]; int p = 0; (void)t; (void)p; (void)v;
     mind_page_status(s, v, "процессы · до 16 записей из системного снимка");
 }
-static void mind_draw_hardware(surface_t* s, const mind_view_t* v) {
-    gfx_fill(s, TH_CONTENT);
+
+static void m5_cpu(surface_t* s, const mind_view_t* v) {
+    char t[128]; int p = 0; (void)t; (void)p; (void)v;
     card(s, 10, 10, 580, 145, "ПРОЦЕССОР · ЗАГРУЗКА ЯДЕР", TH_CYAN);
     unsigned n = v->cores > 64 ? 64 : v->cores;
     if (!n) {
@@ -350,16 +411,28 @@ static void mind_draw_hardware(surface_t* s, const mind_view_t* v) {
             if (slot >= 22) { char t[12]; app_fmt_u(t, i); gfx_text(s, x + bw / 2 - gfx_text_width(t) / 2, 132, t, TH_TEXT_FAINT, -1); }
         }
     }
+}
+
+static void m5_mem(surface_t* s, const mind_view_t* v) {
+    char t[128]; int p = 0; (void)t; (void)p; (void)v;
     card(s, 10, 165, 280, 145, "ПАМЯТЬ", TH_PURPLE);
-    char t[128]; int p = cat(t, 0, "занято "); p = cat_u(t, p, v->mem_used); cat(t, p, "%");
+    p = cat(t, 0, "занято "); p = cat_u(t, p, v->mem_used); cat(t, p, "%");
     ui_text_bold(s, 26, 208, t, v->mem_used >= 85 ? TH_RED : TH_TEXT);
     ui_round_rect(s, 26, 236, 248, 14, 6, TRACK, 255);
     if (v->mem_used) ui_round_rect(s, 26, 236, (int)(248 * (v->mem_used > 100 ? 100 : v->mem_used) / 100), 14, 6, v->mem_used >= 85 ? TH_RED : TH_PURPLE, 255);
     p = cat(t, 0, "готовых потоков: "); cat_u(t, p, v->runnable); gfx_text(s, 26, 272, t, TH_TEXT_DIM, -1);
+}
+
+static void m5_screen(surface_t* s, const mind_view_t* v) {
+    char t[128]; int p = 0; (void)t; (void)p; (void)v;
     card(s, 300, 165, 290, 145, "ЭКРАН И КОМПОЗИТОР", TH_GREEN);
     p = cat(t, 0, "кадров/с: "); p = cat_u(t, p, v->frames_per_s); gfx_text(s, 316, 204, t, TH_TEXT, -1);
     p = cat(t, 0, "опозданий/с: "); p = cat_u(t, p, v->late_per_s); gfx_text(s, 316, 230, t, v->late_per_s ? TH_AMBER : TH_GREEN, -1);
     p = cat(t, 0, "сборка: "); cat(t, p, v->comp_par ? "параллельная" : "одно ядро"); gfx_text(s, 316, 256, t, TH_TEXT_DIM, -1);
+}
+
+static void m5_policy(surface_t* s, const mind_view_t* v) {
+    char t[128]; int p = 0; (void)t; (void)p; (void)v;
     card(s, 10, 320, 580, 205, "ПОЛИТИКИ РЕСУРСОВ", TH_BLUE);
     gfx_text(s, 26, 360, "окна: открытые 60 кадров/с, свёрнутые 4", TH_TEXT_DIM, -1);
     p = cat(t, 0, "лимит фона при нехватке ЦП: "); p = cat_u(t, p, v->core_cap); cat(t, p, "%"); gfx_text(s, 26, 386, t, TH_TEXT_DIM, -1);
@@ -379,17 +452,182 @@ static void mind_draw_hardware(surface_t* s, const mind_view_t* v) {
     p = cat(t, 0, "отклонено запусков: "); p = cat_u(t, p, v->denied);
     if (v->denied && v->denied_name[0]) { p = cat(t, p, " · "); cat(t, p, v->denied_name); }
     gfx_text(s, 26, 508, t, v->denied ? TH_AMBER : TH_TEXT_DIM, -1);
+}
+
+static void m5_status(surface_t* s, const mind_view_t* v) {
+    char t[128]; int p = 0; (void)t; (void)p; (void)v;
     mind_page_status(s, v, "оборудование · показатели, опубликованные ядром");
 }
-void app_mind_draw(surface_t* s, const mind_view_t* v, unsigned page) {
+
+
+/* ---------------- окно «Разум»: карточки с кэшем ----------------
+   Каждый раздел - набор карточек (прямоугольник, подпись входных значений, рисование). Карточка перерисовывается, только если изменились
+   значения, которые она показывает (подпись - хеш этих значений, посчитанный по тем же правилам, что и рисование: например «ядро учится»
+   вместо числа секунд наблюдения, класс отклонения вместо самого отклонения). Остальные пиксели остаются в поверхности окна: поверхность живёт
+   между вызовами. Перерисовка нескольких карточек делится на кадры по бюджету времени (app_mind_draw_step), поэтому цикл экрана не получает
+   разовой паузы в несколько миллисекунд раз в секунду. Хост-тест tests/mind_cards_test.c меняет каждый байт снимка и проверяет, что результат
+   с кэшем побайтно равен полной перерисовке. */
+#define HZ_SEED 2166136261u
+static uint32_t hz(uint32_t h, uint32_t x) { h ^= x; h *= 16777619u; h ^= h >> 13; return h; }
+static uint32_t hs(uint32_t h, const char* s) { while (*s) h = hz(h, (uint8_t)*s++); return hz(h, 0x100u); }
+static uint32_t hhist(uint32_t h, const uint8_t* hist, uint32_t hpos) {      /* кривая в порядке рисования: сдвиг начала сам по себе пикселей не меняет */
+    for (int i = 0; i < MIND_HIST; i++) { unsigned x = hist[(hpos + (unsigned)i) % MIND_HIST]; h = hz(h, x > 100 ? 100 : x); }
+    return h;
+}
+
+static uint32_t g_m0_health(const mind_view_t* v) {
+    uint32_t h = HZ_SEED;
+    h = hz(h, v->health); h = hs(h, v->mood); h = hz(h, v->mode != 0); h = hz(h, v->quantum_ms);
+    h = hz(h, v->c_resp); h = hz(h, v->c_room); h = hz(h, v->c_bal); h = hz(h, v->c_stab);
+    return h;
+}
+static uint32_t g_m0_sig_row(const mind_view_t* v, int k) {
+    uint32_t h = HZ_SEED;
+    int az = v->z_x10[k] < 0 ? -v->z_x10[k] : v->z_x10[k];
+    h = hz(h, (uint32_t)(az >= 40 ? 2 : az >= 25 ? 1 : 0)); h = hz(h, v->learned[k] < 60);
+    h = hz(h, (uint32_t)v->cur_x100[k]); h = hhist(h, v->hist[k], v->hpos);
+    return h;
+}
+#define SIGROWG(n) static uint32_t g_m0_sig##n(const mind_view_t* v) { return g_m0_sig_row(v, n); }
+SIGROWG(0) SIGROWG(1) SIGROWG(2) SIGROWG(3) SIGROWG(4) SIGROWG(5) SIGROWG(6) SIGROWG(7)
+static uint32_t g_m0_counters(const mind_view_t* v) {
+    uint32_t h = HZ_SEED; char age[32];
+    fmt_age(age, v->lifetime_s); h = hs(h, age);
+    h = hz(h, v->decisions); h = hz(h, v->anomalies); h = hz(h, v->tune_wins); h = hz(h, v->tune_trials); h = hz(h, v->kills);
+    return h;
+}
+static uint32_t g_m0_journal(const mind_view_t* v) {
+    uint32_t h = HZ_SEED, n = v->nj > MIND_VIEW_J ? MIND_VIEW_J : v->nj;
+    h = hz(h, n);
+    for (uint32_t i = 0; i < n; i++) { h = hz(h, v->j[i].t); h = hz(h, v->j[i].kind); h = hz(h, v->j[i].applied != 0); h = hs(h, v->j[i].text); }
+    return h;
+}
+static uint32_t g_m0_status(const mind_view_t* v) {
+    uint32_t h = HZ_SEED;
+    if (v->nj) { h = hs(h, v->j[0].text); h = hz(h, v->j[0].kind); } else h = hz(h, 0xFFFFu);
+    return h;
+}
+static uint32_t g_const(const mind_view_t* v) { (void)v; return 1; }
+static uint32_t g_health(const mind_view_t* v) { return hz(HZ_SEED, v->health); }
+static uint32_t g_m1_risk(const mind_view_t* v) {
+    uint32_t h = HZ_SEED;
+    h = hz(h, v->risk > 100 ? 100 : v->risk); h = hz(h, v->net_trusted != 0);
+    if (v->net_trusted) h = hz(h, (uint32_t)(v->risk_why >= 0 && v->risk_why < MNET_F ? v->risk_why : -1));
+    return h;
+}
+static uint32_t g_m1_history(const mind_view_t* v) { return hz(hz(hz(HZ_SEED, v->forecasts), v->net_n), v->net_pos); }
+static uint32_t g_m1_quality(const mind_view_t* v) { return hz(hz(hz(HZ_SEED, v->net_prec), v->net_rec), v->net_trusted != 0); }
+static uint32_t g_m2_state(const mind_view_t* v) {
+    uint32_t h = HZ_SEED;
+    h = hz(h, v->net_n); h = hz(h, v->net_pos); h = hz(h, v->net_prec); h = hz(h, v->net_rec); h = hz(h, v->net_loss_x1e4); h = hz(h, v->net_trusted != 0);
+    return h;
+}
+static uint32_t g_m2_weights(const mind_view_t* v) { uint32_t h = HZ_SEED; for (int i = 0; i < MNET_F; i++) h = hz(h, (uint32_t)v->net_w[i]); return h; }
+static uint32_t g_m2_status(const mind_view_t* v) { return hz(HZ_SEED, v->lv_seed != 0); }
+static uint32_t g_m3_summary(const mind_view_t* v) {
+    uint32_t h = HZ_SEED, backs = 0;
+    for (int i = 0; i < ML_N; i++) backs += v->lv[i].backs;
+    h = hz(h, v->decisions); h = hz(h, v->anomalies); h = hz(h, v->kills); h = hz(h, v->lv_changes); h = hz(h, backs); h = hz(h, v->lv_general);
+    return h;
+}
+static uint32_t g_m3_levers(const mind_view_t* v) {
+    uint32_t h = HZ_SEED;
+    for (int i = 0; i < ML_N; i++) {
+        h = hz(h, (uint32_t)v->lv[i].val); h = hz(h, v->lv[i].state == 2 ? 2 : v->lv[i].state == 1 ? 1 : v->lv[i].state == 3 ? 3 : 0);
+        h = hz(h, v->lv[i].trials); h = hz(h, v->lv[i].wins);
+    }
+    return h;
+}
+static uint32_t g_m4_list(const mind_view_t* v) {
+    uint32_t h = HZ_SEED, n = v->nproc > 16 ? 16 : v->nproc;
+    h = hz(h, n);
+    for (uint32_t i = 0; i < n; i++) {
+        h = hz(h, v->p[i].pid); h = hs(h, v->p[i].name); h = hz(h, v->p[i].flagged != 0); h = hz(h, v->p[i].focus != 0);
+        h = hz(h, v->p[i].threads); h = hz(h, v->p[i].cpu_x10); h = hz(h, v->p[i].heap_kb); h = hz(h, v->p[i].weight);
+        h = hz(h, v->p[i].limit && v->p[i].limit < 100 ? v->p[i].limit : 0);
+    }
+    return h;
+}
+static uint32_t g_m5_cpu(const mind_view_t* v) {
+    uint32_t h = HZ_SEED, n = v->cores > 64 ? 64 : v->cores;
+    h = hz(h, n);
+    for (uint32_t i = 0; i < n; i++) h = hz(h, v->busy[i] > 100 ? 100 : v->busy[i]);
+    return h;
+}
+static uint32_t g_m5_mem(const mind_view_t* v) { return hz(hz(HZ_SEED, v->mem_used), v->runnable); }
+static uint32_t g_m5_screen(const mind_view_t* v) { return hz(hz(hz(HZ_SEED, v->frames_per_s), v->late_per_s), v->comp_par != 0); }
+static uint32_t g_m5_policy(const mind_view_t* v) {
+    uint32_t h = HZ_SEED;
+    h = hz(h, v->core_cap); h = hz(h, v->comp_ns_kpx_par); h = hz(h, v->comp_ns_kpx_ser);
+    h = hz(h, v->dev_errors); h = hs(h, v->dev_name);
+    h = hz(h, v->hid_suspect); h = hs(h, v->hid_name); h = hz(h, v->hid_rate);
+    h = hz(h, v->denied); h = hs(h, v->denied_name);
+    return h;
+}
+
+typedef struct { int x, y, w, h; uint32_t (*sig)(const mind_view_t*); void (*draw)(surface_t*, const mind_view_t*); int inner; } mcard_t;   /* inner: часть другой карточки, стирается её цветом */
+#define MC_STATUS(sg, dr) { 0, -TH_BAR_H, 0, TH_BAR_H, sg, dr, 0 }            /* полоса состояния: прижата к низу поверхности страницы, здоровье в её подписи у всех разделов */
+#define SR(n) { 224, 38 + (n) * 36 - 1, 362, 34, g_m0_sig##n, m0_sig##n, 1 }
+static const mcard_t mc_p0[] = {
+    { 10, 10, 200, 320, g_m0_health, m0_health, 0 }, { 220, 10, 370, 320, g_const, m0_sigframe, 0 },
+    SR(0), SR(1), SR(2), SR(3), SR(4), SR(5), SR(6), SR(7),
+    { 10, 340, 580, 40, g_m0_counters, m0_counters, 0 },
+    { 10, 390, 580, 140, g_m0_journal, m0_journal, 0 }, MC_STATUS(g_m0_status, m0_status) };
+static const mcard_t mc_p1[] = {
+    { 10, 10, 580, 145, g_m1_risk, m1_risk, 0 }, { 10, 165, 280, 160, g_m1_history, m1_history, 0 }, { 300, 165, 290, 160, g_m1_quality, m1_quality, 0 },
+    { 10, 335, 580, 190, g_const, m1_limits, 0 }, MC_STATUS(g_const, m1_status) };
+static const mcard_t mc_p2[] = {
+    { 10, 10, 580, 125, g_m2_state, m2_state, 0 }, { 10, 145, 580, 380, g_m2_weights, m2_weights, 0 }, MC_STATUS(g_m2_status, m2_status) };
+static const mcard_t mc_p3[] = {
+    { 10, 10, 580, 90, g_m3_summary, m3_summary, 0 }, { 10, 110, 580, 415, g_m3_levers, m3_levers, 0 }, MC_STATUS(g_const, m3_status) };
+static const mcard_t mc_p4[] = { { 10, 10, 580, 515, g_m4_list, m4_list, 0 }, MC_STATUS(g_const, m4_status) };
+static const mcard_t mc_p5[] = {
+    { 10, 10, 580, 145, g_m5_cpu, m5_cpu, 0 }, { 10, 165, 280, 145, g_m5_mem, m5_mem, 0 }, { 300, 165, 290, 145, g_m5_screen, m5_screen, 0 },
+    { 10, 320, 580, 205, g_m5_policy, m5_policy, 0 }, MC_STATUS(g_const, m5_status) };
+#define MC_MAX 16
+
+/* Что нарисовано в поверхности окна. Другая поверхность, размер или раздел - рисунок с нуля. */
+static struct { const void* px; int w, h; int pitch; unsigned page; int valid; uint32_t sig[MC_MAX]; uint8_t drawn[MC_MAX]; } mcache;
+
+void app_mind_invalidate(void) { mcache.valid = 0; }
+
+unsigned app_mind_draw_step(surface_t* s, const mind_view_t* v, unsigned page, uint64_t budget_ns, uint64_t (*now_ns)(void)) {
     if (page >= 6) page = 0;
-    if (page == 0) mind_draw_state(s, v);
-    else if (page == 1) mind_draw_forecast(s, v);
-    else if (page == 2) mind_draw_training(s, v);
-    else if (page == 3) mind_draw_decisions(s, v);
-    else if (page == 4) mind_draw_processes(s, v);
-    else mind_draw_hardware(s, v);
-    mind_tabs_draw(s, page);
+    surface_t sub = { s->px + (size_t)MIND_NAV_H * (size_t)s->pitch, s->w, s->h - MIND_NAV_H, s->pitch };
+    static const mcard_t* const pages[6] = { mc_p0, mc_p1, mc_p2, mc_p3, mc_p4, mc_p5 };
+    static const unsigned counts[6] = { sizeof mc_p0 / sizeof mc_p0[0], sizeof mc_p1 / sizeof mc_p1[0], sizeof mc_p2 / sizeof mc_p2[0],
+                                        sizeof mc_p3 / sizeof mc_p3[0], sizeof mc_p4 / sizeof mc_p4[0], sizeof mc_p5 / sizeof mc_p5[0] };
+    const mcard_t* cs = pages[page]; unsigned n = counts[page];
+    unsigned res = 0;
+    int full = !mcache.valid || mcache.px != s->px || mcache.w != s->w || mcache.h != s->h || mcache.pitch != s->pitch || mcache.page != page;
+    if (full) {                                           /* первый рисунок, другой раздел или другая поверхность: всё сразу, без бюджета */
+        gfx_fill(&sub, TH_CONTENT);
+        mind_tabs_draw(s, page);
+        mcache.valid = 1; mcache.px = s->px; mcache.w = s->w; mcache.h = s->h; mcache.pitch = s->pitch; mcache.page = page;
+        for (unsigned i = 0; i < MC_MAX; i++) mcache.drawn[i] = 0;
+        res |= APP_MIND_DREW;
+    }
+    uint64_t t0 = now_ns ? now_ns() : 0;
+    for (unsigned i = 0; i < n; i++) {
+        const mcard_t* c = &cs[i];
+        uint32_t sg = c->sig(v);
+        if (c->y < 0) sg = hz(sg, g_health(v));
+        if (mcache.drawn[i] && mcache.sig[i] == sg) continue;
+        if (!full && (res & APP_MIND_DREW) && now_ns && now_ns() - t0 >= budget_ns) { res |= APP_MIND_MORE; continue; }   /* бюджет кадра вышел: остальное - в следующих кадрах */
+        if (mcache.drawn[i]) {                            /* прежнее содержимое карточки стирается фоном страницы, как на пустой странице */
+            int y = c->y < 0 ? sub.h + c->y : c->y, w = c->w ? c->w : sub.w;
+            gfx_rect(&sub, c->x, y, w, c->h, c->inner ? TH_CARD : TH_CONTENT);
+        }
+        c->draw(&sub, v);
+        mcache.sig[i] = sg; mcache.drawn[i] = 1;
+        res |= APP_MIND_DREW;
+    }
+    return res;
+}
+
+void app_mind_draw(surface_t* s, const mind_view_t* v, unsigned page) {
+    app_mind_invalidate();
+    (void)app_mind_draw_step(s, v, page, 0, 0);
 }
 
 /* ---------------- Монитор ---------------- */
@@ -413,8 +651,7 @@ void app_monitor_draw(surface_t* s, const mind_view_t* v, uint32_t threads) {
         unsigned b = v->busy[i] > 100 ? 100 : v->busy[i];
         ui_round_rect(s, x, ay, bw, ah, bw >= 8 ? 4 : 0, TRACK, 255);
         int h = (int)(b * (unsigned)ah / 100); if (h < 2) h = 2;
-        ui_vgrad(s, x, ay + ah - h, bw, h, ui_mix(TH_CYAN, TH_PURPLE, b * 255 / 100), ui_mix(TH_CYAN, TH_PURPLE, 40));
-        if (b >= 85) gfx_rect(s, x, ay + ah - h, bw, 2, TH_RED);
+        gfx_rect(s, x, ay + ah - h, bw, h, b >= 85 ? TH_ALARM : b >= 60 ? TH_WARN : TH_ACCENT);   /* цвет - по уровню нагрузки: норма, внимание, авария */
         if (slot >= 22) { app_fmt_u(t, i); gfx_text(s, x + bw / 2 - gfx_text_width(t) / 2, ay + ah + 4, t, TH_TEXT_FAINT, -1); }
     }
 
@@ -469,33 +706,157 @@ void app_monitor_draw(surface_t* s, const mind_view_t* v, uint32_t threads) {
     ui_statusbar(s, s->h - TH_BAR_H, sl, TH_TEXT_DIM, sr);
 }
 
-/* ---------------- Проводник: две панели ---------------- */
+/* ---------------- Проводник ---------------- */
+/* Сверху вниз: панель инструментов; слева боковая панель (места, ветка, устройства); две панели со строкой пути
+   (кликабельные части), шапкой колонок (сортировка щелчком) и списком; внизу строка состояния. Геометрия общая для
+   рисования и проверки попадания мыши. Стиль и обоснование - docs/UI_DESIGN.md. */
 
-#define PX(p)    (TH_GAP + (p) * (PW + TH_GAP))
-#define PW       ((APP_FILES_W - 3 * TH_GAP) / 2)
-#define PY       38
-#define STAT_Y   (APP_FILES_H - 2 * TH_BAR_H)
-#define KEYS_Y   (APP_FILES_H - TH_BAR_H)
-#define PH       (STAT_Y - 6 - PY)
-#define ROW_H    18
-#define ROW0     46              /* первая строка списка от верха панели */
-#define BTN_W    104
-#define BTN_Y    5
+#define TB_Y     6
+#define TB_H     TH_BAR_H
+#define SIDE_X   TH_S2
+#define SIDE_W   148
+#define PY       36
+#define STAT_Y   (APP_FILES_H - TH_BAR_H)
+#define PH       (STAT_Y - TH_S2 - PY)
+#define PX0      (SIDE_X + SIDE_W + TH_S2)
+#define PW       ((APP_FILES_W - PX0 - TH_S2 - TH_S2) / 2)
+#define PX(p)    (PX0 + (p) * (PW + TH_S2))
+#define CRUMB_H  24                      /* строка пути */
+#define HEAD_H   22                      /* шапка колонок */
+#define ROW0     (CRUMB_H + HEAD_H)      /* первая строка списка от верха панели */
+#define ROW_H    TH_ROW_H
+#define COL_T    68                      /* ширина колонки «Тип» */
+#define COL_S    76                      /* ширина колонки «Размер» */
+#define SB_W     8                       /* дорожка полосы прокрутки */
 
-static const ui_key_t fkeys[9] = {
-    { "F1", "Помощь", TH_BLUE }, { "F2", "Имя", TH_CYAN }, { "F3", "Вид", TH_CYAN }, { "F4", "Закреп.", TH_PURPLE },
-    { "F5", "Копия", TH_GREEN }, { "F6", "Перенос", TH_GREEN }, { "F7", "Каталог", TH_AMBER }, { "F8", "Удалить", TH_RED },
-    { "F9", "Служеб.", TH_BLUE },
+typedef struct { const char* label; int w; int cmd; } tool_t;   /* cmd 0 - разделитель */
+static const tool_t tools[] = {
+    { "\xE2\x86\x90", 28, FM_CMD_BACK }, { "\xE2\x86\x92", 28, FM_CMD_FWD }, { "\xE2\x86\x91", 28, FM_CMD_UP }, { 0, 0, 0 },
+    { "Обновить", 80, FM_CMD_REFRESH }, { "Новая папка", 104, FM_CMD_MKDIR }, { 0, 0, 0 },
+    { "Копировать", 96, FM_CMD_COPY }, { "Вырезать", 80, FM_CMD_CUT }, { "Вставить", 80, FM_CMD_PASTE }, { "Удалить", 72, FM_CMD_DELETE }, { 0, 0, 0 },
+    { "Служебные", 88, FM_CMD_HIDDEN },
 };
+#define NTOOLS ((int)(sizeof tools / sizeof tools[0]))
+
+static int tool_x(int i) {
+    int x = TH_S2;
+    for (int k = 0; k < i; k++) x += tools[k].label ? tools[k].w + TH_S1 : TH_S2;
+    return x;
+}
+
+static int tool_state(const exp_view_t* e, int cmd) {          /* UI_ST_DISABLED, если команда сейчас бессмысленна */
+    const fm_panel_t* P = &e->fm.p[e->fm.active];
+    int real = P->n && P->cur < (int)P->n && P->e[P->cur].kind != FM_KIND_UP;
+    switch (cmd) {
+    case FM_CMD_BACK: return P->nback ? UI_ST_NORMAL : UI_ST_DISABLED;
+    case FM_CMD_FWD: return P->nfwd ? UI_ST_NORMAL : UI_ST_DISABLED;
+    case FM_CMD_UP: return P->path[0] == '/' && !P->path[1] ? UI_ST_DISABLED : UI_ST_NORMAL;
+    case FM_CMD_COPY: case FM_CMD_CUT: case FM_CMD_DELETE: return real ? UI_ST_NORMAL : UI_ST_DISABLED;
+    case FM_CMD_PASTE: return e->fm.nclip ? UI_ST_NORMAL : UI_ST_DISABLED;
+    case FM_CMD_HIDDEN: return e->fm.show_hidden ? UI_ST_SELECTED : UI_ST_NORMAL;
+    default: return UI_ST_NORMAL;
+    }
+}
+
+/* ---- боковая панель ---- */
+enum { SI_HEAD, SI_PLACE, SI_TREE, SI_DEV };
+typedef struct { char label[24]; char path[FM_PATH]; int level, kind; } side_item_t;
+#define SIDE_MAX 40
+
+static void side_add(side_item_t* it, int* n, const char* label, const char* path, int level, int kind) {
+    if (*n >= SIDE_MAX) return;
+    side_item_t* x = &it[(*n)++];
+    int p = 0; while (label[p] && p < 23) { x->label[p] = label[p]; p++; } x->label[p] = 0;
+    p = 0; while (path[p] && p < FM_PATH - 1) { x->path[p] = path[p]; p++; } x->path[p] = 0;
+    x->level = level; x->kind = kind;
+}
+
+static int side_build(const exp_view_t* e, side_item_t* it) {
+    int n = 0;
+    const fm_panel_t* P = &e->fm.p[e->fm.active];
+    side_add(it, &n, "Места", "", 0, SI_HEAD);
+    side_add(it, &n, "Корень", "/", 0, SI_PLACE);
+    side_add(it, &n, "Данные", "/data", 0, SI_PLACE);
+    side_add(it, &n, "Программы", "/bin", 0, SI_PLACE);
+    side_add(it, &n, "Дерево", "", 0, SI_HEAD);
+    int depth = fm_path_depth(P->path);                          /* путь от корня: каждый уровень на шаг правее */
+    for (int k = 0; k <= depth && n < SIDE_MAX - 8; k++) {
+        char pre[FM_PATH]; if (fm_path_prefix(P->path, k, pre, sizeof pre)) break;
+        const char* base = pre; for (const char* q = pre; *q; q++) if (*q == '/' && q[1]) base = q + 1;
+        side_add(it, &n, k == 0 ? "/" : base, pre, k > 5 ? 5 : k, SI_TREE);
+    }
+    int kids = 0;                                                 /* подпапки текущего каталога - из уже прочитанного списка */
+    for (uint32_t i = 0; i < P->n && kids < 8 && n < SIDE_MAX - 6; i++) {
+        const fm_ent_t* r = &P->e[i];
+        if (!r->dir || r->kind == FM_KIND_UP) continue;
+        char full[FM_PATH]; int q = cat(full, 0, P->path); if (q > 1) q = cat(full, q, "/"); cat(full, q, r->name);
+        side_add(it, &n, r->name, full, (depth + 1 > 5 ? 5 : depth + 1), SI_TREE);
+        kids++;
+    }
+    if (e->nvol) {
+        side_add(it, &n, "Устройства", "", 0, SI_HEAD);
+        for (uint32_t k = 0; k < e->nvol && k < EXP_VOLS; k++) {
+            char full[16]; int q = cat(full, 0, "/"); cat(full, q, e->vol[k].name);
+            side_add(it, &n, e->vol[k].label[0] ? e->vol[k].label : e->vol[k].name, full, 0, SI_DEV);
+        }
+    }
+    return n;
+}
+
+int app_files_side_path(const exp_view_t* e, int row, char* out, int cap) {
+    side_item_t it[SIDE_MAX]; int n = side_build(e, it);
+    if (row < 0 || row >= n || it[row].kind == SI_HEAD || !it[row].path[0]) return -1;
+    int p = 0; while (it[row].path[p] && p + 1 < cap) { out[p] = it[row].path[p]; p++; } out[p] = 0;
+    return 0;
+}
+
+static int same_path(const char* a, const char* b) { while (*a && *a == *b) { a++; b++; } return *a == *b; }
+#define SIDE_ROW_Y(i) (PY + TH_S1 + (i) * TH_ROW_H)
+
+/* ---- строка пути: части между «/» ---- */
+static int crumb_layout(const char* path, int maxw, int* xs, int* ws, int cap) {
+    /* части: «/», затем каждый каталог; ширина части = текст + отступ; если не помещаются - левые отбрасываются */
+    int depth = fm_path_depth(path), n = depth + 1, w[40], tot = 0, first = 0;
+    if (n > 40) return 0;
+    for (int k = 0; k < n; k++) {
+        char pre[FM_PATH]; fm_path_prefix(path, k, pre, sizeof pre);
+        const char* base = pre; for (const char* q = pre; *q; q++) if (*q == '/' && q[1]) base = q + 1;
+        w[k] = (k == 0 ? 8 : gfx_text_width(base)) + 2 * TH_S1 + (k >= 2 ? 8 : 0);   /* между частями «/» */
+        tot += w[k];
+    }
+    while (first < n - 1 && tot > maxw) { tot -= w[first]; first++; }
+    int x = 0, m = 0;
+    for (int k = first; k < n && m < cap; k++, m++) { xs[m] = x; ws[m] = w[k]; x += w[k]; }
+    return m ? (first << 8) | m : 0;                              /* первая видимая часть и их число */
+}
+
+int app_files_crumb_path(const exp_view_t* e, int panel, int k, char* out, int cap) {
+    return fm_path_prefix(e->fm.p[panel].path, k, out, cap);
+}
 
 int app_files_hit(const exp_view_t* e, int x, int y, app_hit_t* h) {
     h->kind = APP_HIT_NONE; h->panel = 0; h->row = 0;
+    if (e->fm.mode == FM_MODE_MENU) {                            /* меню перехватывает мышь: пункт или «мимо» */
+        int id[FM_MENU_MAX]; const char* lb[FM_MENU_MAX]; unsigned off;
+        int n = fm_menu_build(&e->fm, id, lb, &off);
+        int mx, my; app_files_menu_pos(e, &mx, &my);
+        int i = ui_menu_hit(mx, my, APP_MENU_W, lb, n, x, y);
+        if (i >= 0 && id[i] != FM_CMD_NONE && !((off >> i) & 1)) { h->kind = APP_HIT_MENU; h->row = i; }
+        return h->kind;
+    }
     if (e->fm.mode != FM_MODE_NORMAL) return h->kind;
-    if (y >= KEYS_Y) { int i = ui_keybar_hit(APP_FILES_W, 9, x); if (i >= 0) { h->kind = APP_HIT_KEY; h->row = i; } return h->kind; }
-    if (y >= BTN_Y && y < BTN_Y + 26) {
-        int rx = APP_FILES_W - TH_GAP - BTN_W;
-        if (x >= rx && x < rx + BTN_W) h->kind = APP_HIT_REFRESH;
-        else if (x >= rx - 8 - BTN_W && x < rx - 8) h->kind = APP_HIT_HIDDEN;
+    if (y >= TB_Y && y < TB_Y + TB_H) {
+        for (int i = 0; i < NTOOLS; i++) {
+            if (!tools[i].label) continue;
+            int tx = tool_x(i);
+            if (x >= tx && x < tx + tools[i].w) { if (tool_state(e, tools[i].cmd) != UI_ST_DISABLED) { h->kind = APP_HIT_TOOL; h->row = tools[i].cmd; } return h->kind; }
+        }
+        return h->kind;
+    }
+    if (x >= SIDE_X && x < SIDE_X + SIDE_W && y >= PY && y < PY + PH) {
+        side_item_t it[SIDE_MAX]; int n = side_build(e, it);
+        int i = (y - PY - TH_S1) / TH_ROW_H;
+        if (y >= PY + TH_S1 && i >= 0 && i < n && it[i].kind != SI_HEAD) { h->kind = APP_HIT_SIDE; h->row = i; }
         return h->kind;
     }
     for (int p = 0; p < 2; p++) {
@@ -503,13 +864,23 @@ int app_files_hit(const exp_view_t* e, int x, int y, app_hit_t* h) {
         if (x < px || x >= px + PW || y < PY || y >= PY + PH) continue;
         const fm_panel_t* P = &e->fm.p[p];
         h->panel = p; h->kind = APP_HIT_PANEL;
-        if (x >= px + PW - 12 && y >= PY + ROW0 && y < PY + ROW0 + FM_ROWS * ROW_H && (int)P->n > FM_ROWS) {   /* полоса прокрутки */
-            int th = FM_ROWS * ROW_H * FM_ROWS / (int)P->n; if (th < 14) th = 14;
+        if (y < PY + CRUMB_H) {                                  /* строка пути: щелчок по части */
+            int xs[40], ws[40]; int lay = crumb_layout(P->path, PW - 2 * TH_S2, xs, ws, 40);
+            int first = lay >> 8, m = lay & 255;
+            for (int j = 0; j < m; j++) if (x >= px + TH_S2 + xs[j] && x < px + TH_S2 + xs[j] + ws[j]) { h->kind = APP_HIT_CRUMB; h->row = first + j; }
+            return h->kind;
+        }
+        if (y < PY + ROW0) {                                     /* шапка колонок */
+            int tx = px + PW - SB_W - COL_T, sx = tx - COL_S;
+            h->kind = APP_HIT_HEAD; h->row = x >= tx ? FM_SORT_TYPE : x >= sx ? FM_SORT_SIZE : FM_SORT_NAME;
+            return h->kind;
+        }
+        if (x >= px + PW - SB_W && (int)P->n > FM_ROWS) {        /* полоса прокрутки */
+            int th = FM_ROWS * ROW_H * FM_ROWS / (int)P->n; if (th < 16) th = 16;
             int ty = PY + ROW0 + (FM_ROWS * ROW_H - th) * P->top / ((int)P->n - FM_ROWS);
             h->kind = APP_HIT_SCROLL; h->row = y < ty ? -1 : y >= ty + th ? 1 : 0;
             return h->kind;
         }
-        if (y < PY + ROW0) return h->kind;
         int i = P->top + (y - PY - ROW0) / ROW_H;
         if ((y - PY - ROW0) / ROW_H < FM_ROWS && i < (int)P->n) { h->kind = APP_HIT_ROW; h->row = i; }
         return h->kind;
@@ -517,19 +888,21 @@ int app_files_hit(const exp_view_t* e, int x, int y, app_hit_t* h) {
     return h->kind;
 }
 
-static int hit_eq(const app_hit_t* a, int kind, int panel, int row) { return a && a->kind == kind && a->panel == panel && a->row == row; }
-
-/* Длинный путь: слева «…», справа - то, что важнее (последние каталоги). */
-static void path_fit(surface_t* s, int x, int y, const char* t, int maxw, uint32_t col) {
-    int maxc = maxw / 8, n = ncp(t);
-    if (n <= maxc) { gfx_text(s, x, y, t, col, -1); return; }
-    const char* p = t;
-    for (int skip = n - (maxc - 1); skip > 0 && *p; skip--) utf8_next(&p);
-    char buf[160]; int b = cat(buf, 0, "…");
-    while (*p && b < 150) buf[b++] = *p++;
-    buf[b] = 0;
-    gfx_text(s, x, y, buf, col, -1);
+/* Где рисовать меню: у места щелчка, но целиком в окне; открытое с клавиатуры - под строкой курсора активной панели. */
+void app_files_menu_pos(const exp_view_t* e, int* x, int* y) {
+    int id[FM_MENU_MAX]; const char* lb[FM_MENU_MAX]; unsigned off;
+    int n = fm_menu_build(&e->fm, id, lb, &off), mh = ui_menu_height(lb, n);
+    const fm_panel_t* P = &e->fm.p[e->fm.active];
+    int mx = e->fm.menu_x, my = e->fm.menu_y;
+    if (mx < 0) { mx = PX(e->fm.active) + 40; my = PY + ROW0 + (P->cur - P->top + 1) * ROW_H; }
+    if (mx + APP_MENU_W > APP_FILES_W - TH_S1) mx = APP_FILES_W - TH_S1 - APP_MENU_W;
+    if (my + mh > APP_FILES_H - TH_BAR_H) my = APP_FILES_H - TH_BAR_H - mh;
+    if (mx < TH_S1) mx = TH_S1;
+    if (my < TH_S1) my = TH_S1;
+    *x = mx; *y = my;
 }
+
+static int hit_eq(const app_hit_t* a, int kind, int panel, int row) { return a && a->kind == kind && a->panel == panel && a->row == row; }
 
 static void fmt_size(char* out, uint64_t b) {
     if (b < 1024) { int p = cat_u(out, 0, b); cat(out, p, " Б"); }
@@ -549,18 +922,19 @@ static const char* kind_name(int k, int vol) {
     }
 }
 
+/* Значки монохромные (единый набор); цвет значка - цвет текста. Программа /bin сохраняет свой значок, но без цвета. */
 static void kind_icon(int k, int vol, const char* name, int* icon, uint32_t* col) {
-    *icon = ICON_FILE; *col = TH_TEXT_DIM;
+    (void)vol;
+    *icon = ICON_FILE; *col = TH_FG_DIM;
     switch (k) {
-    case FM_KIND_DIR: *icon = ICON_FOLDER; *col = vol ? TH_GREEN : TH_AMBER; break;
-    case FM_KIND_UP: *icon = ICON_FOLDER; *col = TH_TEXT_FAINT; break;
-    case FM_KIND_PROG:                                       /* у каждой программы /bin свой значок; неизвестная - общий */
-        *icon = ICON_TERMINAL; *col = TH_GREEN;
-        if (name && app_info(name)) { *icon = dock_icon(name); *col = dock_color(name); }
+    case FM_KIND_DIR: *icon = ICON_FOLDER; *col = TH_FG; break;
+    case FM_KIND_UP: *icon = ICON_FOLDER; *col = TH_FG_FAINT; break;
+    case FM_KIND_PROG:
+        *icon = ICON_TERMINAL;
+        if (name && app_info(name)) *icon = dock_icon(name);
         break;
-    case FM_KIND_IMG: *icon = ICON_BRUSH; *col = TH_PINK; break;
-    case FM_KIND_TEXT: *icon = ICON_FILE; *col = TH_CYAN; break;
-    case FM_KIND_WASM: *icon = ICON_CUBE; *col = TH_PURPLE; break;
+    case FM_KIND_IMG: *icon = ICON_BRUSH; break;
+    case FM_KIND_WASM: *icon = ICON_CUBE; break;
     default: break;
     }
 }
@@ -578,154 +952,165 @@ static void draw_panel(surface_t* s, const exp_view_t* e, int p, const app_hit_t
     const fm_panel_t* P = &e->fm.p[p];
     int px = PX(p), act = e->fm.active == p;
     char t[200];
-    ui_card(s, px, PY, PW, PH, 0, 0);
-    if (act) ui_round_frame(s, px, PY, PW, PH, TH_RADIUS, TH_CYAN, 190);
-    if (drop_panel == p) ui_round_frame(s, px + 1, PY + 1, PW - 2, PH - 2, TH_RADIUS - 1, TH_GREEN, 255);
-    ui_round_rect(s, px + 6, PY + 5, PW - 12, 22, 6, act ? ui_mix(TH_CARD, TH_CYAN, 40) : TH_TRACK, 255);
-    icon_draw(s, px + 20, PY + 16, 14, ICON_FOLDER, act ? TH_CYAN : TH_TEXT_FAINT, 0);
-    path_fit(s, px + 34, PY + 8, P->path, PW - 46, act ? TH_TEXT : TH_TEXT_DIM);
-    gfx_text(s, px + 26, PY + 28, "Имя", TH_TEXT_FAINT, -1);
-    gfx_text(s, px + PW - 14 - 56 - 8 - gfx_text_width("Размер"), PY + 28, "Размер", TH_TEXT_FAINT, -1);
-    gfx_text(s, px + PW - 14 - 56 + 2, PY + 28, "Тип", TH_TEXT_FAINT, -1);
-    gfx_rect(s, px + 8, PY + ROW0 - 4, PW - 16, 1, TH_CARD_EDGE);
-    if (!P->n) gfx_text(s, px + 16, PY + ROW0 + 4, e->mounted ? "пусто" : "диска нет", TH_TEXT_FAINT, -1);
+    gfx_rect(s, px, PY, PW, PH, TH_SURF_CONTENT);
+    /* строка пути: части кликабельны, последняя (текущий каталог) выделена */
+    gfx_rect(s, px, PY, PW, CRUMB_H, TH_SURF_HEAD);
+    int xs[40], ws[40]; int lay = crumb_layout(P->path, PW - 2 * TH_S2, xs, ws, 40);
+    int first = lay >> 8, m = lay & 255, depth = fm_path_depth(P->path);
+    for (int j = 0; j < m; j++) {
+        int k = first + j, cx = px + TH_S2 + xs[j];
+        char pre[FM_PATH]; fm_path_prefix(P->path, k, pre, sizeof pre);
+        const char* base = pre; for (const char* q = pre; *q; q++) if (*q == '/' && q[1]) base = q + 1;
+        int hov = hit_eq(hover, APP_HIT_CRUMB, p, k);
+        if (hov) gfx_rect(s, cx, PY + 2, ws[j] - 2, CRUMB_H - 4, ui_state_bg(UI_ST_HOVER, TH_SURF_HEAD));
+        if (k >= 2) gfx_text(s, cx, PY + 4, "/", TH_FG_FAINT, -1);                        /* разделитель частей */
+        gfx_text(s, cx + (k >= 2 ? 8 : 0) + TH_S1, PY + 4, k == 0 ? "/" : base, k == depth ? TH_FG : TH_FG_DIM, -1);
+    }
+    /* шапка колонок */
+    int tx = px + PW - SB_W - COL_T, sx = tx - COL_S;
+    int sc = P->sort_col, sd = P->sort_desc ? -1 : 1;
+    ui_col_header(s, px, PY + CRUMB_H, sx - px, HEAD_H, "Имя", sc == FM_SORT_NAME ? sd : 0, hit_eq(hover, APP_HIT_HEAD, p, FM_SORT_NAME));
+    ui_col_header(s, sx, PY + CRUMB_H, COL_S, HEAD_H, "Размер", sc == FM_SORT_SIZE ? sd : 0, hit_eq(hover, APP_HIT_HEAD, p, FM_SORT_SIZE));
+    ui_col_header(s, tx, PY + CRUMB_H, COL_T + SB_W, HEAD_H, "Тип", sc == FM_SORT_TYPE ? sd : 0, hit_eq(hover, APP_HIT_HEAD, p, FM_SORT_TYPE));
+    if (!P->n) gfx_text(s, px + TH_S2, PY + ROW0 + 4, e->mounted ? "пусто" : "диска нет", TH_FG_FAINT, -1);
     for (int i = 0; i < FM_ROWS && P->top + i < (int)P->n; i++) {
         int idx = P->top + i;
         const fm_ent_t* r = &P->e[idx];
         int y = PY + ROW0 + i * ROW_H;
         int vol = vol_of(e, P, r);
-        if (idx == P->cur) {
-            ui_round_rect(s, px + 4, y, PW - 18, ROW_H - 1, 5, TH_CYAN, act ? 66 : 24);
-            if (act) ui_round_frame(s, px + 4, y, PW - 18, ROW_H - 1, 5, TH_CYAN, 150);
-        } else if (hit_eq(hover, APP_HIT_ROW, p, idx)) ui_round_rect(s, px + 4, y, PW - 18, ROW_H - 1, 5, TH_CYAN, 16);
-        else if (i & 1) ui_round_rect(s, px + 4, y, PW - 18, ROW_H - 1, 5, TH_ROW_ALT, 255);
-        if (r->mark) gfx_rect(s, px + 5, y + 2, 3, ROW_H - 5, TH_AMBER);
+        int cur = idx == P->cur;
+        ui_list_row(s, px, y, PW - SB_W, ROW_H, cur || r->mark, act && cur, hit_eq(hover, APP_HIT_ROW, p, idx), i & 1);
         int icon; uint32_t ic; kind_icon(r->kind, vol >= 0, r->name, &icon, &ic);
-        icon_draw(s, px + 20, y + 9, 14, icon, ic, 0);
-        uint32_t nc = r->mark ? TH_AMBER : r->kind == FM_KIND_UP ? TH_TEXT_DIM : r->dir ? TH_TEXT : TH_TEXT_DIM;
-        if (idx == P->cur) nc = r->mark ? TH_AMBER : TH_TEXT;
-        int sizew = 66, namew = PW - 26 - 8 - 56 - sizew - 14;
+        icon_draw(s, px + 16, y + ROW_H / 2, 14, icon, ic, 0);
+        uint32_t nc = r->kind == FM_KIND_UP ? TH_FG_DIM : cur || r->mark ? TH_FG : r->dir ? TH_FG : TH_FG_DIM;
+        int namew = sx - px - 28 - TH_S1;
         const char* shown = r->kind == FM_KIND_PROG ? app_label(r->name) : r->name;   /* /bin: русское название, сортировка и запуск - по системному имени */
         int nl = gfx_text_width(shown); if (nl > namew) nl = namew;
-        ui_text_fit(s, px + 32, y + 1, shown, namew, nc);
+        ui_text_fit(s, px + 28, y + 2, shown, namew, nc);
         if (r->kind == FM_KIND_PROG && shown != r->name) {                   /* системное имя тускло рядом, пока помещается */
             int lw = namew - nl - 8;
-            if (lw > 0 && gfx_text_width(r->name) <= lw) gfx_text(s, px + 32 + nl + 8, y + 1, r->name, TH_TEXT_FAINT, -1);
+            if (lw > 0 && gfx_text_width(r->name) <= lw) gfx_text(s, px + 28 + nl + 8, y + 2, r->name, TH_FG_FAINT, -1);
         }
         if (vol >= 0) {                                                      /* метка флешки после имени */
             int lw = namew - nl - 8;
-            if (lw > 24) ui_text_fit(s, px + 32 + nl + 8, y + 1, e->vol[vol].label, lw, TH_GREEN);
+            if (lw > 24) ui_text_fit(s, px + 28 + nl + 8, y + 2, e->vol[vol].label, lw, TH_FG_DIM);
             fmt_size(t, (uint64_t)e->vol[vol].total_kb * 1024);
         } else if (r->dir) t[0] = 0;
         else fmt_size(t, r->size);
-        if (t[0]) gfx_text(s, px + PW - 14 - 56 - 8 - gfx_text_width(t), y + 1, t, TH_TEXT_FAINT, -1);
-        gfx_text(s, px + PW - 14 - 56 + 2, y + 1, kind_name(r->kind, vol >= 0), vol >= 0 ? TH_GREEN : ic == TH_TEXT_DIM ? TH_TEXT_FAINT : ic, -1);
+        if (t[0]) gfx_text(s, tx - TH_S2 - gfx_text_width(t), y + 2, t, TH_FG_DIM, -1);
+        gfx_text(s, tx + TH_S2, y + 2, kind_name(r->kind, vol >= 0), TH_FG_FAINT, -1);
+        if (r->mark) gfx_text(s, px + PW - SB_W - 12, y + 2, "\xE2\x97\x8F", TH_ACCENT, -1);     /* ● отмечено */
     }
-    if ((int)P->n > FM_ROWS) {                                               /* полоса прокрутки */
-        int th = FM_ROWS * ROW_H * FM_ROWS / (int)P->n; if (th < 14) th = 14;
-        int ty = PY + ROW0 + (FM_ROWS * ROW_H - th) * P->top / ((int)P->n - FM_ROWS);
-        ui_round_rect(s, px + PW - 9, PY + ROW0, 4, FM_ROWS * ROW_H, 2, TH_TRACK, 255);
-        ui_round_rect(s, px + PW - 9, ty, 4, th, 2, act ? TH_CYAN : TH_TEXT_FAINT, 255);
-    }
-    int fy = PY + PH - 20;
-    gfx_rect(s, px + 8, fy - 3, PW - 16, 1, TH_CARD_EDGE);
-    int q = cat_u(t, 0, P->n > 0 && P->e[0].kind == FM_KIND_UP ? P->n - 1 : P->n);
-    q = cat(t, q, " объектов"); if (P->trunc) q = cat(t, q, "+");
-    if (P->hidden && !e->fm.show_hidden) { q = cat(t, q, " · скрыто "); q = cat_u(t, q, P->hidden); }
-    gfx_text(s, px + 12, fy, t, TH_TEXT_FAINT, -1);
-    if (P->nmark) {
-        char z[24]; fmt_size(z, P->mark_bytes);
-        q = cat(t, 0, "отмечено "); q = cat_u(t, q, P->nmark); q = cat(t, q, " · "); cat(t, q, z);
-        gfx_text(s, px + PW - 12 - gfx_text_width(t), fy, t, TH_AMBER, -1);
+    ui_scrollbar(s, px + PW - SB_W + 1, PY + ROW0, FM_ROWS * ROW_H, (int)P->n, FM_ROWS, P->top, act);
+    gfx_rect(s, px, PY, PW, 1, TH_EDGE); gfx_rect(s, px, PY + PH - 1, PW, 1, TH_EDGE);
+    gfx_rect(s, px, PY, 1, PH, TH_EDGE); gfx_rect(s, px + PW - 1, PY, 1, PH, TH_EDGE);
+    if (act) ui_focus_ring(s, px, PY, PW, PH);                              /* у активной панели клавиатурный фокус виден рамкой */
+    if (drop_panel == p) ui_focus_ring(s, px + 2, PY + 2, PW - 4, PH - 4);
+}
+
+static void draw_side(surface_t* s, const exp_view_t* e, const app_hit_t* hover) {
+    side_item_t it[SIDE_MAX]; int n = side_build(e, it);
+    const fm_panel_t* P = &e->fm.p[e->fm.active];
+    gfx_rect(s, SIDE_X, PY, SIDE_W, PH, TH_SURF_BAR);
+    gfx_rect(s, SIDE_X + SIDE_W - 1, PY, 1, PH, TH_EDGE);
+    for (int i = 0; i < n; i++) {
+        int y = SIDE_ROW_Y(i);
+        if (y + TH_ROW_H > PY + PH) break;
+        if (it[i].kind == SI_HEAD) { gfx_text(s, SIDE_X + TH_S2, y + 2, it[i].label, TH_FG_FAINT, -1); continue; }
+        int cur = it[i].path[0] && same_path(it[i].path, P->path);
+        int hov = hit_eq(hover, APP_HIT_SIDE, 0, i);
+        if (cur) { gfx_rect(s, SIDE_X, y, SIDE_W - 1, TH_ROW_H, ui_state_bg(UI_ST_SELECTED, TH_SURF_BAR)); gfx_rect(s, SIDE_X, y, 3, TH_ROW_H, TH_ACCENT); }
+        else if (hov) gfx_rect(s, SIDE_X, y, SIDE_W - 1, TH_ROW_H, ui_state_bg(UI_ST_HOVER, TH_SURF_BAR));
+        int ind = TH_S2 + (it[i].kind == SI_TREE ? it[i].level * 6 : 0);
+        icon_draw(s, SIDE_X + ind + 7, y + TH_ROW_H / 2, 12, it[i].kind == SI_DEV ? ICON_CHIP : ICON_FOLDER, cur ? TH_FG : TH_FG_DIM, 0);
+        ui_text_fit(s, SIDE_X + ind + 18, y + 2, it[i].label, SIDE_W - ind - 22, cur ? TH_FG : TH_FG_DIM);
     }
 }
 
-static void draw_dialog_frame(surface_t* s, int w, int h, const char* title, uint32_t accent, int* x, int* y) {
-    *x = (APP_FILES_W - w) / 2; *y = 130;
-    ui_glow(s, *x, *y, w, h, TH_RADIUS, 5, accent, 150);
-    ui_round_rect(s, *x, *y, w, h, TH_RADIUS, TH_PANEL1, 255);
-    ui_round_rect(s, *x, *y, w, 30, TH_RADIUS, TH_PANEL0, 255);
-    gfx_rect(s, *x + 1, *y + TH_RADIUS, w - 2, 30 - TH_RADIUS, TH_PANEL0);
-    ui_round_frame(s, *x, *y, w, h, TH_RADIUS, ui_mix(TH_BORDER, accent, 160), 255);
-    gfx_rect(s, *x + 14, *y + 9, 3, 13, accent);
-    ui_text_bold(s, *x + 24, *y + 7, title, TH_TEXT);
+static void draw_dialog(surface_t* s, const fm_t* f);
+
+static void draw_menu(surface_t* s, const exp_view_t* e) {
+    int id[FM_MENU_MAX]; const char* lb[FM_MENU_MAX]; unsigned off;
+    int n = fm_menu_build(&e->fm, id, lb, &off);
+    int mx, my; app_files_menu_pos(e, &mx, &my);
+    ui_menu(s, mx, my, APP_MENU_W, lb, n, e->fm.menu_sel, off);
 }
 
 static void draw_help(surface_t* s) {
     static const char* const ln[] = {
-        "Tab / ← →    - другая панель", "↑ ↓ PgUp PgDn Home End - курсор", "Enter        - войти / открыть, Backspace - вверх",
-        "Insert, пробел - отметить", "Esc          - снять отметки", "F2 имя  F3 вид  F4 закрепить программу /bin",
-        "F5 копия  F6 перенос - в каталог другой панели", "F7 новый каталог  F8 / Del удалить", "F9 служебные файлы  F10 свернуть окно",
-        "мышь: щелчок - выбор, двойной - открыть,", "перетащить файл на другую панель - копия",
+        "Стрелки, PgUp/PgDn, Home/End - выбор строки", "Enter - открыть, Backspace или Alt+↑ - вверх",
+        "Alt+← / Alt+→ - назад / вперёд по истории", "Tab - другая панель, пробел или Insert - отметить",
+        "Ctrl+A - выделить всё, Esc - снять отметки", "Ctrl+C / Ctrl+X / Ctrl+V - копировать, вырезать, вставить",
+        "F2 - переименовать, F7 - новая папка", "Del или F8 - удалить (с подтверждением)",
+        "F5 / F6 - копия / перенос в другую панель", "F3 - просмотр, F4 - закрепить программу /bin",
+        "F9 - служебные файлы, Shift+F10 - меню",
+        "Мышь: щелчок - выбор, двойной - открыть,", "правая кнопка - меню, щелчок по шапке - сортировка,",
+        "перетащить на другую панель - копия",
     };
-    int n = (int)(sizeof ln / sizeof ln[0]), x, y;
-    draw_dialog_frame(s, 440, 56 + n * 18, "Клавиши Проводника", TH_BLUE, &x, &y);
-    for (int i = 0; i < n; i++) gfx_text(s, x + 18, y + 42 + i * 18, ln[i], TH_TEXT_DIM, -1);
+    int n = (int)(sizeof ln / sizeof ln[0]);
+    int w = 440, h = 56 + n * 18, x = (APP_FILES_W - w) / 2, y = 60;
+    ui_dialog_frame(s, x, y, w, h, "Клавиши Проводника", 0);
+    for (int i = 0; i < n; i++) gfx_text(s, x + 18, y + 42 + i * 18, ln[i], TH_FG_DIM, -1);
 }
 
 static void draw_dialog(surface_t* s, const fm_t* f) {
-    int x, y;
+    int x, y, w = 440;
     if (f->mode == FM_MODE_HELP) { draw_help(s); return; }
+    x = (APP_FILES_W - w) / 2; y = 130;
     if (f->mode == FM_MODE_INPUT) {
-        draw_dialog_frame(s, 420, 124, f->dlg_title, TH_CYAN, &x, &y);
-        gfx_text(s, x + 18, y + 40, f->dlg_text, TH_TEXT_DIM, -1);
-        ui_round_rect(s, x + 16, y + 62, 388, 28, 7, TH_TRACK, 255);
-        ui_round_frame(s, x + 16, y + 62, 388, 28, 7, TH_CYAN, 200);
-        ui_text_fit(s, x + 24, y + 68, f->input, 360 - 8, TH_TEXT);
-        int cw = gfx_text_width(f->input); if (cw > 352) cw = 352;
-        gfx_rect(s, x + 24 + cw, y + 68, 2, 16, TH_CYAN);
-        gfx_text(s, x + 18, y + 98, "Enter - принять · Esc - отмена", TH_TEXT_FAINT, -1);
+        ui_dialog_frame(s, x, y, w, 124, f->dlg_title, 0);
+        gfx_text(s, x + 18, y + 40, f->dlg_text, TH_FG_DIM, -1);
+        ui_input(s, x + 16, y + 62, w - 32, 28, f->input, 1);
+        gfx_text(s, x + 18, y + 98, "Enter - принять · Esc - отмена", TH_FG_FAINT, -1);
     } else if (f->mode == FM_MODE_CONFIRM) {
-        draw_dialog_frame(s, 440, 112, f->dlg_title, TH_RED, &x, &y);
-        text_wrap(s, x + 18, y + 40, f->dlg_text, 404, 2, 18, TH_TEXT);
-        ui_button(s, x + 18, y + 72, 150, 26, "Enter - да, удалить", TH_RED, 0, 1);
-        ui_button(s, x + 178, y + 72, 120, 26, "Esc - нет", TH_CYAN, 0, 0);
+        ui_dialog_frame(s, x, y, w, 112, f->dlg_title, 1);                         /* опасное действие: красная кромка */
+        text_wrap(s, x + 18, y + 40, f->dlg_text, 404, 2, 18, TH_FG);
+        ui_button(s, x + 18, y + 72, 176, 26, "Enter - да, удалить", TH_ALARM, 0, 1);
+        ui_button(s, x + 204, y + 72, 120, 26, "Esc - нет", TH_ACCENT, 0, 0);
     } else if (f->mode == FM_MODE_BUSY) {
-        draw_dialog_frame(s, 440, 128, f->dlg_title, TH_GREEN, &x, &y);
+        ui_dialog_frame(s, x, y, w, 128, f->dlg_title, 0);
         char t[128]; int p = cat(t, 0, f->prog_name); (void)p;
-        ui_text_fit(s, x + 18, y + 40, t, 404, TH_TEXT);
+        ui_text_fit(s, x + 18, y + 40, t, 404, TH_FG);
         int pct = -1;
         if (f->prog_total) pct = (int)(f->prog_done * 100 / f->prog_total);
         else if (f->prog_files_total) pct = (int)((uint64_t)f->prog_files * 100 / f->prog_files_total);
-        ui_round_rect(s, x + 18, y + 64, 404, 14, 6, TH_TRACK, 255);
-        if (pct >= 0) {
-            int fw = 404 * (pct > 100 ? 100 : pct) / 100;
-            if (fw >= 8) { ui_round_rect(s, x + 18, y + 64, fw, 14, 6, ui_mix(TH_CYAN, TH_PURPLE, (unsigned)pct * 255 / 100), 255); }
-        }
+        gfx_rect(s, x + 18, y + 64, 404, 14, TH_SURF_TRACK);
+        if (pct >= 0) gfx_rect(s, x + 18, y + 64, 404 * (pct > 100 ? 100 : pct) / 100, 14, TH_ACCENT);
         char a[24], b[24];
         p = 0;
         if (f->prog_total) { fmt_size(a, f->prog_done); fmt_size(b, f->prog_total); p = cat(t, p, a); p = cat(t, p, " из "); p = cat(t, p, b); p = cat(t, p, " · "); }
         p = cat(t, p, "объектов "); p = cat_u(t, p, f->prog_files);
         if (f->prog_files_total) { p = cat(t, p, " из "); p = cat_u(t, p, f->prog_files_total); }
         if (pct >= 0) { p = cat(t, p, " · "); p = cat_u(t, p, (uint64_t)(pct > 100 ? 100 : pct)); cat(t, p, "%"); }
-        gfx_text(s, x + 18, y + 86, t, TH_TEXT_DIM, -1);
-        gfx_text(s, x + 18, y + 104, "Esc - прервать", TH_TEXT_FAINT, -1);
+        gfx_text(s, x + 18, y + 86, t, TH_FG_DIM, -1);
+        gfx_text(s, x + 18, y + 104, "Esc - прервать", TH_FG_FAINT, -1);
     }
 }
 
 void app_files_draw(surface_t* s, const exp_view_t* e, const app_hit_t* hover, int drop_panel, const char* status, int pinned) {
-    gfx_fill(s, TH_CONTENT);
-    char t[200]; int p;
-    icon_draw(s, 24, 18, 20, ICON_FOLDER, TH_AMBER, 0);
-    if (e->mounted) {
-        char a[24], b[24]; app_fmt_kb(a, e->total_kb - e->free_kb); app_fmt_kb(b, e->total_kb);
-        p = cat(t, 0, "KiraFS · занято "); p = cat(t, p, a); p = cat(t, p, " из "); p = cat(t, p, b);
-        p = cat(t, p, " · объектов "); p = cat_u(t, p, e->files);
-        if (e->nvol) { p = cat(t, p, " · флешек "); p = cat_u(t, p, e->nvol); if (e->rovol) { p = cat(t, p, " · только чтение "); cat_u(t, p, e->rovol); } }
-    } else cat(t, 0, "Диск с KiraFS не подключён: проводнику нечего показать");
-    ui_text_fit(s, 42, 10, t, APP_FILES_W - 42 - 2 * BTN_W - 40, e->mounted ? TH_TEXT_DIM : TH_AMBER);
-    int rx = APP_FILES_W - TH_GAP - BTN_W;
-    ui_button(s, rx, BTN_Y, BTN_W, 26, "обновить", TH_CYAN, hover && hover->kind == APP_HIT_REFRESH, 0);
-    ui_button(s, rx - 8 - BTN_W, BTN_Y, BTN_W, 26, e->fm.show_hidden ? "служеб.: да" : "служеб.: нет", TH_BLUE, hover && hover->kind == APP_HIT_HIDDEN, e->fm.show_hidden);
+    (void)pinned;
+    gfx_fill(s, TH_SURF_CONTENT);
+    int p;
+    /* панель инструментов */
+    gfx_rect(s, 0, 0, s->w, PY - 2, TH_SURF_HEAD); gfx_rect(s, 0, PY - 3, s->w, 1, TH_EDGE);
+    for (int i = 0; i < NTOOLS; i++) {
+        int tx = tool_x(i);
+        if (!tools[i].label) { gfx_rect(s, tx + 3, TB_Y + 3, 1, TB_H - 6, TH_EDGE); continue; }
+        int st = tool_state(e, tools[i].cmd);
+        if (st == UI_ST_NORMAL && hover && hover->kind == APP_HIT_TOOL && hover->row == tools[i].cmd) st = UI_ST_HOVER;
+        ui_toolbtn(s, tx, TB_Y, tools[i].w, TB_H, tools[i].label, st, 0);
+    }
+    draw_side(s, e, hover);
     draw_panel(s, e, 0, hover, drop_panel);
     draw_panel(s, e, 1, hover, drop_panel);
 
-    /* полоса состояния: итог операции или сведения о строке под курсором */
+    /* строка состояния: итог операции или сведения о строке; справа - число элементов, выделено, свободно */
     const fm_t* f = &e->fm;
     const fm_panel_t* P = &f->p[f->active];
-    const char* left = ""; uint32_t lc = TH_TEXT_DIM; char info[256];
-    if (f->msg[0]) { left = f->msg; lc = f->msg_err ? TH_RED : TH_GREEN; }
-    else if (status && status[0]) { left = status; lc = TH_GREEN; }
+    const char* left = ""; uint32_t lc = TH_FG_DIM; char info[256];
+    if (f->msg[0]) { left = f->msg; lc = f->msg_err ? TH_ALARM : TH_OK; }
+    else if (status && status[0]) { left = status; lc = TH_OK; }
+    else if (!e->mounted) { left = "Диск с KiraFS не подключён: проводнику нечего показать"; lc = TH_WARN; }
     else if (P->n && P->cur < (int)P->n) {
         const fm_ent_t* r = &P->e[P->cur];
         p = cat(info, 0, r->kind == FM_KIND_UP ? "вверх, в родительский каталог" : r->name);   /* системное имя */
@@ -736,15 +1121,16 @@ void app_files_draw(surface_t* s, const exp_view_t* e, const app_hit_t* hover, i
         }
         left = info;
     }
-    char right[64]; p = cat(right, 0, f->active ? "правая панель" : "левая панель");
-    if (!f->show_hidden && P->hidden) { p = cat(right, p, " · скрыто "); cat_u(right, p, P->hidden); }
+    char right[160];
+    uint32_t cnt = P->n > 0 && P->e[0].kind == FM_KIND_UP ? P->n - 1 : P->n;
+    p = cat_u(right, 0, cnt); p = cat(right, p, cnt % 10 == 1 && cnt % 100 != 11 ? " элемент" : cnt % 10 >= 2 && cnt % 10 <= 4 && (cnt % 100 < 10 || cnt % 100 >= 20) ? " элемента" : " элементов");
+    if (P->trunc) p = cat(right, p, "+");
+    if (P->nmark) { char z[24]; fmt_size(z, P->mark_bytes); p = cat(right, p, " · выделено "); p = cat_u(right, p, P->nmark); p = cat(right, p, " ("); p = cat(right, p, z); p = cat(right, p, ")"); }
+    if (!f->show_hidden && P->hidden) { p = cat(right, p, " · скрыто "); p = cat_u(right, p, P->hidden); }
+    if (e->mounted) { char z[24]; app_fmt_kb(z, e->free_kb); p = cat(right, p, " · свободно "); cat(right, p, z); }
     ui_statusbar(s, STAT_Y, left, lc, right);
-
-    ui_key_t k[9];
-    for (int i = 0; i < 9; i++) k[i] = fkeys[i];
-    if (pinned) k[3].label = "Открепить";
-    ui_keybar(s, KEYS_Y, k, 9, hover && hover->kind == APP_HIT_KEY ? hover->row : -1);
-    if (f->mode != FM_MODE_NORMAL) draw_dialog(s, f);
+    if (f->mode == FM_MODE_MENU) draw_menu(s, e);
+    else if (f->mode != FM_MODE_NORMAL) draw_dialog(s, f);
 }
 
 /* ---------------- Настройки ---------------- */
@@ -836,3 +1222,4 @@ void app_settings_draw(surface_t* s, const app_settings_t* st, int hover) {
     gfx_text(s, 24, y + 94, t, TH_TEXT_FAINT, -1);
     ui_statusbar(s, s->h - TH_BAR_H, "щелчок по кнопке применяет настройку сразу", TH_TEXT_DIM, st->mode ? "Разум действует" : "Разум наблюдает");
 }
+

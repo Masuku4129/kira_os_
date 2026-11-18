@@ -16,7 +16,8 @@
 #define WM_TOP_H     40      /* верхняя панель */
 #define WM_PAD       10      /* поля окна вокруг содержимого */
 #define WM_HEAD      36      /* заголовок окна */
-#define WM_SIDE_W    76      /* место под боковую панель слева */
+#define WM_SIDE_W    96      /* место слева под значки рабочего стола */
+#define WM_DOCK_H    92      /* место снизу под плавающий Dock */
 #define WM_GLOW      4       /* свечение окна в фокусе (за пределами рамки) */
 #define WM_AUTO      (-100000) /* координата "разместить самому" */
 #define WM_SIDE_MAX  24      /* закреплённые (до 10) + открытые + «ещё» + «+»; не помещаются - плитки сжимаются */
@@ -45,8 +46,12 @@ typedef struct {
     void  (*tab)(int tab_index);                  /* нажат раздел в верхней панели */
     void  (*side_alt)(int side_index);            /* правая кнопка на значке боковой панели */
     void  (*release)(void* ptr, uint64_t bytes);   /* освобождение поверхности, выделенной alloc */
+    void  (*launch_tag)(const char* tag);          /* выбран пункт меню запуска (его метка), окна у программы нет */
 } wm_ops_t;
 
+/* Обои из файла KWP1 (до wm_init; буфер должен жить всё время работы). 0 - принято, иначе остаётся заставка. */
+void wm_desk_fancy(int on);   /* 1 - прежняя заставка «мозг», 0 (по умолчанию) - гладкий нейтральный фон; можно и во время работы */
+int wm_wallpaper_set(const uint8_t* kwp, uint64_t len);
 void wm_init(surface_t* screen, const wm_ops_t* ops);
 int  wm_create(const char* title, int x, int y, int content_w, int content_h, int flags); /* id или -1 */
 /* Как wm_create, но память под содержимое выделяется на cap_w x cap_h: размер можно менять до этого предела. */
@@ -82,12 +87,17 @@ void wm_raise(int id);
 int  wm_top(void);                                 /* верхнее видимое не закреплённое окно или -1 */
 void wm_invalidate(int id);
 void wm_invalidate_rows(int id, int y0, int y1);
+void wm_invalidate_diff(int id);                   /* только изменившиеся полосы содержимого (сравнение с копией) */
 void wm_invalidate_all(void);
 void wm_set_culling(int on);
+void wm_set_scale_cache(int on);   /* кэш уменьшенного содержимого окон (по умолчанию включён); выключается для проверки: картинка та же */
 /* Верхняя панель и домашняя карточка: дата/время, загрузка CPU, память и здоровье Mind.
    Отсутствующие значения отображаются как «нет данных», не как фиктивный ноль. */
 void wm_set_clock(const char* date, const char* hm);
 void wm_set_meters(const uint8_t* busy, int ncores, int mem_pct, int health);
+/* Батарея в верхней панели (рядом с индикатором здоровья). present = 0 - батареи нет, индикатор не рисуется.
+   percent 0..100 или -1 (заряд неизвестен: рисуется пустая рамка и «?»). charging - идёт зарядка. Значения только настоящие, из ACPI. */
+void wm_set_battery(int present, int percent, int charging);
 /* Фон: уровень анимации 0..3 и шаг анимации (каждый цикл дисплея). */
 void wm_set_fx(int level);
 enum { WM_NOTIFY_INFO, WM_NOTIFY_SUCCESS, WM_NOTIFY_WARNING, WM_NOTIFY_ERROR };
@@ -99,11 +109,22 @@ void wm_launcher_toggle(void);
 int  wm_launcher_active(void);
 int  wm_launcher_count(void);                       /* сколько программ подошло под запрос */
 void wm_launcher_key(int key, int ch);
+/* Меню запуска: все программы по группам с поиском. Пока список не задан, меню показывает значки боковой панели (как раньше).
+   tag - метка окна (по ней находится запущенное окно); строки живут всё время работы. */
+typedef struct { const char* label; const char* tag; const char* desc; int icon; int group; } wm_launch_item_t;
+void wm_launcher_set(const wm_launch_item_t* items, int n, const char* const* groups, int ngroups);
 int  wm_home_open(void);                            /* обзор системы открыт (клик по системной зоне) */
 void wm_anim(uint32_t now_ms, unsigned activity);
 void wm_mouse(int dx, int dy, unsigned buttons);
 void wm_mouse_abs(uint16_t ax, uint16_t ay, unsigned buttons); /* планшет/сенсор: абсолютные координаты 0..32767 */   /* относительное движение, бит0 = левая кнопка */
 void wm_cursor(int* x, int* y);
+void wm_last_damage(int* box4);
+/* Замер сборки кадра (docs/WM_PERF.md): время этапов суммарно по ядрам, точки содержимого окон (из них с пересчётом масштаба), число собранных прямоугольников. */
+typedef struct { uint64_t bg_ns, panel_ns, content_ns, ui_ns, content_px, scaled_px, rects; } wm_prof_t;
+void wm_prof_set_clock(uint64_t (*now)(void));
+void wm_prof_take(wm_prof_t* out);            /* забрать накопленное и обнулить */
+int  wm_window_info(int id, int* x, int* y, int* w, int* h, const char** title);   /* -1 нет окна, 0 показано, 1 свёрнуто; w,h - внешний размер панели */
+void wm_invalidate_report(void (*out)(uintptr_t ra, uint32_t n));
 int  wm_window_pos(int id, int* x, int* y);        /* левый верхний угол панели */
 int  wm_content_origin(int id, int* x, int* y, int* scale);
 /* Геометрия для проверок и подсказок: центр значка боковой панели, кнопки окна (1 закрыть, 2 свернуть,

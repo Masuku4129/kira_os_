@@ -1,0 +1,33 @@
+x=3
+echo $x
+if [ $x -eq 3 ]; then
+  echo three
+fi
+f() {
+  echo "fn $1"
+}
+f arg
+for i in 1 2; do echo $i; done
+echo "multi
+line"
+cat <<EOF
+heredoc $x
+EOF
+false
+echo $?
+nosuchcmd
+echo $?
+echo 'a' |
+  cat
+if
+fi
+echo after-error
+read v
+inputline
+echo got=$v
+echo a && \
+  echo b
+set -- p q
+echo $#
+exit 5
+echo never

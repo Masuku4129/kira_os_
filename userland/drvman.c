@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "kira.h"
+#include "../theme.h"   /* единая палитра оболочки (docs/UI_DESIGN.md) */
 #include "../font.h"
 #include "../kdrv_format.h"
 #include "drvget_api.h"
@@ -22,15 +23,15 @@ KIRA_ENTRY()
 #define H 560
 #define CW FONT_W
 #define CH FONT_H
-#define BG      0x00080F1Cu
-#define PANEL   0x00132135u
-#define BAR_BG  0x000D1727u
-#define FG      0x00F0F4FAu
-#define DIM     0x00AAB9CCu
-#define ACCENT  0x005EDCF5u
-#define GREEN   0x0054D6A5u
-#define AMBER   0x00F4C46Bu
-#define RED     0x00FF7C86u
+#define BG      TH_SURF_DESK
+#define PANEL   TH_SURF_WIN
+#define BAR_BG  TH_SURF_BAR
+#define FG      TH_FG
+#define DIM     TH_FG_DIM
+#define ACCENT  TH_ACCENT
+#define GREEN   TH_OK
+#define AMBER   TH_WARN
+#define RED     TH_ALARM
 #define NOBG    0xFFFFFFFFu
 #define DEV_ROWS 7                                        /* строк списка устройств на экране */
 #define PKG_ROWS 2                                        /* пакетов на экране (по 4 строки) */
@@ -251,7 +252,7 @@ static void dev_line(const kdrv_pcient_t *e, char *b, int cap) {
 }
 
 static void caps_str(u32 c, char *b, int cap) {
-    static const struct { u32 bit; const char *n; } t[] = { { CAP_MMIO, "MMIO" }, { CAP_IRQ, "IRQ" }, { CAP_DMA, "DMA" }, { CAP_PCIDEV, "PCIDEV" }, { CAP_NETDEV, "NETDEV" } };
+    static const struct { u32 bit; const char *n; } t[] = { { CAP_MMIO, "MMIO" }, { CAP_IRQ, "IRQ" }, { CAP_DMA, "DMA" }, { CAP_PCIDEV, "PCIDEV" }, { CAP_NETDEV, "NETDEV" }, { CAP_BLKDEV, "BLKDEV" } };
     int at = 0;
     b[0] = 0;
     for (unsigned i = 0; i < sizeof t / sizeof *t; i++) if (c & t[i].bit) at += snprintf(b + at, (size_t)(cap - at), "%s%s", at ? " " : "", t[i].n);
@@ -526,7 +527,7 @@ static int btn_enabled(int id) {
 static void draw_btn(const btn_t *b, int y, int enabled) {
     fill(b->x, y, b->w, 24, enabled ? ACCENT : PANEL);
     int tw = cols_of(b->label) * CW;
-    text(b->x + (b->w - tw) / 2, y + 4, b->label, enabled ? 0x00081018u : DIM, 40);
+    text(b->x + (b->w - tw) / 2, y + 4, b->label, enabled ? TH_SURF_DESK : DIM, 40);
 }
 
 static void draw_confirm(void) {
@@ -624,7 +625,7 @@ static int draw(void) {
     for (unsigned i = 0; i < sizeof btns / sizeof *btns; i++) draw_btn(&btns[i], BTN_Y, btn_enabled(btns[i].id));
     text(6, HINT_Y, "Автопоиск: кнопка/F8; Enter - адрес; F7 - выбранное PCI; F2 - установка", DIM, 78);
     /* журнал */
-    fill(0, LOG_Y - 4, W, H - LOG_Y + 4, 0x000C1218u);
+    fill(0, LOG_Y - 4, W, H - LOG_Y + 4, TH_SURF_DESK);
     k_mutex_lock(&lock);
     unsigned total = log_n + 1;                           /* вместе с недописанной */
     int first = (int)total - LOG_ROWS - log_scroll;

@@ -4,6 +4,8 @@
 #include "percpu.h"
 #include "proc.h"
 #include "sched.h"
+#include "latency.h"
+#include "cpu.h"
 
 #define PIC1_COMMAND 0x20
 #define PIC1_DATA    (PIC1_COMMAND + 1)
@@ -40,6 +42,11 @@ void pic_init(void) {
     outb(PIC1_DATA, 0xFF);
     outb(PIC2_DATA, 0xFF);
 }
+
+/* Сон S3: PIC после пробуждения сброшен. Маски линий (IMR) запоминаются и возвращаются после обычной инициализации. */
+static uint8_t sleep_imr1, sleep_imr2;
+void pic_suspend(void) { sleep_imr1 = inb(PIC1_DATA); sleep_imr2 = inb(PIC2_DATA); }
+void pic_resume(void) { pic_init(); outb(PIC1_DATA, sleep_imr1); outb(PIC2_DATA, sleep_imr2); }
 
 void pic_disable(void) {
     outb(PIC1_DATA, 0xFF);
@@ -116,7 +123,9 @@ void irq_dispatch(uint64_t vector, uint64_t cs, uint64_t rip, uint64_t rbp) {
     if (irq >= 16) {                                  /* сообщение устройства (MSI): только через Local APIC */
         percpu_t* me = this_cpu();
         me->irq_rip = rip; me->irq_rbp = (cs & 3) ? 0 : rbp; me->irq_depth++;
+        uint64_t lat_t0 = rdtsc();
         msi_dispatch(vector);
+        lat_isr_note(lat_t0, vector);
         apic_send_eoi();
         this_cpu()->irq_depth--;
         if ((cs & 3) == 3) proc_return_check();
@@ -131,8 +140,11 @@ void irq_dispatch(uint64_t vector, uint64_t cs, uint64_t rip, uint64_t rbp) {
     me->irq_rip = rip;                        // где стояло ядро: по этому дамп watchdog показывает место зависания
     me->irq_rbp = (cs & 3) ? 0 : rbp;
     me->irq_depth++;
+    if (irq == 0) lat_irq_entry(rip);          // А8: задержка прерывания таймера - от срока срабатывания до этой точки
     if (irq_handlers[irq]) {
+        uint64_t lat_t0 = rdtsc();
         irq_handlers[irq]();
+        lat_isr_note(lat_t0, irq);             // А8: сколько обработчик держал ядро
     } else {
         // Прерывание без обработчика: гасим линию, чтобы не зациклиться.
         pic_mask_irq(irq);

@@ -4,9 +4,12 @@
    остальное - устройства без исполнения), каждое ядро получает свой тик и проверяется.
    Второй этап: поверх платформы работает общее ядро - менеджер страниц, куча, планировщик с очередями на каждом
    ядре, мьютексы ядра; межъядерные сигналы - SGI контроллера GIC. Файловые системы, Разум, программы - дальше. */
+#include "audit.h"
 #include "wx_arm.h"
 #include <stdint.h>
 #include "../../fdt.h"
+#include "../../iommu_smmu.h"
+#include "iommu.h"
 #include "bootinfo.h"
 #include "fb_arm.h"
 #include "timer.h"
@@ -27,13 +30,19 @@
 #include "fscmd.h"
 #include "life.h"
 #include "mind_sys.h"
+#include "bbring.h"
+#include "bbsave.h"
 #include "immune.h"
 #include "watchdog.h"
 #include "clock.h"
+#include "latency.h"
 #include "proc.h"
+#include "wire.h"
 #include "syscall.h"
 #include "uaccess.h"
 #include "progs.h"
+#include "fssvc.h"
+#include "gfxctl.h"
 #include "kdrv.h"
 #include "kfs.h"
 #include "klog.h"
@@ -45,6 +54,7 @@
 #include "e1000.h"
 #include "virtio_net.h"
 #include "net.h"
+#include "rcon.h"
 #include "hda.h"
 #include "rtc.h"
 #include "corefault.h"
@@ -490,11 +500,22 @@ static unsigned timer_intid;
 #define ICC_IGRPEN1_EL1 S3_0_C12_C12_7
 #define ICC_IAR1_EL1    S3_0_C12_C12_0
 #define ICC_EOIR1_EL1   S3_0_C12_C12_1
+#define ICC_CTLR_EL1    S3_0_C12_C12_4
+#define ICC_IGRPEN0_EL1 S3_0_C12_C12_6
 #define XSTR(x) #x
 #define SREG_R(n) ({ uint64_t _v; __asm__ volatile ("mrs %0, " XSTR(n) : "=r"(_v)); _v; })
 #define SREG_W(n, v) __asm__ volatile ("msr " XSTR(n) ", %0" : : "r"((uint64_t)(v)))
 
 static void gic_dist_init(void) {
+    /* Начальное состояние не предполагается чистым: после прошивки (UEFI/edk2, U-Boot) часть общих прерываний уже разрешена
+       (последовательный порт, часы) и может держать линию - буря прерываний без обработчика. Запрещаем все, сбрасываем
+       ожидающие и активные; нужные включают драйверы сами. */
+    uint32_t lines = ((mmio_r32(gicd + 0x4) & 0x1F) + 1) * 32;
+    for (uint32_t i = 1; i < lines / 32; i++) {
+        mmio_w32(gicd + 0x180 + 4 * i, 0xFFFFFFFFu);             /* ICENABLER */
+        mmio_w32(gicd + 0x280 + 4 * i, 0xFFFFFFFFu);             /* ICPENDR */
+        mmio_w32(gicd + 0x380 + 4 * i, 0xFFFFFFFFu);             /* ICACTIVER */
+    }
     if (gic_v3) {
         mmio_w32(gicd, (1u << 4) | (1u << 1));                  /* GICD_CTLR: ARE_NS, EnableGrp1NS */
         for (int i = 0; i < 100000 && (mmio_r32(gicd) & (1u << 31)); i++) { }    /* RWP */
@@ -663,6 +684,10 @@ static int gic_cpu_init(void) {
         mmio_w32(r + 0x14, mmio_r32(r + 0x14) & ~(1u << 1));     /* GICR_WAKER.ProcessorSleep = 0 */
         for (int i = 0; i < 1000000 && (mmio_r32(r + 0x14) & (1u << 2)); i++) { }   /* ChildrenAsleep */
         uint64_t sgi = r + 0x10000;
+        mmio_w32(sgi + 0x180, 0xFFFFFFFFu);                      /* ICENABLER0: SGI/PPI, оставленные прошивкой (физический таймер edk2 и т.п.), запрещены */
+        mmio_w32(sgi + 0x280, 0xFFFFFFFFu);                      /* ICPENDR0 */
+        mmio_w32(sgi + 0x380, 0xFFFFFFFFu);                      /* ICACTIVER0 */
+        mmio_w32(sgi + 0x80, 0xFFFFFFFFu);                       /* IGROUPR0: всё в группе 1 (прошивка могла оставить группу 0) */
         mmio_w32(sgi + 0x80, mmio_r32(sgi + 0x80) | (1u << timer_intid) | (1u << SGI_RESCHED) | (1u << SGI_HALT));   /* IGROUPR0: группа 1 */
         *(volatile uint8_t*)(uintptr_t)(sgi + 0x400 + timer_intid) = 0x80;  /* приоритет */
         *(volatile uint8_t*)(uintptr_t)(sgi + 0x400 + SGI_RESCHED) = 0x80;
@@ -670,7 +695,9 @@ static int gic_cpu_init(void) {
         mmio_w32(sgi + 0x100, (1u << timer_intid) | (1u << SGI_RESCHED) | (1u << SGI_HALT));   /* ISENABLER0 */
         SREG_W(ICC_SRE_EL1, SREG_R(ICC_SRE_EL1) | 1);
         isb();
+        SREG_W(ICC_CTLR_EL1, SREG_R(ICC_CTLR_EL1) & ~3ull);      /* EOImode=0: EOIR и сбрасывает приоритет, и деактивирует (прошивка могла включить 1); CBPR=0 */
         SREG_W(ICC_PMR_EL1, 0xFF);
+        SREG_W(ICC_IGRPEN0_EL1, 0);                              /* группа 0 не используется */
         SREG_W(ICC_IGRPEN1_EL1, 1);
         isb();
     } else {
@@ -701,6 +728,16 @@ static unsigned my_cpu(void) {
     return 0;
 }
 static uint64_t now_cnt(void) { isb(); return SYSREG_R(cntvct_el0); }
+
+/* А8: задержка прерывания тика. Сроки не лежат на сетке (TVAL перезаряжается в обработчике), зато регистр сравнения CVAL ещё хранит срок,
+   который сработал: задержка - это счётчик минус CVAL. Возврат 2 = точный срок (сетку периодов ядро не додумывает). */
+int lat_arch_timer_elapsed_ns(uint64_t* elapsed_ns, uint64_t* period_ns) {
+    if (!cnt_freq || !tick_cycles) return 0;
+    uint64_t cval = SYSREG_R(cntv_cval_el0), now = now_cnt();
+    *elapsed_ns = now > cval ? (now - cval) * 1000000000ULL / cnt_freq : 0;
+    *period_ns = tick_cycles * 1000000000ULL / cnt_freq;
+    return 2;
+}
 
 static void timer_start(void) {
     SYSREG_W(cntv_tval_el0, tick_cycles);
@@ -791,6 +828,8 @@ void kernel_panic(const char* reason) {
     mmu_on = 0;                                                  /* вывод без замка: его мог держать упавший код */
     kprintf("\n[KIRA KERNEL PANIC] %s\n", reason);
     if (sched_up) sched_crash_report(uart_print);
+    bb_event(BB_NOTE, BB_SEV_SEVERE, 0, 0, 0, 0, 0, "kernel panic");
+    bb_dump_tail(24, uart_print);                                /* диск в панике не трогаем: прерывания выключены */
     kprintf("[KIRA ARM64] Halting.\n");
     for (;;) __asm__ volatile ("wfi");
 }
@@ -896,11 +935,13 @@ void arm_exception(uint64_t* frame, uint64_t kind) {
         if (id >= 1020 && id <= 1023) return;                    /* ложное */
         percpu_t* c = percpu_up ? this_cpu() : 0;
         if (c) { c->irq_rip = frame[31]; c->irq_rbp = frame[29]; c->irq_depth++; }
+        uint64_t lat_t0 = rdtsc();
         if (id == timer_intid) {
+            if (c) lat_irq_entry(frame[31]);                     /* А8: до перезаряда таймера - CVAL ещё хранит сработавший срок */
             SYSREG_W(cntv_tval_el0, tick_cycles);
             cpus[c ? c->cpu_id : my_cpu()].ticks++;
             ticks_advance();
-            if (sched_up) { watchdog_check(); sched_tick(); }
+            if (sched_up) { lat_flush(); watchdog_check(); sched_tick(); }
         } else if (its && id >= LPI_BASE && id < LPI_BASE + __atomic_load_n(&lpi_used, __ATOMIC_ACQUIRE)) {
             unsigned i = id - LPI_BASE;                          /* сообщение устройства через ITS (LPI) */
             if (lpis[i].fn) lpis[i].fn(lpis[i].ctx);
@@ -914,6 +955,7 @@ void arm_exception(uint64_t* frame, uint64_t kind) {
             gic_eoi(iar);
             for (;;) __asm__ volatile ("msr daifset, #0xf\n wfi");   /* авария на другом ядре */
         }
+        if (c && id != SGI_RESCHED) lat_isr_note(lat_t0, id);   /* А8: сколько обработчик держал ядро */
         gic_eoi(iar);
         if (c) c->irq_depth--;
         if (kind == 9) proc_return_check();                     /* прервана программа, процесс которой завершается */
@@ -1042,11 +1084,17 @@ void platform_poweroff(void) {
     psci_call(0x84000008ull, 0, 0, 0);
     kprintf("[KIRA PSCI] SYSTEM_OFF returned: firmware refused to power off.\n");
 }
+/* Сон S3 на ARM64 не реализован (PSCI SYSTEM_SUSPEND и сохранение состояния ядер здесь не делались): честный отказ с причиной, не заглушка сна. */
+int platform_sleep_supported(const char** why) { if (why) *why = "ARM64: PSCI SYSTEM_SUSPEND is not implemented"; return 0; }
+int platform_sleep(void) { return -1; }
 void platform_reboot(void) {
     kprintf("[KIRA PSCI] rebooting (SYSTEM_RESET)\n");
     psci_call(0x84000009ull, 0, 0, 0);
     kprintf("[KIRA PSCI] SYSTEM_RESET returned: firmware refused to reset.\n");
 }
+
+int platform_battery(platform_battery_t* b) { (void)b; return -1; }      /* батарею по дереву устройств пока не читаем: индикатора нет */
+void platform_acpi_cmd(const char* a) { (void)a; kprintf("acpi: на ARM64 устройства описывает дерево устройств (команда hw), интерпретатора AML здесь нет\n"); }
 
 int platform_console_cmd(const char* l, const char* a) {
     if (word(l, "mem")) {
@@ -1071,6 +1119,27 @@ int platform_console_cmd(const char* l, const char* a) {
    Узел pci-host-ecam-generic: reg - окно конфигурации ECAM, bus-range - шины, ranges - окна адресов для BAR
    (3 ячейки адреса шины: тип пространства в старшей - 1 порты, 2 память 32 бита, 3 память 64 бита). Прошивки нет,
    поэтому адреса BAR назначает ядро. Драйверы (virtio, NVMe, AHCI, xHCI) - те же, что на x86-64. */
+/* SMMUv3 из дерева устройств: регистры, карта RID -> StreamID узла PCI (iommu-map) и устройства не-PCI за тем же SMMU (iommus). Решает iommu_init. */
+static void smmu_from_fdt(const void* fdt) {
+    int sm = fdt_find_compatible(fdt, -1, "arm,smmu-v3");
+    int pci = fdt_find_compatible(fdt, -1, "pci-host-ecam-generic");
+    uint64_t base, size;
+    if (sm < 0 || !fdt_node_enabled(fdt, sm) || fdt_reg(fdt, sm, 0, &base, &size) || pci < 0) return;
+    uint32_t ph = 0, l = 0;
+    if (fdt_prop_u32(fdt, sm, "phandle", &ph) != 0) return;
+    smmu_rid_map_t maps[SMMU_MAX_RID_MAPS]; unsigned nm = 0;
+    const uint8_t* im = (const uint8_t*)fdt_prop(fdt, pci, "iommu-map", &l);
+    for (uint32_t o = 0; im && o + 16 <= l && nm < SMMU_MAX_RID_MAPS; o += 16)
+        if (fdt_u32(im + o + 4) == ph) maps[nm++] = (smmu_rid_map_t){ fdt_u32(im + o), fdt_u32(im + o + 8), fdt_u32(im + o + 12) };
+    unsigned foreign = 0; int depth;
+    for (int n = fdt_root(fdt); n >= 0; n = fdt_next_node(fdt, n, &depth)) {
+        uint32_t pl;
+        const uint8_t* io = (const uint8_t*)fdt_prop(fdt, n, "iommus", &pl);
+        if (io && pl >= 4 && fdt_u32(io) == ph) foreign++;
+    }
+    iommu_smmu_register(base, !dma_noncoherent(fdt), foreign, maps, nm, its ? its + 0x10040 : v2m ? v2m + 0x40 : 0);   /* адрес, куда устройства пишут сообщения прерываний */
+}
+
 static void arm_pci_init(const void* fdt) {
     int n = fdt_find_compatible(fdt, -1, "pci-host-ecam-generic");
     if (n < 0 || !fdt_node_enabled(fdt, n)) {
@@ -1205,7 +1274,7 @@ static const void* find_fdt(uint64_t x0) {
     return ok && !probe_failed ? (const void*)(uintptr_t)x0 : 0;
 }
 
-void arm_main(uint64_t dtb, uint64_t entry_el) {
+void arm_main(uint64_t dtb, uint64_t entry_el, uint64_t loader_tag) {
     /* До разбора дерева устройств данные ядер ещё не выделены, а замки журнала уже считают себя в this_cpu() (TPIDR_EL1).
        Нулевой указатель раньше молча писал в адрес 0x78 (флеш QEMU; на платах с ОЗУ с нуля - в живую память), ловушка NULL
        это показала. Временно ставим данные нулевого ядра; настоящие устанавливаются ниже, когда известен номер ядра. */
@@ -1234,6 +1303,9 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     kprintf("\n[KIRA ARM64] Kira OS on ARM64: device tree at %x (%u bytes), console PL011 at %x\n",
             (uint64_t)(uintptr_t)fdt, (uint64_t)fdt_total_size(fdt), uart);
     kprintf("[KIRA ARM64] entered at EL%u, running at EL%u\n", entry_el & 3, (SYSREG_R(CurrentEL) >> 2) & 3);
+    /* Метка "KIRAUEFI" в заголовке образа: её пишет наш UEFI-загрузчик (arch/aarch64/uefi/bootaa64.c) */
+    if (loader_tag == 0x494645554152494Bull)
+        kprintf("[KIRA BOOT] loaded by the Kira UEFI loader (BOOTAA64.EFI): device tree from firmware, MMU and D-cache were switched off by the loader\n");
 
     /* Normalize the ARM handoff once: memory banks, framebuffer and bootargs become
        the same versioned BootInfo ABI consumed by the x86 path and the ARM PMM. */
@@ -1304,6 +1376,9 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     timer_intid = (irq && ilen >= 36) ? 16 + fdt_u32(irq + 24 + 4) : 27;
     cnt_freq = SYSREG_R(cntfrq_el0);
     tick_cycles = cnt_freq / TIMER_HZ;
+    /* Начало отсчёта времени - здесь, сразу после выбора периода: раньше оно ставилось позже, а sched_init уже читал время, и счётчик,
+       который после прошивки (UEFI) идёт уже секунды, давал «прошедшие» тысячи тиков - сторожевой таймер срабатывал до первого прерывания. */
+    anchor_cnt = now_cnt();
     kprintf("[KIRA ARM64] interrupt controller GICv%u: distributor %x, %s %x; generic timer %u Hz, virtual timer INTID %u\n",
             (uint64_t)(gic_v3 ? 3 : 2), gicd, gic_v3 ? "redistributors" : "CPU interface", gic_v3 ? gicr_base : gicc, cnt_freq, (uint64_t)timer_intid);
 
@@ -1369,7 +1444,6 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     cpus[me].gic_ok = gic_cpu_init() == 0;
     cpus[me].gic_mask = gic_mask_me;
     if (gic_v3 && its_init(fdt) != 0) kprintf("[KIRA GIC] no usable ITS: PCI devices stay on polling\n");
-    anchor_cnt = now_cnt();
     sched_up = 1;
     timer_start();
     cpus[me].online = 1;
@@ -1409,16 +1483,22 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     for (unsigned i = 0; i < ncpu; i++) if (cpus[i].online && cpus[i].ticks > 0 && cpus[i].gic_ok) ticking++;
     kprintf("[KIRA ARM64] cores with a working timer interrupt: %u of %u (idle cores then switch their tick off)\n", (uint64_t)ticking, (uint64_t)started);
     clock_init(cnt_freq / 1000);
+    lat_init(ncpu, cnt_freq / 1000);     /* А8: измерения времени реакции */
     arm_pci_init(fdt);
+    smmu_from_fdt(fdt);      /* SMMUv3 (если есть): регистры и карта потоков */
+    (void)iommu_init();      /* включить SMMU до первого драйвера с DMA (virtio-rng ниже читает энтропию раньше опроса дисков); без SMMU поведение прежнее */
     rng_init();              /* генератор случайных чисел: RNDR, virtio-rng, времена прерываний */
     immune_init();
     watchdog_init();
+    wire_init();             /* проводка между уровнями: до первого опроса дисков и USB */
     experience_init();       /* диски (virtio, NVMe, AHCI по PCI) и опыт прошлых жизней */
     fs_init();               /* KiraFS на системном диске */
     life_init();
     proc_init(ncpu, total / 1024);
     kprintf("[KIRA SYSCALL] SVC from EL0: the same calls as on x86-64 (number in x8, arguments x0..x2); PAN %s; user pointers validated.\n",
             uaccess_enable_smap() ? "on (kernel touches programs only via LDTR/STTR)" : "not offered by this CPU (copies still use LDTR/STTR)");
+    bbsave_init();           /* чёрный ящик: кольцо событий производительности, сброс на диск вне горячего пути */
+    audit_init();            /* журнал аудита: цепочка SHA-256 и подписанные контрольные точки, /var/audit.log */
     mind_sys_init();         /* Разум: нормы, модель предвидения, тактика ~40 Гц */
     rtc_pl031(fdt);
 
@@ -1426,13 +1506,17 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
     if (display_init(0) != 0) kprintf("[KIRA DISPLAY] No screen (no virtio-gpu, ramfb or simple-framebuffer): serial console only.\n");
     virtio_input_init();
     usb_init();              /* USB: xHCI (клавиатура, мышь, планшет, хабы, флешки) - тот же стек, что у x86-64 */
-    if (e1000_probe() != 0) virtio_net_probe();   /* сетевая карта: Intel e1000 или virtio-net */
+    wire_net_probe();   /* сетевая карта: Intel e1000 или virtio-net */
     net_start();
+    rcon_init();
     hda_probe();
     kprintf("[KIRA ARM64] Ready. Type a command (help: any unknown word).\n");
 
     console_init();                                              /* общая консоль: те же команды, что у x86-64 */
+    fssvc_init();                                                /* порт kira.fs: файловая служба на сообщениях CBOR */
+    gfxctl_init();                                               /* порт kira.gfx: окна и события на сообщениях CBOR */
     for (;;) {                                                   /* поток core: консоль и секундные дела */
+        bbsave_core_tick();                                      /* чёрный ящик: разрыв между проходами цикла */
         console_poll();
         static uint64_t last_sec, seconds;
         if (timer_get_ticks() - last_sec >= TIMER_HZ) {          /* раз в секунду: Разум, опыт, журнал, сборка стеков */
@@ -1443,7 +1527,10 @@ void arm_main(uint64_t dtb, uint64_t entry_el) {
             sched_reap();
         }
         prog_poll();                                             /* запуск, заказанный оболочкой (док, Проводник) */
+        fssvc_poll();                                            /* запросы к порту kira.fs */
+        gfxctl_poll();                                           /* запросы к порту kira.gfx */
         kdrv_poll();                                             /* драйверы Ring 3 */
+        (void)iommu_fault_poll();                                /* нарушения DMA, записанные SMMU: строка в журнал, без остановки ядра */
         life_tick();
         watchdog_feed();
         sched_sleep_ticks(1);

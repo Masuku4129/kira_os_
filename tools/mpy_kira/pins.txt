@@ -1,0 +1,4 @@
+# Закреплённые коммиты внешних исходников для Python (MicroPython) под WASM. Скрипты проверяют совпадение, иначе сборка останавливается.
+WASI_LIBC_REV=4ec32c50873163d0d8f863393bc0a1d3a4475c24
+LLVM_REV=3b5b5c1ec4a3095ab096dd780e84d7ab81f3d7ff
+MPY_REV=ecfdd5d6f9be971852003c2049600dc7b3e2a838

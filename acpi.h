@@ -4,6 +4,7 @@
 
 #define ACPI_MAX_IOAPIC 64
 #define ACPI_MAX_CPU    256
+#define ACPI_MAX_SSDT   64
 
 typedef struct {
     int      valid;            /* RSDP и корневая таблица прошли проверку контрольных сумм */
@@ -24,21 +25,56 @@ typedef struct {
     uint32_t tables_seen, tables_bad, tables_skipped_high;
     uint64_t dmar_phys;             /* physical address of checksum-validated DMAR table, 0 if absent */
     uint32_t dmar_len;
+    uint64_t ivrs_phys;             /* AMD-Vi: physical address of checksum-validated IVRS table, 0 if absent */
+    uint32_t ivrs_len;
     uint8_t  source;               /* 0 - ACPI (MADT), 1 - таблицы Intel MP (ACPI нет или в нём нет процессоров) */
     /* питание (FADT и \_S5 из DSDT) */
     uint32_t pm1a_cnt, pm1b_cnt, smi_cmd;   /* порты; 0 - нет */
     uint8_t  acpi_enable;          /* значение для SMI_CMD: перейти в режим ACPI */
     int      s5_valid;             /* найден пакет \_S5: SLP_TYPa/b для выключения */
     uint8_t  slp_typa, slp_typb;
+    int      s3_valid;             /* найден пакет \_S3 (сон в ОЗУ): SLP_TYPa/b */
+    uint8_t  slp_typa_s3, slp_typb_s3;
+    uint64_t facs_phys;            /* FACS (адрес вектора пробуждения): X_FIRMWARE_CTRL, иначе FIRMWARE_CTRL; 0 - нет */
+    uint8_t  pm1_cnt_len;
     int      reset_valid;          /* регистр сброса FADT (ACPI 2.0+) */
     uint8_t  reset_space;          /* 0 - память, 1 - порт */
     uint64_t reset_addr;
     uint8_t  reset_value;
+    /* события и таблицы AML (FADT, DSDT, SSDT): для интерпретатора и обработки SCI */
+    uint16_t sci_int;              /* линия SCI (прерывание ACPI) */
+    uint32_t pm1a_evt, pm1b_evt;   /* порты регистров событий PM1 (состояние в начале, разрешение - во второй половине); 0 - нет */
+    uint8_t  pm1_evt_len;
+    uint32_t gpe0_blk, gpe1_blk;   /* порты GPE: первая половина - состояние, вторая - разрешение */
+    uint8_t  gpe0_len, gpe1_len, gpe1_base;
+    uint32_t fadt_flags;           /* бит 4 - кнопка питания реализована методами AML (фиксированной нет), бит 5 - то же для сна */
+    uint64_t dsdt_phys; uint32_t dsdt_len;     /* DSDT, прошедшая проверку суммы, иначе 0 */
+    uint32_t ssdt_count;           /* SSDT/PSDT с верной суммой (до ACPI_MAX_SSDT) */
+    uint64_t ssdt_phys[ACPI_MAX_SSDT]; uint32_t ssdt_len[ACPI_MAX_SSDT];
     int      legacy_isa;           /* платформа сообщает, что устаревшие устройства ISA есть: бит 0 IAPC_BOOT_ARCH в FADT (ACPI 2.0+) или шина ISA в таблицах MP */
 } acpi_info_t;
 
 /* Пакет \_S5 в байт-коде AML (чистая функция, тест на хосте): 0 - найден, в a и b - SLP_TYPa и SLP_TYPb. */
 int acpi_find_s5(const uint8_t* aml, uint32_t len, uint8_t* a, uint8_t* b);
+/* То же для любого состояния сна: state '0'..'5' - пакет \_S0 ... \_S5 (для S3 - '3'). */
+int acpi_find_sx(const uint8_t* aml, uint32_t len, char state, uint8_t* a, uint8_t* b);
+/* Значение для записи в PM1x_CNT при входе в сон: SLP_TYP в битах 10-12 и SLP_EN (бит 13). Остальные биты регистра (SCI_EN и др.) сохраняет вызывающий. */
+uint16_t acpi_pm1_sleep_value(uint16_t old, uint8_t slp_typ);
+
+/* FACS (Firmware ACPI Control Structure): здесь - только то, что нужно для сна. */
+typedef struct {
+    int      valid;
+    uint32_t length;
+    uint32_t hw_signature;
+    uint32_t wake32;               /* Firmware_Waking_Vector (смещение 12) */
+    uint32_t flags;                /* бит 0 - S4BIOS_F, бит 1 - 64BIT_WAKE_SUPPORTED_F */
+    uint64_t wake64;               /* X_Firmware_Waking_Vector (смещение 24; версия FACS >= 1) */
+    uint8_t  version;
+    uint32_t ospm_flags;           /* смещение 36 (версия >= 2) */
+} acpi_facs_t;
+#define ACPI_FACS_WAKE32_OFF 12
+#define ACPI_FACS_WAKE64_OFF 24
+int acpi_facs_parse(const uint8_t* p, uint32_t avail, acpi_facs_t* out);   /* 0 - таблица принята */
 
 /* Разбор по физическому адресу RSDP. Таблицы выше max_phys пропускаются (ещё не отображены). */
 int acpi_parse(uint64_t rsdp_phys, uint64_t max_phys, acpi_info_t* out);
@@ -54,5 +90,7 @@ int acpi_init_rsdp(uint64_t rsdp_phys);
 // Ядро ставит хук, который делает таблицу выше max_phys читаемой (0 - не удалось); без хука такие таблицы пропускаются.
 void acpi_set_map_hook(const void* (*hook)(uint64_t phys, uint64_t len));   /* адрес для чтения таблицы или 0 */
 const acpi_info_t* acpi_get(void);
+/* Адрес, по которому таблицу ACPI (physical, len байт) можно читать после acpi_init: тождественная карта или окно хука ядра; 0 - не читается. */
+const uint8_t* acpi_table_view(uint64_t phys, uint32_t len);
 
 #endif

@@ -33,6 +33,7 @@ uint16_t sb16_dma16_port_page(int ch)  { return ch == 5 ? 0x8B : ch == 6 ? 0x89 
 #include "vmm.h"
 #include "uart.h"
 #include "cpu.h"
+#include "devpm.h"
 
 static inline void outb(uint16_t p, uint8_t v) { __asm__ volatile ("outb %0, %1" :: "a"(v), "Nd"(p)); }
 static inline uint8_t inb(uint16_t p) { uint8_t v; __asm__ volatile ("inb %1, %0" : "=a"(v) : "Nd"(p)); return v; }
@@ -50,6 +51,8 @@ static struct {
     uint8_t* buf; uint64_t buf_p;
     uint64_t acks, pos_retries;
     uint16_t dma_addr, dma_cnt, dma_page;
+    int out_run;                         /* вывод запущен (audio.c) */
+    volatile int asleep;                 /* сон S3 */
 } sb;
 
 static int dsp_write(uint8_t v) {
@@ -101,6 +104,7 @@ static uint8_t* dma_ring_alloc(uint64_t* phys) {
 static void dma_mask(int on) { outb(0xD4, (uint8_t)((on ? 4 : 0) | (sb.dma16 - 4))); }
 
 static int out_start(void) {
+    if (sb.asleep) return -1;
     /* 8237 (ведомый, канал sb.dma16): режим одиночный + автоповтор + чтение из памяти; адрес в словах, счётчик 64 К слов */
     dma_mask(1);
     outb(0xD8, 0);                                                /* сбросить триггер старший/младший байт */
@@ -115,6 +119,7 @@ static int out_start(void) {
     const uint32_t words = BUFSZ / 2 / 2 - 1;                     /* прерывание карты - раз в полкольца (в словах, 16 бит) */
     if (dsp_write(0xD1) || dsp_write(0x41) || dsp_write(RATE >> 8) || dsp_write(RATE & 0xFF)) return -1;
     if (dsp_write(0xB6) || dsp_write(0x30) || dsp_write((uint8_t)(words & 0xFF)) || dsp_write((uint8_t)(words >> 8))) return -1;
+    sb.out_run = 1;
     return 0;                                                     /* 0xB6: 16 бит, вывод, автоповтор, FIFO; 0x30: со знаком, стерео */
 }
 
@@ -124,6 +129,7 @@ static void out_stop(void) { dsp_write(0xD5); dma_mask(1); }      /* пауза 
    младшего и старшего), значение разорвано - читаем снова. */
 static uint32_t out_pos(void) {
     uint16_t v = 0;
+    if (sb.asleep) return 0;
     for (int t = 0; t < 8; t++) {
         outb(0xD8, 0);
         uint8_t lo = inb(sb.dma_addr), hi = inb(sb.dma_addr), lo2 = inb(sb.dma_addr);
@@ -135,9 +141,24 @@ static uint32_t out_pos(void) {
 }
 
 static void service(void) {                                       /* подтвердить прерывание конца блока, чтобы карта не держала линию */
+    if (sb.asleep) return;
     uint8_t st = mix_read(MIX_ISTAT);
     if (st & 2) { inb((uint16_t)(sb.base + DSP_ACK16)); sb.acks++; }
     if (st & 1) inb((uint16_t)(sb.base + DSP_RSTAT));
+}
+
+/* Сон S3: у карты ISA нет PCI-конфигурации, но канал DMA (8237) и DSP после сна пусты. suspend: пауза вывода, маска канала. resume: сброс DSP (должен ответить 0xAA,
+   версия та же), затем вывод запускается заново тем же порядком, что при первом пуске (контроллер DMA, смеситель, частота, блок автоповтора). */
+static int sb_sleep_suspend(void* ctx) { (void)ctx; sb.asleep = 1; if (sb.out_run) out_stop(); return 0; }
+static int sb_sleep_resume(void* ctx) {
+    (void)ctx;
+    if (dsp_reset(sb.base) != 0) { uart_print("[KIRA SLEEP] sb16: DSP does not answer after sleep.\n"); return -1; }
+    if (dsp_write(0xE1)) return -2;
+    int vmaj = dsp_read(), vmin = dsp_read();
+    if (vmaj != sb.vmaj || vmin != sb.vmin) { uart_print("[KIRA SLEEP] sb16: another DSP after sleep.\n"); return -3; }
+    sb.asleep = 0;
+    if (sb.out_run && out_start() != 0) return -4;
+    return 0;
 }
 
 static void print(void) {
@@ -187,6 +208,7 @@ int sb16_probe(void) {
     card.name = "Sound Blaster 16"; card.start = out_start; card.pos = out_pos; card.buf = (int16_t*)sb.buf; card.bytes = BUFSZ;
     card.service = service; card.in_ready = 0; card.print = print;
     int rc = audio_attach(&card);
+    if (rc == 0) (void)devpm_register("sb16", sb_sleep_suspend, sb_sleep_resume, 0);
     if (rc != 0) {                                                /* карта не принята: остановить DMA и вернуть память */
         out_stop();
         pmm_free_contiguous(sb.buf_p, BUFPAGES);

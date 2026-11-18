@@ -10,6 +10,9 @@ typedef void (*msi_fn)(void* ctx);
 /* d - устройство PCI (ITS у ARM64 GICv3 различает устройства по номеру на шине; x86-64 и GICv2m его не используют). */
 int  msi_alloc(const pci_dev_t* d, msi_fn fn, void* ctx, uint64_t* addr, uint32_t* data);   /* 0 - выдан; -1 - нет (опрос) */
 int  pci_msix_setup(const pci_dev_t* d, unsigned entry, uint64_t addr, uint32_t data);   /* 0 - MSI-X включён */
+int  msi_vector_alloc(msi_fn fn, void* ctx, uint8_t* vector);                                  /* вектор для линии IOAPIC (INTx, GSI >= 16); 0 - выдан */
+int  pci_msix_replay(void);          /* сон S3: вернуть в устройства все выданные записи MSI-X; число неудач */
+int  pci_msix_log_complete(void);    /* 1 - журнал записей полон (все можно вернуть) */
 int  pci_msi_setup(const pci_dev_t* d, uint64_t addr, uint32_t data);                    /* 0 - MSI включён */
 
 /* Ожидание события устройства сном: обработчик прерывания зовёт irqwait_fire, поток ждёт в irqwait_wait.

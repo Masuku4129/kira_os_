@@ -14,6 +14,16 @@
 enum { KBI_ARCH_X86_64=1, KBI_ARCH_AARCH64=2 };
 enum { KBI_BOOT_BIOS=1, KBI_BOOT_UEFI=2, KBI_BOOT_DEVICE_TREE=3, KBI_BOOT_MULTIBOOT2=4 };
 enum { KBI_F_FRAMEBUFFER=1u, KBI_F_ACPI=2u, KBI_F_FDT=4u, KBI_F_CMDLINE=8u };
+/* Состояние доверенной загрузки (А2, docs/SECURE_BOOT.md). Нули у всех загрузчиков без цепочки доверия: BIOS, GRUB, дерево устройств. */
+enum { KBI_TRUST_SB_KNOWN=1u,      /* загрузчик смог прочитать переменную SecureBoot (иначе состояние неизвестно) */
+       KBI_TRUST_SB_ENABLED=2u,    /* SecureBoot=1: прошивка проверила подпись загрузчика */
+       KBI_TRUST_SETUP_MODE=4u,    /* SetupMode=1: ключи платформы не заведены, подпись ничего не доказывает */
+       KBI_TRUST_ENFORCING=8u,     /* загрузчик собран с KIRA_SECURE=1 и без валидной подписи ядра не передаёт управление */
+       KBI_TRUST_SIG_VERIFIED=16u, /* подпись манифеста, хэши ядра и initrd проверены (поле image_version достоверно) */
+       KBI_TRUST_MEASURED=32u,     /* хэши ядра и initrd внесены в PCR 9 через TCG2 */
+       KBI_TRUST_CMDLINE_IGNORED=64u, /* в доверенном режиме командная строка из NVRAM не принимается */
+       KBI_TRUST_ROLLBACK_TPM=128u, /* номер выпуска сверен с монотонным счётчиком TPM (А3): откат ниже счётчика отклонён загрузчиком */
+       KBI_TRUST_ALL=255u };
 enum { KBI_MEM_USABLE=1, KBI_MEM_RESERVED=2, KBI_MEM_ACPI_RECLAIM=3,
        KBI_MEM_ACPI_NVS=4, KBI_MEM_BAD=5, KBI_MEM_BOOTLOADER=6,
        KBI_MEM_KERNEL=7, KBI_MEM_MODULE=8, KBI_MEM_FRAMEBUFFER=9 };
@@ -34,14 +44,14 @@ typedef struct __attribute__((packed)) {
     uint16_t version, header_size;
     uint32_t total_size, flags;
     uint16_t arch, boot_mode;
-    uint32_t mmap_off, mmap_count, mmap_entry_size, reserved0;
+    uint32_t mmap_off, mmap_count, mmap_entry_size, image_version;   /* image_version: номер выпуска из подписанного манифеста (0 - не проверялся) */
     uint64_t rsdp_phys, fdt_phys;
     uint64_t fb_phys, fb_size;
     uint32_t fb_width, fb_height, fb_pitch;
     uint8_t fb_bpp, fb_red_pos, fb_red_size, fb_green_pos;
     uint8_t fb_green_size, fb_blue_pos, fb_blue_size, fb_reserved;
     uint32_t modules_off, modules_count, module_entry_size, cmdline_off;
-    uint32_t cmdline_len, reserved1;
+    uint32_t cmdline_len, trust_flags;   /* trust_flags: KBI_TRUST_*, заполняет только загрузчик UEFI */
     uint64_t kernel_phys_base, kernel_size;
     uint64_t loader_id;
 } kbi_header_t;

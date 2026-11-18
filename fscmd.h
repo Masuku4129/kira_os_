@@ -8,6 +8,10 @@ void fscmd_write(const char* arg);      /* "путь текст..." */
 void fscmd_rm(const char* arg);
 void fscmd_mkdir(const char* arg);
 void fscmd_df(const char* arg);
+void fscmd_json(const char* arg);    /* проверка JSON-файла и выборка значения по пути */
+void fscmd_anchor(const char* arg);  /* защита диска от отката: эпоха тома и якорь в TPM (trustanchor.h) */
+void fscmd_verify(const char* arg);  /* сверка /bin и /etc с печатью системы /etc/system.cbor */
+int  fs_verify_seal(int quiet);     /* 0 цело, 1 расхождения, -1 печати нет */
 void fscmd_format(const char* arg);     /* только "yes" */
 void fscmd_cp(const char* arg);         /* "откуда куда" */
 void fscmd_umount(const char* arg);     /* "usbN" */

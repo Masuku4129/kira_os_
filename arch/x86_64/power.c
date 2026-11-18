@@ -5,6 +5,8 @@
 #include "../../uart.h"
 #include "../../vmm.h"
 #include "cpu.h"
+#include "acpirt.h"
+#include "../../acpidev.h"
 
 static inline void outb(uint16_t p, uint8_t v) { __asm__ volatile ("outb %0, %1" : : "a"(v), "Nd"(p)); }
 static inline void outw(uint16_t p, uint16_t v) { __asm__ volatile ("outw %0, %1" : : "a"(v), "Nd"(p)); }
@@ -13,17 +15,22 @@ static inline uint16_t inw(uint16_t p) { uint16_t v; __asm__ volatile ("inw %1, 
 
 void platform_poweroff(void) {
     const acpi_info_t* a = acpi_get();
-    if (!a || !a->s5_valid || !a->pm1a_cnt || a->pm1a_cnt > 0xFFFF) { uart_print("[KIRA ACPI] no \\_S5 or PM1 control port: cannot power off.\n"); return; }
+    /* Значения \_S5: сначала то, что вычислил интерпретатор AML (он понимает и вычисляемые _S5), иначе - поиск байтов в DSDT при разборе таблиц. */
+    uint8_t typa = 0, typb = 0; int have_s5 = 0;
+    if (acpirt_s5(&typa, &typb) == 0) have_s5 = 1;
+    else if (a && a->s5_valid) { typa = a->slp_typa; typb = a->slp_typb; have_s5 = 1; }
+    if (!a || !have_s5 || !a->pm1a_cnt || a->pm1a_cnt > 0xFFFF) { uart_print("[KIRA ACPI] no \\_S5 or PM1 control port: cannot power off.\n"); return; }
     uint16_t pm1a = (uint16_t)a->pm1a_cnt;
     if (!(inw(pm1a) & 1) && a->smi_cmd && a->acpi_enable) {      /* SCI_EN = 0: прошивка держит SMM - в режим ACPI */
         outb((uint16_t)a->smi_cmd, a->acpi_enable);
         for (int i = 0; i < 3000000 && !(inw(pm1a) & 1); i++) cpu_relax();
     }
+    acpirt_prepare_sleep(5);                                      /* \_PTS(5), \_GTS(5): прошивка готовится к выключению (прерывания ещё включены) */
     uart_print("[KIRA ACPI] powering off (S5)\n");
     uart_flush_all();
     cpu_irq_off();
-    outw(pm1a, (uint16_t)((a->slp_typa & 7) << 10 | 1u << 13));
-    if (a->pm1b_cnt && a->pm1b_cnt <= 0xFFFF) outw((uint16_t)a->pm1b_cnt, (uint16_t)((a->slp_typb & 7) << 10 | 1u << 13));
+    outw(pm1a, (uint16_t)((typa & 7) << 10 | 1u << 13));
+    if (a->pm1b_cnt && a->pm1b_cnt <= 0xFFFF) outw((uint16_t)a->pm1b_cnt, (uint16_t)((typb & 7) << 10 | 1u << 13));
     for (int i = 0; i < 100000000; i++) cpu_relax();
     cpu_irq_on();
     uart_print("[KIRA ACPI] machine did not power off after S5.\n");
@@ -49,4 +56,12 @@ void platform_reboot(void) {
 }
 
 /* Экран x86-64 - от загрузчика (multiboot) или virtio-gpu: своего платформенного нет. */
+int platform_battery(platform_battery_t* b) {
+    if (!acpirt_up()) return -1;
+    const acpidev_power_t* p = acpidev_power();
+    if (!p->valid || p->batteries <= 0) return -1;
+    b->percent = p->percent; b->charging = p->charging; b->ac = p->ac; b->minutes_left = p->minutes_left; b->version = p->version;
+    return 0;
+}
+void platform_acpi_cmd(const char* a) { acpirt_cmd(a); }
 int platform_fb_probe(void) { return -1; }

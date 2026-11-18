@@ -81,4 +81,21 @@ unsigned mind_sys_core_cap(void);
 int  mind_sys_rtc_local(void);
 int32_t mind_sys_local_offset(void);
 
+/* Связь Разума (ур.5) с экраном, графическим сервером и сборщиком (ур.6): их заголовки Разум не включает, корень сборки передаёт
+   функции через mind_sys_set_env (wire_init, до mind_sys_init). Любое поле можно оставить нулём: датчик даст нули, исполнитель
+   ничего не сделает. */
+/* Цена окон Разума, Монитора и Настроек в цикле экрана (замер оболочки): проходы update_mind и перерисовка окна «Разум». */
+typedef struct mind_draw_cost { uint64_t updates, upd_ns, upd_max, draws, draw_ns, draw_max, view_bytes; } mind_draw_cost_t;
+
+typedef struct {
+    int  (*display_get_fx)(void);
+    void (*display_set_fx)(int level);                                                 /* 0..3 - анимация фона, 4 - авто */
+    void (*display_stats)(uint64_t* loops, uint64_t* late, uint64_t* worst_gap_ns);
+    void (*compositor_stats)(uint32_t* par, uint32_t* ns_kpx_par, uint32_t* ns_kpx_ser);
+    int  (*focus_pid)(void);                                                           /* pid окна в фокусе или 0 */
+    void (*build_tick)(const mind_t* m, const mind_sample_t* s, uint32_t now_s);       /* раз в секунду: предложение сборки */
+    void (*draw_cost)(mind_draw_cost_t* out);                                          /* цена окон Разума в цикле экрана (ai cost) */
+} mind_sys_env_t;
+void mind_sys_set_env(const mind_sys_env_t* env);
+
 #endif

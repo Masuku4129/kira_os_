@@ -1,5 +1,6 @@
 #include "console.h"
 #include "net.h"
+#include "rcon.h"
 #include "kdrv.h"
 #include "hda.h"
 #include "input.h"
@@ -17,32 +18,28 @@
 #include "heap.h"
 #include "immune.h"
 #include "mind_sys.h"
+#include "bbsave.h"
+#include "audit.h"
 #include "watchdog.h"
 #include "sched.h"
 #include "clock.h"
-#include "display.h"
 #define FM_PATH_MAX 128
 #include "fscmd.h"
+#include "trustanchor.h"
 #include "buildcmd.h"
 #include "pci.h"
 #include "blk.h"
 #include "vfs.h"
 #include "rng.h"
+#include "iommu.h"
 #include "audio.h"
 #include "spinlock.h"
 #include "usb.h"
-
-static volatile uint32_t event_count;
-
-void console_note_event(void) {
-    event_count++;
-}
-
-uint32_t console_take_events(void) {
-    uint32_t n = event_count;
-    event_count = 0;
-    return n;
-}
+#include "latency.h"
+#if defined(__x86_64__)
+#include "kaslr_arch.h"
+#endif
+#include "sleep.h"
 
 void console_init(void) {
     uart_print("[KIRA CONSOLE] Command line ready: type 'help' and press Enter.\n");
@@ -298,7 +295,15 @@ static void cmd_burnall(const char* a) {
 }
 static void cmd_starve(const char* a) { (void)a; uart_print("[TEST] realtime burner for 8 s: 'core' will starve, watchdog must fire (~5 s)...\n"); spawn_burners(1, 8, PRIO_REALTIME); }
 static void cmd_3d(const char* a) { (void)a; prog_start("cube3d"); }
-static void cmd_fb(const char* a) { (void)a; display_print_info(); }
+static const console_shell_t* shell;
+void console_set_shell(const console_shell_t* sh) { shell = sh; }
+static void cmd_bb(const char* a) { bbsave_command(a); }
+static void cmd_latency(const char* a) { lat_command(a); }
+static void cmd_audit(const char* a) { audit_command(a); }
+static void cmd_fb(const char* a) {
+    while (*a == ' ') a++;
+    if (a[0] == 'r' && a[1] == 'e' && a[2] == 'd' && a[3] == 'r' && a[4] == 'a' && a[5] == 'w') { if (shell && shell->redraw) { shell->redraw(); uart_print("[FB] full redraw requested\n"); } return; }
+    if (shell && shell->print_info) shell->print_info(); else uart_print("экрана нет\n"); }
 static void cmd_hw(const char* a) { (void)a; platform_hw(uart_print); }
 static void cmd_fpu(const char* a) { (void)a; uart_print("[FPU TEST] 3 fpu processes compute x87 + SSE + double in parallel; each reports its own verdict\n"); prog_start("fpu"); prog_start("fpu"); prog_start("fpu"); }
 static void cmd_keys(const char* a) {
@@ -315,7 +320,10 @@ static void cmd_keys(const char* a) {
     uart_print(n ? "\n" : " (none)\n");
 }
 static void cmd_threads(const char* a) { (void)a; uart_print("[TEST] program mt: 4 threads of one process, futex mutex, then exit with live threads\n"); prog_start("mt"); }
-static void cmd_ipc(const char* a) { (void)a; uart_print("[TEST] two ipc processes: named ports (200 round trips), shared memory page, futex across processes\n"); prog_start("ipc"); prog_start("ipc"); }
+static void cmd_ipc(const char* a) { (void)a; uart_print("[TEST] two ipc processes: named ports (200 round trips), shared memory page, futex across processes\n"); prog_start("ipcx"); prog_start("ipc"); prog_start("ipc"); }
+static void cmd_ipcbench(const char* a) { (void)a; uart_print("[TEST] program ipcbench: two instances, polling vs waiting on two ports, 1 MiB in messages vs one memory attachment\n"); prog_start("ipcbench"); prog_start("ipcbench"); }
+static void cmd_gfxport(const char* a) { (void)a; uart_print("[TEST] program gfxport: graphics control on port kira.gfx (CBOR requests, reply port passed in a message)\n"); prog_start("gfxport"); }
+static void cmd_fsport(const char* a) { (void)a; uart_print("[TEST] program fsport: file service on port kira.fs (CBOR requests, private reply port passed in a message, bulk data in shared memory)\n"); prog_start("fsport"); }
 static void cmd_isolation(const char* a) { (void)a; uart_print("[TEST] two demo processes write the same address: each must see only its own value\n"); prog_start("demo"); prog_start("demo"); }
 static void cmd_atk(const char* a) {
     (void)a;
@@ -381,13 +389,22 @@ static void cmd_files(const char* a) {
         while (*a && *a != ' ') a++;
         if (k) n++;
     }
-    display_request_files(w[0], w[1]);
+    if (shell && shell->request_files) shell->request_files(w[0], w[1]);
     uart_print("[KIRA FILES] explorer: "); uart_print(w[0][0] ? w[0] : "(as before)"); uart_print(" | "); uart_print(w[1][0] ? w[1] : "(as before)"); uart_print("\n");
 }
+/* fmstate: Проводник печатает своё состояние одной строкой (панели, курсор, выделение, сортировка, буфер, меню). */
+static void cmd_fmstate(const char* a) {
+    (void)a;
+    if (shell && shell->files_state) shell->files_state();
+    else uart_print("[KIRA FILES] state: explorer is not available\n");
+}
 /* Выключение и перезагрузка: сначала опыт и кэши дисков, потом - машина. */
-static void power_prepare(void) {
+void console_power_prepare(void) {
     uart_print("сохраняю опыт и данные дисков...\n");
     experience_save_now();
+    audit_sync();                                            /* журнал аудита: всё принятое - в цепочку, подписанная точка, диск - до сброса кэшей */
+    (void)bbsave_now(BB_SAVE_SHUTDOWN);                     /* чёрный ящик - до сброса кэшей дисков: они его запишут вместе с остальным */
+    trustanchor_shutdown();                                 /* эпоха диска - в суперблок и в TPM (якорь) при штатном выключении */
     for (int i = 0; i < 4; i++) vfs_flush(i);
     int bad = blk_flush_all();
     if (bad) { uart_print("[KIRA DISK] write cache not flushed on "); uart_print_dec((uint64_t)bad); uart_print(" disk(s)\n"); }
@@ -410,12 +427,59 @@ static void cmd_random(const char* a) {
     for (int i = 0; i < 16; i++) { uart_putchar("0123456789abcdef"[b[i] >> 4]); uart_putchar("0123456789abcdef"[b[i] & 15]); }
     uart_print("\n");
 }
-static void cmd_poweroff(const char* a) { (void)a; power_prepare(); platform_poweroff(); }
-static void cmd_reboot(const char* a) { (void)a; power_prepare(); platform_reboot(); }
+/* Изоляция DMA: какие устройства PCI стоят в своём домене IOMMU (VT-d, AMD-Vi, SMMUv3) и сколько обращений в невыданную память остановлено. */
+static void cmd_dma(const char* a) {
+    (void)a;
+    (void)iommu_fault_poll();
+    uart_print("изоляция DMA: IOMMU "); uart_print(iommu_enabled() ? "включена" : "нет (устройства обращаются к любой памяти)"); uart_print("\n");
+    unsigned iso = 0;
+    for (int i = 0; i < pci_count(); i++) {
+        const pci_dev_t* d = pci_get(i);
+        int on = iommu_device_isolated(d);
+        iso += (unsigned)on;
+        uart_print("  pci "); uart_print_dec(d->bus); uart_print(":"); uart_print_dec(d->dev); uart_print("."); uart_print_dec(d->fn);
+        uart_print(" ");
+        for (int sh = 12; sh >= 0; sh -= 4) uart_putchar("0123456789abcdef"[(d->vendor >> sh) & 15]);
+        uart_print(":");
+        for (int sh = 12; sh >= 0; sh -= 4) uart_putchar("0123456789abcdef"[(d->device >> sh) & 15]);
+        if (on) { uart_print(" изолировано, остановлено обращений "); uart_print_dec(iommu_fault_count(d)); }
+        else uart_print(" без изоляции");
+        uart_print("\n");
+    }
+    uart_print("в своём домене: "); uart_print_dec(iso); uart_print(" из "); uart_print_dec((uint64_t)pci_count()); uart_print("\n");
+}
+static void cmd_poweroff(const char* a) { (void)a; audit_shutdown(); console_power_prepare(); platform_poweroff(); }
+/* Кнопка питания (ACPI): то же, что команда poweroff. Если выключить не вышло, запрос снимает вызывающий. */
+void console_graceful_poweroff(void) {
+    uart_print("[KIRA POWER] power button: saving data and shutting down.\n");
+    audit_shutdown();
+    console_power_prepare();
+    platform_poweroff();
+}
+/* sleep - сон S3 (ACPI): устройства усыпляются, машина засыпает и по сигналу (кнопка, клавиша, сеть - как настроит прошивка) продолжает с того же места. sleep status - состояние и хуки. */
+static void sleep_out(const char* s) { uart_print(s); }
+static void cmd_sleep(const char* a) {
+    while (a && *a == ' ') a++;
+    if (a && a[0] == 's' && a[1] == 't') { sleep_describe(sleep_out); return; }
+    if (a && *a) { uart_print("sleep: сон S3 (устройства усыпляются, машина засыпает, после пробуждения всё продолжается); sleep status - состояние\n"); return; }
+    (void)sleep_enter("команда sleep");
+}
+static void cmd_acpi(const char* a) { platform_acpi_cmd(a); }
+static void cmd_reboot(const char* a) { (void)a; audit_shutdown(); console_power_prepare(); platform_reboot(); }
 static void cmd_wasm(const char* a) {                       /* модуль WebAssembly - в интерпретаторе (Ring 3) */
     while (a && *a == ' ') a++;
     if (!a || *a != '/') { uart_print("wasm /путь/модуль.wasm: программа WebAssembly (одна для x86-64 и ARM64), модули - в /wasm\n"); return; }
     prog_request_file("wasm", a);
+}
+static void cmd_python(const char* a) {                     /* Python (MicroPython) - модуль WebAssembly /wasm/python.wasm в песочнице программы wasm */
+    while (a && *a == ' ') a++;
+    if (!*a) uart_print("python: интерактивный режим; выход - Ctrl+D. Скрипты: python файл.py (файл в /data/wasm), код: python -c print(1+1)\n");
+    (void)prog_run_file_args("wasm", "/wasm/python.wasm", a);
+}
+static void cmd_ksh(const char* a) {                        /* оболочка скриптов ksh - модуль WebAssembly /wasm/ksh.wasm в песочнице программы wasm */
+    while (a && *a == ' ') a++;
+    if (!*a) uart_print("ksh: интерактивный режим; выход - Ctrl+D. Скрипты: ksh файл.sh (файл в /data/wasm), код: ksh -c echo привет\n");
+    (void)prog_run_file_args("wasm", "/wasm/ksh.wasm", a);
 }
 static void cmd_view(const char* a) {                       /* то же, что двойной щелчок в Проводнике */
     while (a && *a == ' ') a++;
@@ -513,6 +577,7 @@ static void cmd_ai(const char* arg) {
     if (word_eq(arg, "procs")) { mind_sys_print("procs"); return; }
     if (word_eq(arg, "model")) { mind_sys_print("model"); return; }
     if (word_eq(arg, "levers")) { mind_sys_print("levers"); return; }
+    if (word_eq(arg, "cost")) { mind_sys_print("cost"); return; }
     if (word_eq(arg, "save")) { mind_sys_print("save"); return; }
     if (arg[0] == 'c' && arg[1] == 'a' && arg[2] == 'p' && (arg[3] == ' ' || !arg[3])) {
         const char* v = arg + 3; while (*v == ' ') v++;
@@ -539,17 +604,22 @@ static void cmd_ai(const char* arg) {
 
 // Проверки системы - отдельной таблицей под командой test: в основном списке остаются рабочие команды.
 // Тесты, которые останавливают систему (panic-*, starve), выполняются только полным именем и со словом yes.
+static void cmd_blktest(const char* a) { blk_selftest(a); }
 typedef struct { const char* name; const char* help; void (*fn)(const char* arg); int halts; } test_t;
 static const test_t tests[] = {
     { "smp",        "потоки на всех ядрах: расчёт, замок, вытеснение", cmd_smptest, 0 },
     { "crash",      "изоляция сбоев: crash thread | crash N (отказ ядра N) | crash lock (авария)", cmd_smpcrash, 0 },
     { "threads",    "потоки одного процесса на разных ядрах, мьютекс на futex, выход при живых потоках", cmd_threads, 0 },
+    { "ipcbench",   "замер обмена: опрос против ожидания портов, копирование против вложения памяти (запустить дважды)", cmd_ipcbench, 0 },
+    { "gfxport",    "управление графикой на портах: запросы CBOR, размер экрана, окно и события", cmd_gfxport, 0 },
+    { "fsport",     "файловая служба на портах: запросы CBOR, ответ во вложенный порт, большие данные через общую память", cmd_fsport, 0 },
     { "ipc",        "обмен между процессами: порты, разделяемая память, futex через общую память", cmd_ipc, 0 },
     { "fpu",        "состояние x87/SSE у трёх процессов", cmd_fpu, 0 },
     { "isolation",  "два процесса пишут по одному адресу: адресные пространства раздельны", cmd_isolation, 0 },
     { "caps",       "программа без прав вызывает защищённые вызовы: каждый обязан быть отказан", cmd_caps, 0 },
     { "atk",        "четыре враждебные программы: каждую останавливают, ядро живо", cmd_atk, 0 },
     { "mem",        "самопроверка кучи, PMM и страницы NULL", cmd_mem, 0 },
+    { "blk",        "диск (и диск драйвера Ring 3): test blk ИМЯ - запись, чтение, возврат данных, выход за границы", cmd_blktest, 0 },
     { "keys",       "сырые байты клавиатуры с прошлого вызова (проверка двойных нажатий)", cmd_keys, 0 },
     { "immune",     "иммунная система на образцах", cmd_immune, 0 },
     { "starve",     "realtime-поток морит ядро -> watchdog (система остановится)", cmd_starve, 1 },
@@ -593,19 +663,28 @@ static const cmd_t cmds[] = {
     { "ps",        'p', "таблица процессов и потоков", cmd_ps },
     { "smp",       0,   "ядра: состояние, APIC ID, переключения, занятость", cmd_smp },
     { "hw",        0,   "профиль железа: процессор, ядра, ОЗУ, пределы для программ", cmd_hw },
-    { "fb",        'f', "статистика экрана", cmd_fb },
+    { "fb",        'f', "статистика экрана (и сводка чёрного ящика); fb redraw - перерисовать весь экран", cmd_fb },
+    { "audit",     0,   "журнал аудита (цепочка SHA-256, подписи Ed25519): audit [N] | status | verify | export [с [сколько]] | key | checkpoint", cmd_audit },
+    { "bb",        0,   "чёрный ящик: bb [N|all] последние события, bb old - прошлый запуск, bb save, bb clear, bb file, bb pause мс (проверка)", cmd_bb },
+    { "latency",   0,   "время реакции: гистограммы задержек (прерывание, обработчик, критические секции, планировщик по классам); latency reset | limit ИМЯ нс | irqoff on|off | bench", cmd_latency },
     { "burn",      'l', "процесс-нагрузка на 3 с (вытесняющее планирование)", cmd_burn },
     { "burnall",   0,   "по процессу-нагрузке на каждое ядро, 3 с (сравни итерации с burn)", cmd_burnall },
     { "3d",        'g', "окно 3D (программа cube3d из /bin)", cmd_3d },
     { "plasma",    'a', "приложение Ring 3: плазма", cmd_plasma },
     { "files",     0,   "Проводник: files [левый_каталог [правый_каталог]] - две панели, F5 копия, F6 перенос, F7 каталог, F8 удалить", cmd_files },
+    { "fmstate",   0,   "Проводник: строка состояния (панели, курсор, выделение, сортировка, буфер обмена, меню) - для проверки", cmd_fmstate },
     { "edit",      0,   "приложение Ring 3: текстовый редактор (F2 - сохранить, F3 - другой файл, F4 - новый)", cmd_edit },
     { "record",    0,   "запись со входа звука: record [мс] - уровень", audiocmd_record },
     { "volume",    0,   "громкость звука: volume [0..100]", cmd_volume },
+    { "dma",       0,   "изоляция DMA: какие устройства PCI в своём домене IOMMU и сколько обращений остановлено", cmd_dma },
     { "random",    0,   "генератор случайных чисел: источники и проба", cmd_random },
     { "poweroff",  0,   "выключить машину (опыт и диски сохраняются; ACPI S5 / PSCI)", cmd_poweroff },
+    { "sleep",     0,   "сон S3: sleep (уснуть до сигнала пробуждения), sleep status (состояние и хуки устройств)", cmd_sleep },
+    { "acpi",      0,   "ACPI: acpi (сводка: устройства, питание, _PRT), acpi tables, acpi dump dsdt|ssdtN, acpi eval ПУТЬ", cmd_acpi },
     { "reboot",    0,   "перезагрузить машину (опыт и диски сохраняются)", cmd_reboot },
     { "wasm",      0,   "wasm /путь.wasm: программа WebAssembly (один файл для x86-64 и ARM64; модули в /wasm)", cmd_wasm },
+    { "ksh",       0,   "Оболочка скриптов ksh: ksh - REPL; ksh файл.sh (файл в /data/wasm); ksh -c код", cmd_ksh },
+    { "python",    0,   "Python (MicroPython): python - REPL; python файл.py (файл в /data/wasm); python -c код", cmd_python },
     { "view",      0,   "view /путь: просмотр файла (текст, PNG, BMP, PPM, двоичный) - как двойной щелчок в Проводнике", cmd_view },
     { "paint",     'b', "приложение Ring 3: холст (мышь, клавиши 1-8, c - очистить)", cmd_paint },
     { "run",       0,   "запустить программу с диска: run имя (/bin/имя, проверка иммунитетом)", cmd_run },
@@ -620,6 +699,9 @@ static const cmd_t cmds[] = {
     { "mkdir",     0,   "создать каталог: mkdir путь", fscmd_mkdir },
     { "rm",        0,   "удалить файл или пустой каталог: rm путь", fscmd_rm },
     { "df",        0,   "место: системный диск и флешки", fscmd_df },
+    { "json",      0,   "проверить JSON-файл и показать значение по пути: json файл [a.b[2].c]", fscmd_json },
+    { "fsanchor",  0,   "защита диска от отката: эпоха тома и якорь в TPM; fsanchor [status|sync|accept]", fscmd_anchor },
+    { "verify",    0,   "сверить /bin и /etc с печатью системы (SHA-256 каждого файла, корень Меркла)", fscmd_verify },
     { "cp",        0,   "копировать файл: cp откуда куда (флешка /usb0 <-> диск)", fscmd_cp },
     { "umount",    0,   "отключить флешку перед извлечением: umount usb0", fscmd_umount },
     { "remount",   0,   "запись на флешку: remount usb0 rw / ro (по умолчанию только чтение)", fscmd_remount },
@@ -627,6 +709,7 @@ static const cmd_t cmds[] = {
     { "disk",      0,   "диски (NVMe, SATA, virtio, ATA) и какой из них системный", cmd_disk },
     { "lspci",     0,   "устройства на шине PCI", cmd_lspci },
     { "net",       0,   "сеть: карта, канал, адрес (DHCP), шлюз, счётчики", netcmd_net },
+    { "rcon",      0,   "удалённая консоль по TCP: rcon passwd ПАРОЛЬ | on [порт] | off | status", rconcmd },
     { "ping",      0,   "ping адрес [число]: эхо ICMP, время ответа", netcmd_ping },
     { "ping6",     0,   "ping6 адрес [число]: эхо ICMPv6 (например ping6 fec0::2)", netcmd_ping6 },
     { "sound",     0,   "звук: карта Intel HDA, кодек, путь к выходу", audiocmd_sound },
@@ -640,6 +723,11 @@ static const cmd_t cmds[] = {
     { "usb",       0,   "USB: дерево устройств, флешки; usb allow - вернуть отключённые клавиатуры", cmd_usb },
     { "telemetry", 0,   "telemetry on|off: построчная телеметрия на экране (по умолчанию только serial)", cmd_telemetry },
     { "test",      't', "проверки системы: test - список, test имя - запуск", cmd_test },
+#if defined(__x86_64__)
+    { "kaslr",     0,   "случайный адрес ядра: состояние, источник энтропии (адрес базы - в режиме отладки)", kaslr_cmd },
+    { "kptr",      0,   "политика печати адресов ядра: kptr - режим, kptr debug on|off", kptr_cmd },
+    { "wx",        0,   "W^X ядра: ранняя карта страниц, обход таблиц, пробная запись в .text и .rodata", wx_cmd },
+#endif
 };
 #define NCMDS (sizeof(cmds) / sizeof(cmds[0]))
 
@@ -704,7 +792,7 @@ static void history_add(const char* l) {
 static int console_next_char(void) {
     int c = uart_getchar();
     if (c >= 0) return c;
-    if (gfx_focus_pid() || display_kbd_owner()) return -1;      // клавиатура принадлежит окну приложения Ring 3 или Проводнику
+    if (gfx_focus_pid() || (shell && shell->kbd_owner && shell->kbd_owner())) return -1;      // клавиатура принадлежит окну приложения Ring 3 или Проводнику
     input_event_t ev;
     while (input_pop(&ev)) {
         if (ev.type != INPUT_KEY_DOWN) continue;
@@ -721,8 +809,70 @@ static int console_next_char(void) {
 static spinlock_t req_lock = SPINLOCK_INIT;
 static char req_q[REQ_N][REQ_LEN];
 static unsigned req_head, req_tail;
+static unsigned req_src[REQ_N];          /* кто поставил команду в очередь (AUD_SRC_*): rcon или локальный интерфейс; журнал аудита берёт отсюда источник */
 
-int console_request(const char* l) {
+/* ---- стандартный ввод программы ---- */
+#define IN_LINES 4
+static spinlock_t in_lock = SPINLOCK_INIT;
+static uint32_t in_owner, in_intr_pid;
+static char in_q[IN_LINES][LINE_MAX + 2];
+static unsigned in_qlen[IN_LINES], in_head, in_tail, in_off;
+static int in_eof;
+
+int console_stdin_begin(uint32_t pid) {
+    uint64_t f = spin_lock_irqsave(&in_lock);
+    int r = 0;
+    if (in_owner && in_owner != pid) r = -16;
+    else if (!in_owner) { in_owner = pid; in_head = in_tail = in_off = 0; in_eof = 0; }
+    spin_unlock_irqrestore(&in_lock, f);
+    return r;
+}
+int64_t console_stdin_poll(uint32_t pid, char* out, uint64_t cap) {
+    uint64_t f = spin_lock_irqsave(&in_lock);
+    int64_t r = -11;
+    if (in_intr_pid == pid) { in_intr_pid = 0; r = -4; }
+    else if (in_owner != pid) r = -4;
+    else if (in_tail != in_head) {
+        unsigned i = in_tail % IN_LINES, left = in_qlen[i] - in_off, n = cap < left ? (unsigned)cap : left;
+        for (unsigned k = 0; k < n; k++) out[k] = in_q[i][in_off + k];
+        in_off += n;
+        if (in_off == in_qlen[i]) { in_off = 0; in_tail++; }
+        r = n;
+    } else if (in_eof) { in_eof = 0; r = 0; }
+    spin_unlock_irqrestore(&in_lock, f);
+    return r;
+}
+void console_stdin_release(uint32_t pid) {
+    uint64_t f = spin_lock_irqsave(&in_lock);
+    if (in_owner == pid) in_owner = 0;
+    if (in_intr_pid == pid) in_intr_pid = 0;
+    spin_unlock_irqrestore(&in_lock, f);
+}
+/* 1 - строка принята программой (оболочка её не видит). */
+static int stdin_take_line(void) {
+    uint64_t f = spin_lock_irqsave(&in_lock);
+    int taken = 0;
+    if (in_owner) {
+        taken = 1;
+        if (in_head - in_tail < IN_LINES) {
+            char* q = in_q[in_head % IN_LINES]; unsigned n = line_len;
+            for (unsigned k = 0; k < n; k++) q[k] = line[k];
+            q[n++] = '\n'; in_qlen[in_head % IN_LINES] = n; in_head++;
+        }                                                          /* очередь полна: строку теряем, как терминал без места */
+    }
+    spin_unlock_irqrestore(&in_lock, f);
+    return taken;
+}
+static int stdin_owned(void) { uint64_t f = spin_lock_irqsave(&in_lock); int r = in_owner != 0; spin_unlock_irqrestore(&in_lock, f); return r; }
+static void stdin_signal(int ctrl_c) {                            /* Ctrl+C: ввод возвращается оболочке; Ctrl+D: конец ввода */
+    uint64_t f = spin_lock_irqsave(&in_lock);
+    if (ctrl_c) { in_intr_pid = in_owner; in_owner = 0; } else in_eof = 1;
+    spin_unlock_irqrestore(&in_lock, f);
+}
+
+int console_request(const char* l) { return console_request_src(l, AUD_SRC_CONSOLE); }
+
+int console_request_src(const char* l, unsigned src) {
     if (!l) return -1;
     unsigned len = 0;
     while (l[len] && len < REQ_LEN) len++;
@@ -730,6 +880,7 @@ int console_request(const char* l) {
     uint64_t f = spin_lock_irqsave(&req_lock);
     if (req_head - req_tail >= REQ_N) { spin_unlock_irqrestore(&req_lock, f); return -1; }
     char* d = req_q[req_head % REQ_N];
+    req_src[req_head % REQ_N] = src;
     for (unsigned i = 0; i <= len; i++) d[i] = l[i];
     req_head++;
     spin_unlock_irqrestore(&req_lock, f);
@@ -747,6 +898,7 @@ static void run_requests(void) {
             break;
         }
         unsigned i = 0; const char* q = req_q[req_tail % REQ_N];
+        unsigned src = req_src[req_tail % REQ_N];
         while (q[i]) { cmd[i] = q[i]; i++; }
         cmd[i] = 0;
         req_tail++;
@@ -756,7 +908,9 @@ static void run_requests(void) {
         uart_print(cmd); uart_putchar('\n');
         history_add(cmd);
         char tmp[REQ_LEN]; for (unsigned k = 0; k <= i; k++) tmp[k] = cmd[k];
+        audit_set_cmd_source(src);               /* события, вызванные командой (запуск программы, монтирование...), записываются от имени её источника */
         run_line(tmp);
+        audit_set_cmd_source(AUD_SRC_CONSOLE);
         hist_pos = hist_n;
         show_prompt();
         for (unsigned k = 0; k < keep; k++) uart_putchar(line[k]);
@@ -769,10 +923,16 @@ void console_poll(void) {
     run_requests();
     int c, budget = 512;                       /* за один вызов - не больше 512 знаков: основной поток всегда идёт дальше */
     while (budget-- > 0 && (c = console_next_char()) >= 0) {
-        event_count++;
+        input_note_event();
         if (c == '\n' && last_cr) { last_cr = 0; continue; }       // пара CR LF от терминала - одна команда
         last_cr = (c == '\r');
-        if (c == '\r' || c == '\n') {
+        if ((c == '\r' || c == '\n') && stdin_owned()) {           // программа читает ввод: строка ей, не оболочке
+            uart_putchar('\n');
+            stdin_take_line();
+            line_len = 0;
+        } else if (c == 4 && line_len == 0 && stdin_owned()) {      // Ctrl+D на пустой строке: конец ввода программы
+            stdin_signal(0);
+        } else if (c == '\r' || c == '\n') {
             uart_putchar('\n');
             line[line_len] = 0;
             history_add(line);
@@ -788,6 +948,7 @@ void console_poll(void) {
         } else if (c == 21) {                                         // Ctrl+U
             erase_echo();
         } else if (c == 3) {                                          // Ctrl+C
+            if (stdin_owned()) stdin_signal(1);                       // программа теряет ввод, оболочка возвращается
             uart_print("^C\n"); line_len = 0; hist_pos = hist_n; show_prompt();
         } else if (c == 12) {                                         // Ctrl+L: очистить, строку оставить
             cmd_clear(0);

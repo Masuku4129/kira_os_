@@ -86,7 +86,7 @@ jobs:
               "arm64": code,
               "gui": infra or any(
                   p in {"wm.c", "gfxui.c", "gfx2d.c", "font8x16.c", "icons.c",
-                        "brainfx.c", "apps.c", "dock.c", "display.c", "framegov.c", "apps.h",
+                        "brainfx.c", "wallpaper.c", "apps.c", "dock.c", "display.c", "framegov.c", "apps.h",
                         "mind_sys.h", "explorer.c", "fm.c", "mind_view.c"}
                   or p.startswith(("tests/wm", "tests/ui", "tests/display_preview"))
                   for p in changed
@@ -220,6 +220,34 @@ jobs:
           path: |
             ci-out/kcc-tests.log
             ci-out/kcc-selfhost.log
+
+  own-toolchain:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.kcc == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare writable apt archive cache
+        run: sudo mkdir -p /var/cache/apt/archives && sudo chmod 1777 /var/cache/apt/archives
+      - uses: actions/cache@v4
+        with:
+          path: /var/cache/apt/archives/*.deb
+          key: kira-apt-v1-${{ github.job }}-${{ runner.arch }}
+      - name: tools (clang, lld, nasm for reference output; QEMU to boot the kernels)
+        run: sudo apt-get update -q && sudo apt-get install -y -q clang lld nasm qemu-system-x86
+      - name: manifest.h for progs.c (same step as the image build; git ignores the generated file)
+        run: ./build_clang.sh --no-run 2>&1 | tail -3
+      - name: KAS assembler against nasm, KLink linker against ld.lld, kernel built only by KCC+KAS+KLink boots
+        run: |
+          mkdir -p ci-out
+          set -o pipefail
+          { bash tests/kas_test.sh && bash tests/klink_test.sh && bash tests/kernel_selfbuilt_boot_test.sh; } 2>&1 | tee ci-out/own-toolchain.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kira-own-toolchain
+          path: ci-out/own-toolchain.log
 
   driver-e2e:
     needs: detect-changes
@@ -431,7 +459,7 @@ jobs:
       - name: QEMU
         run: sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends qemu-system-x86 ipxe-qemu dosfstools mtools python3-pil python3-cryptography openssl
       - name: kfstool (test files on the VM disk)
-        run: gcc -O1 -Wall -DKFS_NO_THREADS -I. -Iarch/x86_64 -o tools/kfstool tools/kfstool.c kfs.c store.c sha256.c
+        run: gcc -O1 -Wall -DKFS_NO_THREADS -I. -Iarch/x86_64 -o tools/kfstool tools/kfstool.c kfs.c zstd.c store.c sha256.c sysseal.c cbor.c cas.c
       - name: mindseed (испытательное семя для сценария mind-seed - не результат обучения)
         run: |
           mkdir -p ci-out
@@ -506,14 +534,14 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p ci-out
-          gcc -O1 -g -Wall -Werror -DKIRA_HOST_TEST -I. -Iarch/x86_64 -no-pie -o /tmp/kira-wm tests/wm_test.c wm.c gfxui.c gfx2d.c font8x16.c icons.c brainfx.c
+          gcc -O1 -g -Wall -Werror -DKIRA_HOST_TEST -I. -Iarch/x86_64 -no-pie -o /tmp/kira-wm tests/wm_test.c wm.c gfxui.c gfx2d.c font8x16.c icons.c brainfx.c wallpaper.c
           /tmp/kira-wm 2>&1 | tee ci-out/gui-regression.log
           gcc -O1 -g -Wall -Werror -DKIRA_HOST_TEST -I. -Iarch/x86_64 -no-pie -fsanitize=address,undefined -o /tmp/kira-ui tests/ui_test.c gfxui.c gfx2d.c font8x16.c -lm
           /tmp/kira-ui 2>&1 | tee -a ci-out/gui-regression.log
       - name: Shell end-to-end preview (Mind, Explorer, Monitor, Settings, Dock, input)
         run: |
           set -euo pipefail
-          gcc -O1 -g -Wall -Werror -DKIRA_HOST_TEST -I. -Iarch/x86_64 -fsanitize=address,undefined -o /tmp/kira-display-preview tests/display_preview.c display.c framegov.c kpar.c wm.c gfxui.c icons.c brainfx.c apps.c fm.c dock.c mind.c mindnet.c rtc.c input.c gfx2d.c font8x16.c klog.c fbcon.c -lm
+          gcc -O1 -g -Wall -Werror -DKIRA_HOST_TEST -I. -Iarch/x86_64 -fsanitize=address,undefined -o /tmp/kira-display-preview tests/display_preview.c display.c framegov.c kpar.c wm.c gfxui.c icons.c brainfx.c wallpaper.c zstd.c apps.c fm.c dock.c mind.c mindnet.c rtc.c input.c gfx2d.c font8x16.c klog.c fbcon.c -lm
           for resolution in "1024 768" "1280 720" "1920 1080"; do
             read -r width height <<< "$resolution"
             echo "Display preview: ${width}x${height}" | tee -a ci-out/gui-regression.log
@@ -532,7 +560,7 @@ jobs:
           if-no-files-found: warn
 
   report:
-    needs: [detect-changes, audit, host-tests, kcc-tests, driver-e2e, build, uefi-ovmf, vm, arm64, mind-quality, gui-regression]
+    needs: [detect-changes, audit, host-tests, kcc-tests, own-toolchain, driver-e2e, build, uefi-ovmf, vm, arm64, mind-quality, gui-regression]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -593,6 +621,7 @@ jobs:
           MIND_RESULT: ${{ needs.mind-quality.result }}
           GUI_RESULT: ${{ needs.gui-regression.result }}
           KCC_RESULT: ${{ needs.kcc-tests.result }}
+          OWN_RESULT: ${{ needs.own-toolchain.result }}
           DRIVER_RESULT: ${{ needs.driver-e2e.result }}
           UEFI_RESULT: ${{ needs.uefi-ovmf.result }}
         run: |
@@ -608,6 +637,7 @@ jobs:
               ("Mind quality", "MIND_RESULT"),
               ("GUI regression", "GUI_RESULT"),
               ("KCC compiler suite", "KCC_RESULT"),
+              ("Own toolchain (KAS, KLink, self-built kernel)", "OWN_RESULT"),
               ("Driver installer E2E", "DRIVER_RESULT"),
               ("UEFI OVMF boot", "UEFI_RESULT"),
           ]

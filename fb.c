@@ -4,6 +4,10 @@
 #include "uart.h"
 #include "fbpix.h"
 #include "spinlock.h"
+#if defined(__x86_64__) && !defined(KIRA_HOST_TEST)
+#include "pci.h"
+#include "devpm.h"
+#endif
 
 #define MB2_TAG_END 0
 #define MB2_TAG_FRAMEBUFFER 8
@@ -18,6 +22,7 @@ typedef struct {
     uint8_t red_pos, red_size, green_pos, green_size, blue_pos, blue_size;
 } __attribute__((packed)) mb2_fb_tag_t;
 
+static void fb_sleep_register(void);
 static fb_info_t info;
 static int ready;
 static surface_t back;
@@ -98,6 +103,7 @@ int fb_init(unsigned long mbi) {
     gfx_fill(&back, 0x000000);
 
     ready = 1;
+    fb_sleep_register();
     uart_print("[KIRA FB] ");
     uart_print_dec(w); uart_print("x"); uart_print_dec(h); uart_print("x"); uart_print_dec(tag->bpp); uart_print(" linear framebuffer at ");
     uart_print_hex(phys);
@@ -114,6 +120,54 @@ static void copy_row(uint8_t* dst, const uint8_t* src, uint32_t px) {
     gfx_copy64(dst, src, q);
     if (px & 1) ((uint32_t*)dst)[px - 1] = ((const uint32_t*)src)[px - 1];
 }
+
+#if defined(__x86_64__) && !defined(KIRA_HOST_TEST)
+/* Сон S3: кадровый буфер от загрузчика - режим, выставленный прошивкой (VBE) в видеокарте без драйвера. После пробуждения карта в режиме по
+   умолчанию (текст), а режимы настоящих видеокарт (Intel, AMD, NVIDIA) без их драйвера программно не вернуть. Для адаптеров с интерфейсом
+   Bochs VBE (QEMU std/bochs, VirtualBox) режим возвращается регистрами: запоминаются все десять и записываются обратно, затем кадр выводится заново.
+   Для остальных - честное предупреждение в журнал: сон состоится, консоль по COM1 и сеть останутся, экран может остаться тёмным. */
+#define BGA_INDEX 0x1CE
+#define BGA_DATA  0x1CF
+static uint16_t bga_saved[10]; static int bga_have, bga_warned;
+static inline void outw_(uint16_t p, uint16_t v) { __asm__ volatile ("outw %0, %1" : : "a"(v), "Nd"(p)); }
+static inline uint16_t inw_(uint16_t p) { uint16_t v; __asm__ volatile ("inw %1, %0" : "=a"(v) : "Nd"(p)); return v; }
+static uint16_t bga_rd(unsigned i) { outw_(BGA_INDEX, (uint16_t)i); return inw_(BGA_DATA); }
+static void bga_wr(unsigned i, uint16_t v) { outw_(BGA_INDEX, (uint16_t)i); outw_(BGA_DATA, v); }
+static int bga_adapter(void) { return pci_find(0x1234, 0x1111) || pci_find(0x80EE, 0xBEEF); }
+static int fb_sleep_suspend(void* ctx) {
+    (void)ctx;
+    bga_have = 0;
+    if (!ready) return 0;
+    if (bga_adapter()) {
+        uint16_t id = bga_rd(0);
+        if (id >= 0xB0C0 && id <= 0xB0CF) { for (unsigned i = 0; i < 10; i++) bga_saved[i] = bga_rd(i); bga_have = 1; }
+    }
+    if (!bga_have && !bga_warned) {
+        bga_warned = 1;
+        uart_print("[KIRA SLEEP] display: the boot framebuffer sits on an adapter without a kernel driver: its video mode cannot be restored after sleep, the screen may stay blank (serial console and network are unaffected).\n");
+    }
+    return 0;
+}
+static int fb_sleep_resume(void* ctx) {
+    (void)ctx;
+    if (!ready || !bga_have) return 0;
+    bga_wr(4, 0);                                                    /* ENABLE = 0 на время настройки */
+    for (unsigned i = 1; i <= 3; i++) bga_wr(i, bga_saved[i]);        /* XRES, YRES, BPP */
+    bga_wr(5, bga_saved[5]);
+    for (unsigned i = 6; i <= 9; i++) bga_wr(i, bga_saved[i]);        /* виртуальный размер и смещение */
+    bga_wr(4, (uint16_t)(bga_saved[4] | 0x80));                      /* ENABLE и LFB как были; 0x80 - не очищать видеопамять */
+    for (unsigned i = 1; i <= 3; i++) if (bga_rd(i) != bga_saved[i]) { uart_print("[KIRA SLEEP] display: the adapter did not accept the saved video mode.\n"); return -1; }
+    fb_present();                                                    /* весь кадр - в видеопамять */
+    return 0;
+}
+static void fb_sleep_register(void) { (void)devpm_register("framebuffer", fb_sleep_suspend, fb_sleep_resume, 0); }
+#else
+static void fb_sleep_register(void) { }
+#endif
+
+static int direct;
+static int fb_direct_ok;                           /* ставит драйвер экрана перед fb_attach_linear: память кадра кэшируемая и устройство видит её согласованно */
+void fb_set_direct_ok(int ok) { fb_direct_ok = ok; }                                  /* 1 - кадр собирается прямо в память, которую читает устройство (виртуальный экран в ОЗУ): заднего буфера и копирования нет */
 
 void fb_present_rect(int x, int y, int w, int h) {
     if (!ready) return;
@@ -135,6 +189,7 @@ void fb_present_rect(int x, int y, int w, int h) {
         if (y1 > dy1) dy1 = y1;
         spin_unlock_irqrestore(&dlk, f);
     }
+    if (direct) return;                           // кадр уже лежит там, где его читает устройство
     x0 &= ~1;                                     // выравнивание по 8 байт для rep movsq
     for (int j = y0; j < y1; j++) {
         copy_row(front + (uint64_t)j * info.pitch_bytes + (uint64_t)x0 * 4,
@@ -142,17 +197,30 @@ void fb_present_rect(int x, int y, int w, int h) {
     }
 }
 
-void fb_frame_done(void) {
-    if (!ready || !flush_hook) return;
+uint64_t fb_frame_done(void) {
+    if (!ready || !flush_hook) return 0;
     uint64_t f = spin_lock_irqsave(&dlk);
     int x0 = dx0, y0 = dy0, x1 = dx1, y1 = dy1;
     dx0 = dy0 = 1 << 30; dx1 = dy1 = 0;
     spin_unlock_irqrestore(&dlk, f);
-    if (x1 > x0 && y1 > y0) flush_hook(x0, y0, x1 - x0, y1 - y0);
+    if (x1 > x0 && y1 > y0) { flush_hook(x0, y0, x1 - x0, y1 - y0); return (uint64_t)(x1 - x0) * (uint64_t)(y1 - y0); }
+    return 0;
 }
 
 int fb_attach_linear(uint64_t phys, void* fr, uint32_t w, uint32_t h, uint32_t pitch, void (*flush)(int, int, int, int)) {
     if (ready || w < 320 || h < 200 || pitch < w * 4) return -1;
+    if (flush && (pitch & 3) == 0 && fb_direct_ok) {     /* память устройства - обычная кэшируемая ОЗУ: рисуем в неё сразу, без второго экрана и прохода копирования на каждый кадр */
+        fmt = (fbpix_fmt_t){ 4, 16, 8, 8, 8, 0, 8 };
+        native = 1; direct = 1;
+        front = (uint8_t*)fr;
+        info.phys = phys; info.width = w; info.height = h; info.pitch_bytes = pitch; info.bpp = 32;
+        info.write_combining = 0; info.back_phys = phys; info.back_bytes = pitch * h;
+        back.px = (uint32_t*)fr; back.w = (int)w; back.h = (int)h; back.pitch = (int)(pitch / 4);
+        gfx_fill(&back, 0x000000);
+        flush_hook = flush;
+        ready = 1;
+        return 0;
+    }
     fmt = (fbpix_fmt_t){ 4, 16, 8, 8, 8, 0, 8 };
     native = 1;
     front = (uint8_t*)fr;

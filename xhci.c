@@ -1,6 +1,7 @@
 #include "cpu.h"
 #include "usb.h"
 #include "pci.h"
+#include "iommu.h"
 
 /* xHCI (USB 3.x): регистры в памяти (BAR0), команды и передачи - кольцами TRB в памяти, итоги - кольцом событий.
    Порядок запуска по спецификации: передача контроллера от BIOS (USB Legacy Support), сброс, DCBAA, кольцо команд,
@@ -61,6 +62,7 @@ typedef struct {
     volatile uint8_t* cap; volatile uint8_t* op; volatile uint8_t* rt; volatile uint32_t* db;
     uint32_t nports, maxslots, csz;
     int ac64;
+    const pci_dev_t* pci; int iso;          /* устройство и признак: свой домен VT-d, память выдаётся по одной выделенной области */
     volatile uint64_t* dcbaa; uint64_t dcbaa_phys;
     ring_t cmd;
     trb_t* ev; uint64_t ev_phys; unsigned ev_deq; uint32_t ev_cycle;
@@ -83,6 +85,15 @@ static int started;
 static xhci_t* X;
 #define xs (*X)
 
+/* Память для контроллера: страницы usb_dma_alloc; при изоляции VT-d тут же выдаются устройству (чтение и запись). Всё, что
+   контроллер трогает по DMA (кольца, контексты, DCBAA, scratchpad, буферы передач), берётся только отсюда. */
+static void* xdma(uint32_t bytes, uint64_t* ph) {
+    void* m = usb_dma_alloc(bytes, ph, !xs.ac64);
+    if (!m) return 0;
+    if (xs.iso && iommu_map(xs.pci, *ph, *ph, ((uint64_t)bytes + 4095) & ~4095ull, IOMMU_R | IOMMU_W) != 0) return 0;
+    return m;
+}
+
 #define BARRIER() cpu_mb()            /* DMA и регистры устройства: на ARM нужен настоящий барьер */
 static inline uint32_t r32(volatile uint8_t* b, uint32_t off) { return *(volatile uint32_t*)(b + off); }
 static inline void w32(volatile uint8_t* b, uint32_t off, uint32_t v) { *(volatile uint32_t*)(b + off) = v; }
@@ -91,7 +102,7 @@ static inline void w64(volatile uint8_t* b, uint32_t off, uint64_t v) { w32(b, o
 /* ---------------- кольца ---------------- */
 
 static int ring_init(ring_t* r) {
-    r->t = (trb_t*)usb_dma_alloc(RING_N * 16, &r->phys, !xs.ac64);
+    r->t = (trb_t*)xdma(RING_N * 16, &r->phys);
     if (!r->t) return -1;
     r->enq = 0; r->cycle = 1;
     trb_t* l = &r->t[RING_N - 1];
@@ -273,9 +284,9 @@ static struct usb_pipe* pipe_new(usb_dev_t* d, uint8_t ep, uint16_t maxp, int bu
     for (int i = 0; i < NPIPE; i++) if (!xs.pipes[i].used) { p = &xs.pipes[i]; break; }
     if (!p) { usb_log("[KIRA USB] xHCI: too many open endpoints\n"); return 0; }
     if (!p->ring.t && ring_init(&p->ring) != 0) return 0;
-    if (!bulk && !p->buf && !(p->buf = (uint8_t*)usb_dma_alloc(1024, &p->buf_phys, !xs.ac64))) return 0;
+    if (!bulk && !p->buf && !(p->buf = (uint8_t*)xdma(1024, &p->buf_phys))) return 0;
     if (bulk && !p->big) {                                             /* 32 КБ, из них 16 КБ, выровненные на 16 КБ */
-        uint64_t ph; uint8_t* m = (uint8_t*)usb_dma_alloc(2 * BULK_MAX, &ph, !xs.ac64);
+        uint64_t ph; uint8_t* m = (uint8_t*)xdma(2 * BULK_MAX, &ph);
         if (!m) return 0;
         uint64_t skip = (BULK_MAX - (ph & (BULK_MAX - 1))) & (BULK_MAX - 1);
         p->big = m + skip; p->big_phys = ph + skip;
@@ -434,9 +445,9 @@ static usb_dev_t* xhci_enumerate(usb_hc_t* hc, usb_dev_t* parent, uint8_t port, 
     if (!d) { usb_log("[KIRA USB] too many USB devices\n"); command(0, 0, (TRB_DISABLE_SLOT << 10) | (sl << 24), 0); return 0; }
     d->hc_slot = sl;
     if (!xs.slot[sl].in) {
-        xs.slot[sl].in = (uint8_t*)usb_dma_alloc(33 * 64, &xs.slot[sl].in_phys, !xs.ac64);
-        xs.slot[sl].out = (uint8_t*)usb_dma_alloc(32 * 64, &xs.slot[sl].out_phys, !xs.ac64);
-        xs.slot[sl].buf = (uint8_t*)usb_dma_alloc(1024, &xs.slot[sl].buf_phys, !xs.ac64);
+        xs.slot[sl].in = (uint8_t*)xdma(33 * 64, &xs.slot[sl].in_phys);
+        xs.slot[sl].out = (uint8_t*)xdma(32 * 64, &xs.slot[sl].out_phys);
+        xs.slot[sl].buf = (uint8_t*)xdma(1024, &xs.slot[sl].buf_phys);
         if (!xs.slot[sl].in || !xs.slot[sl].out || !xs.slot[sl].buf || ring_init(&xs.slot[sl].ep0) != 0) {
             usb_log("[KIRA USB] xHCI: no memory\n"); usb_dev_free(d); return 0;
         }
@@ -519,7 +530,73 @@ static void bios_handoff(volatile uint8_t* cap) {
     }
 }
 
-int xhci_start(usb_hc_t* hc, const void* pd) {
+/* Стоп и сброс контроллера (HCRST): после него он не обращается к памяти. */
+static int xhci_reset(void) {
+    w32(xs.op, 0, r32(xs.op, 0) & ~1u);                               /* стоп */
+    for (int i = 0; i < 50 && !(r32(xs.op, 4) & 1u); i++) usb_sleep_ms(1);
+    w32(xs.op, 0, 2u);                                                 /* HCRST */
+    for (int i = 0; i < 200 && ((r32(xs.op, 0) & 2u) || (r32(xs.op, 4) & (1u << 11))); i++) usb_sleep_ms(5);
+    return ((r32(xs.op, 0) & 2u) || (r32(xs.op, 4) & (1u << 11))) ? -1 : 0;
+}
+
+/* Проверка принуждения IOMMU: кольцо команд указывает на страницу, которая устройству НЕ выдана; первое же обращение
+   контроллера за командой должно кончиться записью нарушения. Нет нарушения - изоляция не объявляется (домен снимается). */
+static int xhci_enforced(void) {
+    uint64_t cp;
+    trb_t* c = (trb_t*)usb_dma_alloc(4096, &cp, !xs.ac64);        /* намеренно без выдачи */
+    if (!c) return 0;
+    c[0].ctl = (23u << 10) | 1u;                                   /* No-Op, цикл 1 */
+    uint32_t before = iommu_fault_count(xs.pci);
+    iommu_expect_fault(xs.pci, 1);
+    w64(xs.op, 0x18, cp | 1u);                                     /* CRCR */
+    w32(xs.op, 0, 1u);                                             /* пуск */
+    xs.db[0] = 0;
+    int seen = 0;
+    for (uint32_t i = 0; i < 200000 && !seen; i++) { (void)iommu_fault_poll(); seen = iommu_fault_count(xs.pci) > before; if (!seen) cpu_relax(); }
+    iommu_expect_fault(xs.pci, 0);
+    return seen;
+}
+
+/* Запуск контроллера на готовой памяти (DCBAA, кольца, ERST): регистры, пуск, питание портов. Общий для первого пуска и пробуждения из сна. */
+static int xhci_run(void) {
+    w32(xs.op, 0x38, xs.maxslots);                                     /* CONFIG */
+    w64(xs.op, 0x30, xs.dcbaa_phys);                                   /* DCBAAP */
+    w64(xs.op, 0x18, xs.cmd.phys | 1u);                                /* CRCR, RCS = 1 */
+    w32(xs.rt, 0x20 + 0x00, 0);                                        /* IMAN: без прерываний */
+    w32(xs.rt, 0x20 + 0x08, 1);                                        /* ERSTSZ */
+    w64(xs.rt, 0x20 + 0x18, xs.ev_phys);                               /* ERDP */
+    w64(xs.rt, 0x20 + 0x10, xs.erst_phys);                             /* ERSTBA - последним */
+    w32(xs.op, 0, 1u);                                                 /* пуск */
+    for (int i = 0; i < 50 && (r32(xs.op, 4) & 1u); i++) usb_sleep_ms(1);
+    if (r32(xs.op, 4) & 1u) { usb_log("[KIRA USB] xHCI does not start\n"); return -1; }
+    if (r32(xs.cap, 0x10) & (1u << 3))                                              /* питание портов управляется: включить */
+        for (uint32_t port = 1; port <= xs.nports; port++) { uint32_t v = r32(xs.op, portsc_off(port)); if (!(v & PS_PP)) w32(xs.op, portsc_off(port), (v & PS_PRESERVE) | PS_PP); }
+    usb_sleep_ms(50);                                                  /* линии USB 3 успевают натренироваться */
+
+    return 0;
+}
+
+/* Сон S3: контроллер останавливается и сбрасывается; после сна запускается заново на той же памяти, кольца и таблица слотов обнуляются (устройства к этому
+   моменту отключены программно, поток usb подключит их снова по состоянию портов). */
+static int xhci_suspend(usb_hc_t* hc) {
+    X = (xhci_t*)hc->priv;
+    return xhci_reset();
+}
+static int xhci_resume(usb_hc_t* hc) {
+    X = (xhci_t*)hc->priv;
+    if (r32(xs.op, 4) == 0xFFFFFFFFu) return -1;                       /* регистры не отвечают */
+    if (xhci_reset() != 0) return -2;
+    for (uint32_t i = 1; i <= xs.maxslots; i++) xs.dcbaa[i] = 0;
+    ring_reset(&xs.cmd);
+    for (unsigned i = 0; i < EV_N; i++) { xs.ev[i].p0 = xs.ev[i].p1 = xs.ev[i].st = xs.ev[i].ctl = 0; }
+    xs.ev_deq = 0; xs.ev_cycle = 1;
+    xs.cmd_done = 0;
+    for (int i = 0; i < 256; i++) xs.port_seen[i] = 0;
+    if (xhci_run() != 0) return -3;
+    return 0;
+}
+
+static int xhci_start_dev(usb_hc_t* hc, const void* pd, int iso) {
     const pci_dev_t* p = (const pci_dev_t*)pd;
     if (started >= XHCI_MAX) { usb_log("[KIRA USB] more than 16 xHCI controllers: the rest are not used\n"); return -1; }
     if (!xall[started]) xall[started] = (xhci_t*)usb_dma_alloc(sizeof(xhci_t), &(uint64_t){ 0 }, 0);   /* обнулённые страницы */
@@ -535,6 +612,7 @@ int xhci_start(usb_hc_t* hc, const void* pd) {
     volatile uint8_t* cap = (volatile uint8_t*)pci_map_bar(p, 0, 0, sz);
     if (!cap) { usb_log("[KIRA USB] xHCI: cannot map registers\n"); return -1; }
     for (unsigned long i = 0; i < sizeof xs; i++) ((volatile uint8_t*)X)[i] = 0;   /* десятки КБ: не через временную копию на стеке */
+    xs.pci = p; xs.iso = iso;
     xs.cap = cap;
     uint32_t caplen = cap[0], hcs1 = r32(cap, 4), hcs2 = r32(cap, 8), hcc1 = r32(cap, 0x10);
     xs.op = cap + caplen; xs.rt = cap + (r32(cap, 0x18) & ~0x1Fu); xs.db = (volatile uint32_t*)(cap + (r32(cap, 0x14) & ~3u));
@@ -544,41 +622,33 @@ int xhci_start(usb_hc_t* hc, const void* pd) {
     if ((uint64_t)(xs.rt - cap) + 0x40 > sz || (uint64_t)((volatile uint8_t*)xs.db - cap) + 4 * (MAXSLOT + 1) > sz) { usb_log("[KIRA USB] xHCI: registers outside BAR\n"); return -1; }
 
     bios_handoff(cap);
-    w32(xs.op, 0, r32(xs.op, 0) & ~1u);                               /* стоп */
-    for (int i = 0; i < 50 && !(r32(xs.op, 4) & 1u); i++) usb_sleep_ms(1);
-    w32(xs.op, 0, 2u);                                                 /* HCRST */
-    for (int i = 0; i < 200 && ((r32(xs.op, 0) & 2u) || (r32(xs.op, 4) & (1u << 11))); i++) usb_sleep_ms(5);
-    if ((r32(xs.op, 0) & 2u) || (r32(xs.op, 4) & (1u << 11))) { usb_log("[KIRA USB] xHCI reset timeout\n"); return -1; }
+    if (xhci_reset() != 0) { usb_log("[KIRA USB] xHCI reset timeout\n"); return -1; }
+    if (xs.iso) {
+        if (xhci_enforced()) usb_log("[KIRA IOMMU] xHCI: enforcement check passed - DMA to memory that was not granted is blocked.\n");
+        else {
+            usb_log("[KIRA IOMMU] xHCI: no DMA fault seen in the enforcement check: isolation NOT confirmed, controller stays passthrough.\n");
+            iommu_release_device(p); xs.iso = 0;
+        }
+        if (xhci_reset() != 0) { usb_log("[KIRA USB] xHCI reset timeout\n"); return -1; }
+    }
 
-    xs.dcbaa = (volatile uint64_t*)usb_dma_alloc(2048, &xs.dcbaa_phys, !xs.ac64);
+    xs.dcbaa = (volatile uint64_t*)xdma(2048, &xs.dcbaa_phys);
     if (!xs.dcbaa || ring_init(&xs.cmd) != 0) { usb_log("[KIRA USB] xHCI: no memory\n"); return -1; }
     uint32_t nsp = ((hcs2 >> 27) & 31) | (((hcs2 >> 21) & 31) << 5);
     if (nsp) {                                                         /* рабочая память контроллера */
         uint64_t arr_phys;
-        volatile uint64_t* arr = (volatile uint64_t*)usb_dma_alloc(nsp * 8, &arr_phys, !xs.ac64);
+        volatile uint64_t* arr = (volatile uint64_t*)xdma(nsp * 8, &arr_phys);
         if (!arr) return -1;
-        for (uint32_t i = 0; i < nsp; i++) { uint64_t ph; if (!usb_dma_alloc(4096, &ph, !xs.ac64)) return -1; arr[i] = ph; }
+        for (uint32_t i = 0; i < nsp; i++) { uint64_t ph; if (!xdma(4096, &ph)) return -1; arr[i] = ph; }
         xs.dcbaa[0] = arr_phys;
     }
-    xs.ev = (trb_t*)usb_dma_alloc(EV_N * 16, &xs.ev_phys, !xs.ac64);
-    xs.erst = (volatile uint64_t*)usb_dma_alloc(64, &xs.erst_phys, !xs.ac64);
+    xs.ev = (trb_t*)xdma(EV_N * 16, &xs.ev_phys);
+    xs.erst = (volatile uint64_t*)xdma(64, &xs.erst_phys);
     if (!xs.ev || !xs.erst) return -1;
     xs.erst[0] = xs.ev_phys; xs.erst[1] = EV_N;
     xs.ev_deq = 0; xs.ev_cycle = 1;
 
-    w32(xs.op, 0x38, xs.maxslots);                                     /* CONFIG */
-    w64(xs.op, 0x30, xs.dcbaa_phys);                                   /* DCBAAP */
-    w64(xs.op, 0x18, xs.cmd.phys | 1u);                                /* CRCR, RCS = 1 */
-    w32(xs.rt, 0x20 + 0x00, 0);                                        /* IMAN: без прерываний */
-    w32(xs.rt, 0x20 + 0x08, 1);                                        /* ERSTSZ */
-    w64(xs.rt, 0x20 + 0x18, xs.ev_phys);                               /* ERDP */
-    w64(xs.rt, 0x20 + 0x10, xs.erst_phys);                             /* ERSTBA - последним */
-    w32(xs.op, 0, 1u);                                                 /* пуск */
-    for (int i = 0; i < 50 && (r32(xs.op, 4) & 1u); i++) usb_sleep_ms(1);
-    if (r32(xs.op, 4) & 1u) { usb_log("[KIRA USB] xHCI does not start\n"); return -1; }
-    if (hcc1 & (1u << 3))                                              /* питание портов управляется: включить */
-        for (uint32_t port = 1; port <= xs.nports; port++) { uint32_t v = r32(xs.op, portsc_off(port)); if (!(v & PS_PP)) w32(xs.op, portsc_off(port), (v & PS_PRESERVE) | PS_PP); }
-    usb_sleep_ms(50);                                                  /* линии USB 3 успевают натренироваться */
+    if (xhci_run() != 0) return -1;
 
     started++;
     hc->name = "xHCI"; hc->priv = X;
@@ -586,9 +656,18 @@ int xhci_start(usb_hc_t* hc, const void* pd) {
     hc->intr_open = xhci_intr_open; hc->intr_poll = xhci_intr_poll;
     hc->bulk_open = xhci_bulk_open; hc->bulk_xfer = xhci_bulk_xfer; hc->bulk_reset = xhci_bulk_reset;
     hc->pipe_close = xhci_pipe_close; hc->ports = xhci_ports; hc->release = xhci_release;
+    hc->suspend = xhci_suspend; hc->resume = xhci_resume;
     usb_log("[KIRA USB] xHCI "); usb_log_hex(p->vendor); usb_log(":"); usb_log_hex(p->device);
     usb_log(", "); usb_log_dec(xs.nports); usb_log(" ports, "); usb_log_dec(xs.maxslots); usb_log(" slots, context ");
     usb_log_dec(xs.csz); usb_log(" B"); if (nsp) { usb_log(", scratchpad "); usb_log_dec(nsp); }
     usb_log(", polled event ring\n");
     return 0;
+}
+
+int xhci_start(usb_hc_t* hc, const void* pd) {
+    const pci_dev_t* p = (const pci_dev_t*)pd;
+    int iso = iommu_isolate_device(p) == 0;                       /* свой домен VT-d без отображений - до включения bus mastering */
+    int r = xhci_start_dev(hc, pd, iso);
+    if (r != 0 && iso) iommu_release_device(p);
+    return r;
 }

@@ -14,6 +14,7 @@
 #include "kmutex.h"
 #include "cpu.h"
 #include "audio.h"
+#include "devpm.h"
 
 enum { GCAP = 0x00, GCTL = 0x08, STATESTS = 0x0E, INTCTL = 0x20, CORBLBASE = 0x40, CORBUBASE = 0x44, CORBWP = 0x48,
        CORBRP = 0x4A, CORBCTL = 0x4C, CORBSIZE = 0x4E, RIRBLBASE = 0x50, RIRBUBASE = 0x54, RIRBWP = 0x58,
@@ -35,6 +36,8 @@ static struct {
     uint8_t* buf; uint64_t buf_p;
     uint32_t* bdl; uint64_t bdl_p;
     int up;
+    volatile int asleep;             /* сон S3: контроллер остановлен */
+    const pci_dev_t* pci;
     volatile uint8_t* isd;           /* дескриптор первого потока записи */
     unsigned in_pin, adc, in_dev; int in_up;
     uint8_t* ibuf; uint64_t ibuf_p;
@@ -213,15 +216,8 @@ static void stream_ring(volatile uint8_t* sd, uint32_t* bdl, uint64_t bdl_p, uin
     MMIO_W8(sd + SD_CTL, 2);                                     /* пуск: дальше - по кругу */
 }
 
-static void hda_print(void);
-int hda_probe(void) {
-    const pci_dev_t* p = 0;
-    for (int i = 0; i < pci_count() && !p; i++) { const pci_dev_t* d = pci_get(i); if (d->class_code == 0x04 && d->subclass == 0x03) p = d; }
-    if (!p) return -1;
-    if (p->bar[0].io || !p->bar[0].base) return -2;
-    pci_enable(p, PCI_CMD_MEM | PCI_CMD_MASTER | PCI_CMD_INTX_OFF);
-    h.r = (volatile uint8_t*)pci_map_bar(p, 0, 0, 0x2000 <= p->bar[0].size ? 0x2000 : p->bar[0].size);
-    if (!h.r) return -3;
+/* Контроллер от сброса до готовых колец команд: общий порядок для первого пуска (fresh: выделяется память) и пробуждения из сна. */
+static int ctl_bringup(int fresh) {
     w32(GCTL, r32(GCTL) & ~1u);                                  /* сброс контроллера */
     if (wait_bit(GCTL, 1, 0, 4)) return -4;
     w32(GCTL, r32(GCTL) | 1u);
@@ -229,13 +225,16 @@ int hda_probe(void) {
     for (int i = 0; i < 1000 && !r16(STATESTS); i++) sched_sleep_ticks(1);   /* кодеки отзываются за ~0,5 мс */
     uint16_t st = r16(STATESTS);
     if (!st) { uart_print("[KIRA HDA] controller found, no codec on the link.\n"); return -5; }
+    h.cad = 0;
     while (!(st & (1u << h.cad))) h.cad++;
     w32(INTCTL, 0);
-    h.corb = (uint32_t*)virtio_dma_alloc(1024, &h.corb_p);
-    h.rirb = (uint64_t*)virtio_dma_alloc(2048, &h.rirb_p);
-    h.buf = (uint8_t*)virtio_dma_alloc(BUFSZ, &h.buf_p);
-    h.bdl = (uint32_t*)virtio_dma_alloc(NBDL * 16, &h.bdl_p);
-    if (!h.corb || !h.rirb || !h.buf || !h.bdl) return -6;
+    if (fresh) {
+        h.corb = (uint32_t*)virtio_dma_alloc(1024, &h.corb_p);
+        h.rirb = (uint64_t*)virtio_dma_alloc(2048, &h.rirb_p);
+        h.buf = (uint8_t*)virtio_dma_alloc(BUFSZ, &h.buf_p);
+        h.bdl = (uint32_t*)virtio_dma_alloc(NBDL * 16, &h.bdl_p);
+        if (!h.corb || !h.rirb || !h.buf || !h.bdl) return -6;
+    }
     w8(CORBCTL, 0); w8(RIRBCTL, 0);
     w32(CORBLBASE, (uint32_t)h.corb_p); w32(CORBUBASE, (uint32_t)(h.corb_p >> 32));
     w8(CORBSIZE, 2);                                             /* 256 записей */
@@ -249,6 +248,23 @@ int hda_probe(void) {
     /* RIRBCTL: DMA ответов и флаг «ответ получен» (RINTCTL). Без флага контроллер (QEMU - так точно) после RINTCNT
        ответов ждёт его снятия и не берёт следующие команды. Прерывания процессору выключены (INTCTL = 0). */
     w8(CORBCTL, 2); w8(RIRBCTL, 3);
+    return 0;
+}
+
+static int hda_sleep_suspend(void* ctx);
+static int hda_sleep_resume(void* ctx);
+static void hda_print(void);
+int hda_probe(void) {
+    const pci_dev_t* p = 0;
+    for (int i = 0; i < pci_count() && !p; i++) { const pci_dev_t* d = pci_get(i); if (d->class_code == 0x04 && d->subclass == 0x03) p = d; }
+    if (!p) return -1;
+    if (p->bar[0].io || !p->bar[0].base) return -2;
+    pci_enable(p, PCI_CMD_MEM | PCI_CMD_MASTER | PCI_CMD_INTX_OFF);
+    h.r = (volatile uint8_t*)pci_map_bar(p, 0, 0, 0x2000 <= p->bar[0].size ? 0x2000 : p->bar[0].size);
+    if (!h.r) return -3;
+    h.pci = p;
+    int br = ctl_bringup(1);
+    if (br) return br;
     int rc = codec_init();
     if (rc) { uart_print("[KIRA HDA] codec "); uart_print_hex(h.vendor); uart_print(" has no usable output path (step ");
               uart_print_dec((uint64_t)-rc); uart_print(").\n"); return -7; }
@@ -272,23 +288,56 @@ int hda_probe(void) {
     card.service = 0; card.in_ready = h.in_up; card.in_pos = hda_in_pos; card.in_buf = (const int16_t*)h.ibuf; card.in_bytes = BUFSZ;
     card.in_name = hda_in_name(); card.print = hda_print;
     audio_attach(&card);
+    (void)devpm_register("hda", hda_sleep_suspend, hda_sleep_resume, 0);
+    return 0;
+}
+
+/* Сон S3. suspend: потоки вывода и записи останавливаются, кольца команд выключаются, контроллер уходит в сброс (GCTL.CRST = 0): DMA нет. resume (регистры BAR вернул
+   хук "pci"): контроллер проходит тот же путь запуска, кодек опрашивается заново и должен дать тот же путь звука (вывод, ЦАП, вход, АЦП) - иначе устройство
+   считается не вернувшимся; затем потоки запускаются снова на прежних буферах (микшер audio.c продолжает писать в то же кольцо). */
+static int hda_sleep_suspend(void* ctx) {
+    (void)ctx;
+    kmutex_lock(&h.mx);
+    h.asleep = 1;
+    kmutex_unlock(&h.mx);
+    if (h.up) MMIO_W8(h.sd + SD_CTL, 0);
+    if (h.in_up) MMIO_W8(h.isd + SD_CTL, 0);
+    w8(CORBCTL, 0); w8(RIRBCTL, 0);
+    w32(GCTL, r32(GCTL) & ~1u);
+    return 0;
+}
+static int hda_sleep_resume(void* ctx) {
+    (void)ctx;
+    unsigned pin = h.pin, dac = h.dac, adc = h.adc, in_pin = h.in_pin;
+    int rc = ctl_bringup(0);
+    if (rc) { uart_print("[KIRA SLEEP] hda: controller or codec did not answer after sleep.\n"); return rc; }
+    h.plen = 0; h.dac = 0; h.adc = 0; h.in_pin = 0;
+    rc = codec_init();
+    if (rc || h.pin != pin || h.dac != dac || h.adc != adc || (adc && h.in_pin != in_pin)) {
+        uart_print("[KIRA SLEEP] hda: the codec presents another audio path after sleep: sound disabled until restart.\n");
+        h.up = 0; h.in_up = 0;
+        return -8;
+    }
+    h.asleep = 0;
+    if (h.up) (void)hda_ring_start();
+    if (h.in_up) stream_ring(h.isd, h.ibdl, h.ibdl_p, h.ibuf_p, 2);
     return 0;
 }
 
 
 /* Вечный поток вывода: кольцо из 4 частей по 0,5 с, карта идёт по нему по кругу; что в нём - пишет микшер (audio.c). */
 int hda_ring_start(void) {
-    if (!h.up) return -1;
+    if (!h.up || h.asleep) return -1;
     kmutex_lock(&h.mx);
     for (uint32_t i = 0; i < BUFSZ; i++) h.buf[i] = 0;
     stream_ring(h.sd, h.bdl, h.bdl_p, h.buf_p, 1);
     kmutex_unlock(&h.mx);
     return 0;
 }
-uint32_t hda_ring_pos(void) { return h.up ? MMIO_R32(h.sd + SD_LPIB) % BUFSZ : 0; }
+uint32_t hda_ring_pos(void) { return h.up && !h.asleep ? MMIO_R32(h.sd + SD_LPIB) % BUFSZ : 0; }
 int16_t* hda_ring_buf(void) { return (int16_t*)h.buf; }
 int hda_in_ready(void) { return h.in_up; }
-uint32_t hda_in_pos(void) { return h.in_up ? MMIO_R32(h.isd + SD_LPIB) % BUFSZ : 0; }
+uint32_t hda_in_pos(void) { return h.in_up && !h.asleep ? MMIO_R32(h.isd + SD_LPIB) % BUFSZ : 0; }
 const int16_t* hda_in_buf(void) { return (const int16_t*)h.ibuf; }
 uint32_t hda_in_bytes(void) { return BUFSZ; }
 const char* hda_in_name(void) { return h.in_dev == 0xA ? "microphone" : h.in_dev == 8 ? "line in" : "input"; }

@@ -16,18 +16,49 @@ BOOT_LOG = [r"\[KIRA SCHED\] Preemptive scheduler online", r"\[KIRA MIND\] Mind 
             r"\[KIRA FS\] KiraFS mounted"]
 NO_ERR = [r"kernel-mode fault", r"\[KIRA IRET\]", r"\[KIRA GS\]", r"\[KIRA VMM ERROR\]", r"Kernel thread stack overflow", r"bad free|double free", r"\[KIRA SMP\].*did not answer"]
 
-# Пакетов драйверов на диске сборки: abad, eduun, edu, edunc, ne2kio + bsdne, bsdpcn, bsdfxp, bsddc (build_clang.sh). Менять вместе со списком пакетов.
-NPKG = 9
+# Пакетов драйверов на диске сборки: abad, eduun, edu, edunc, rsedu, ne2kio, vblk, vblknc + bsdne, bsdpcn, bsdfxp, bsddc (build_clang.sh). Менять вместе со списком пакетов.
+NPKG = 12
 
 BASIC = [
     {"log": BOOT_LOG},
     {"cmd": "test mem", "must": [r"heap: PASS", r"PMM: PASS", r"VMM: PASS"]},
     {"cmd": "disk", "must": [r"\[системный\]"]},
     {"cmd": "df", "must": [r"KiraFS"]},
+    {"cmd": "verify", "must": [r"\[KIRA SEAL\] \d+ файлов в печати", r"образ цел"], "forbid": [r"ВНИМАНИЕ", r"НЕ СХОДИТСЯ"]},
     {"cmd": "status", "must": [r"."]},
     {"cmd": "ls /bin", "must": [r"plasma", r"cube3d"]},
     {"log_forbid": NO_ERR},
 ]
+
+
+# Нагрузка сценария latency (А8): burn на всех ядрах, сеть, диск. Первые три шага - загрузка, замер секций, сброс гистограмм.
+# -icount: виртуальное время идёт по числу выполненных команд (1 нс на команду), а не по часам хозяина: простои виртуальных ядер из-за
+# хозяина (на стенде 2 настоящих ядра, чужие сборки) не попадают в измерение, и границы можно держать узкими. На настоящем железе - иначе.
+LATENCY_EXTRA = ["-icount", "shift=0,sleep=on"]
+LATENCY_LOAD = [
+    {"log": BOOT_LOG + [r"\[KIRA LAT\] latency histograms online"]},
+    {"cmd": "latency irqoff on", "must": [r"замер секций с выключенными прерываниями: включён"]},
+    {"cmd": "latency reset", "must": [r"гистограммы и счётчики превышений сброшены"]},
+    {"send": "burnall"},
+    *[{"cmd": "ping 10.0.2.2 3", "must": [r"получено [1-9]"], "timeout": 90} for _ in range(4)],
+    *[{"cmd": "write /lat%d.txt kira-latency-load-%d" % (i, i), "timeout": 60} for i in range(12)],
+    *[{"cmd": "cat /lat%d.txt" % i, "must": [r"kira-latency-load-%d" % i], "timeout": 60} for i in range(0, 12, 3)],
+    {"send": "burnall"}, {"sleep": 4},
+]
+
+def WM_DRAG_STEPS(profile):
+    return [
+        {"log": BOOT_LOG}, {"send": "3d"}, {"sleep": 8},
+        {"open_window": {"title": "Разум", "launcher": "mind"}}, {"sleep": 3}, {"shot": "start"},
+        {"cmd": "fb", "must": [r"\[WMPERF\] drawn"]},
+        {"drag": {"window": "Разум", "seconds": 8, "hz": 125, "step": 24}},
+        {"cmd": "fb", "must": [r"\[WMPERF\] drawn \d+", r"\[PERIOD\] ms \d+ frames \d+"]},
+        {"redraw_compare": {"name": "after-mind", "mask": ["Разум", "Терминал", "3D", "cube"], "max_diff": 0}},
+        {"drag": {"window": "Терминал", "seconds": 8, "hz": 125, "step": 24}},
+        {"cmd": "fb", "must": [r"\[WMPERF\] drawn \d+", r"\[PERIOD\] ms \d+ frames \d+"]},
+        {"redraw_compare": {"name": "after-term", "mask": ["Разум", "Терминал", "3D", "cube"], "max_diff": 0}},
+        {"wmperf_gate": profile},
+    ]
 
 
 def sc(name, about, steps, **kw):
@@ -51,6 +82,59 @@ OCSP_FWD = (_G % (8444, "--chain " + TLS_CHAIN + " --prefix ed_") + _G % (8445, 
 RESUME_DAEMON = ["openssl", "s_server", "-quiet", "-accept", "18449", "-cert", "{chain}/leaf.pem", "-key", "{chain}/leaf.key",
                  "-cert_chain", "{chain}/inter.pem", "-tls1_3", "-www"]
 
+# KASLR: одна загрузка - проверки (в режиме отладки база ядра печатается командой kaslr, без него скрыта); tag - метка файла этой загрузки
+def _kaslr_boot(tag):
+    return [
+        {"log": BOOT_LOG + [r"\[KIRA KASLR\] on: kernel image moved to a random 2 MB slot \(1 of \d+ free slots, ~\d+ bits\), \d+ words relocated; entropy: ",
+                           r"\[KIRA KASLR\] kernel base hidden by the kptr policy", r"\[KIRA VMM\] W\^X early: ok"]},
+        {"cmd": "kptr", "must": [r"режим отладки: выключен", r"пример: K\+0x[0-9a-f]+"], "forbid": [r"пример: 0x"]},
+        {"cmd": "kaslr", "must": [r"включён: образ ядра перемещён в случайную 2-МБ позицию", r"адрес базы скрыт политикой kptr"], "forbid": [r"kernel base 0x"]},
+        {"cmd": "kptr debug on", "must": [r"режим отладки: включён", r"пример: 0x[0-9a-f]+"]},
+        {"cmd": "kaslr", "must": [r"\[KIRA KASLR\] kernel base (0x[0-9A-Fa-f]+) \(link base 0x100000, slide 0x[0-9A-Fa-f]+\)"]},
+        {"cmd": "kptr debug off", "must": [r"режим отладки: выключен"]},
+        {"sleep": 6},
+        {"cmd": "net", "must": [r"канал есть", r"адрес 10\.0\.2\.15"]},
+        {"cmd": "ping 10.0.2.2 3", "must": [r"отправлено 3, получено [1-3]"], "timeout": 20},
+        {"cmd": "write /kaslr-%s.txt kaslr-ok-%s" % (tag, tag)},
+        {"cmd": "cat /kaslr-%s.txt" % tag, "must": [r"kaslr-ok-%s" % tag]},
+        {"cmd": "status", "must": [r"."]},
+        {"cmd": "wx", "must": [r"итог: ok"]},
+    ]
+
+
+# Сон S3: до сна - сеть (если есть), файл, часы; QMP system_wakeup будит машину; после - всё то же самое плюс новая запись, часы идут, ядра на месте.
+# before/after - проверки устройств, которые есть только у этого сценария (звук, USB): выполняются до сна и после пробуждения.
+def s3_steps(before=(), after=(), net=True, boot=()):
+    return [
+        {"log": BOOT_LOG + [r"\[KIRA ACPI\] AML up"] + list(boot)},
+        {"sleep": 8},
+    ] + ([{"cmd": "net", "must": [r"адрес 10\.0\.2\.15"]},
+          {"cmd": "ping 10.0.2.2 2", "must": [r"отправлено 2, получено [1-2]"], "timeout": 20}] if net else []) + list(before) + [
+        {"cmd": "write /s3-before.txt kira-before-sleep"},
+        {"cmd": "sleep status", "must": [r"сон S3: поддерживается", r"хуки устройств"]},
+        {"send": "status"}, {"sleep": 1}, {"capture": {"t0": r"precise clock ms: (\d+)"}},
+        {"send": "sleep"},
+        {"qmp": "system_wakeup", "wait_status": "suspended", "after_status": "running", "within": 60},
+        {"expect": r"\[KIRA SLEEP\] awake: devices restored, 0 failed to come back", "timeout": 60},
+        {"sleep": 3},
+    ] + ([{"cmd": "net", "must": [r"адрес 10\.0\.2\.15"]},
+          {"cmd": "ping 10.0.2.2 3", "must": [r"отправлено 3, получено [1-3]"], "timeout": 30}] if net else []) + list(after) + [
+        {"cmd": "cat /s3-before.txt", "must": [r"kira-before-sleep"]},
+        {"cmd": "write /s3-after.txt kira-after-sleep"},
+        {"cmd": "cat /s3-after.txt", "must": [r"kira-after-sleep"]},
+        {"send": "status"}, {"sleep": 1}, {"capture": {"t1": r"precise clock ms: (\d+)"}},
+        {"num": ["t1", "t0", 1, 600000]},
+        {"cmd": "smp", "must": [r"(?s)(  online  .*){4}"], "forbid": [r"FAILED", r"offline"], "timeout": 10},
+        {"cmd": "sleep status", "must": [r"сеансов сна: 1, отказов: 0, устройств не вернулось: 0"]},
+        {"log_forbid": NO_ERR + [r"did not come back", r"power button pressed", r"НЕ ВОССТАНОВИЛОСЬ", r"did not answer", r"NOT isolated now"]},
+    ]
+
+
+S3_STEPS = s3_steps()
+S3_Q35 = ["-global", "ICH9-LPC.disable_s3=0", "-global", "ICH9-LPC.disable_s4=1"]
+S3_BEEP = {"cmd": "beep 440 400", "must": [r"DMA прошёл [1-9]\d* байт - карта играет"], "timeout": 15}
+S3_USB = {"cmd": "cat /usb0/hello.txt", "must": [r"kira-ci"], "timeout": 30}
+
 ALL = [
     sc("boot-grub", "запасной образ kira-grub.iso (GRUB): загрузка и базовые проверки", BASIC + [
         {"log": [r"Processors online: 4"]},
@@ -60,7 +144,7 @@ ALL = [
         # The release image is built with initrd.img; the MB2 handoff must report one module.
         {"log": [r"\[KIRA FB\] Bootloader mode: 1280x720x32", r"Processors online: 4", r"modules=1"]},
         *DISK_IRQ,
-    ], boot="bios"),
+    ], boot="bios", needs=["initrd"]),
     sc("boot-virtio", "загрузка: virtio-blk, 4 ядра, базовые проверки", BASIC + [
         {"log": [r"Processors online: 4", r"parallel helpers: 3", r"virtio-blk, .*completion by MSI-X interrupt"]},
         *DISK_IRQ,
@@ -73,6 +157,29 @@ ALL = [
     sc("boot-ata", "загрузка: IDE (как в Limbo)", BASIC, disk="ata", smp=2),
     sc("boot-sata", "загрузка: AHCI (SATA) на плате q35", BASIC + [{"log": [r"\[KIRA AHCI\] sata0", r"completion by MSI interrupt"]}] + DISK_IRQ, disk="sata", machine="q35"),
     sc("boot-nvme", "загрузка: NVMe", BASIC + [{"log": [r"\[KIRA NVMe\] nvme0n1", r"NVMe .*completion by interrupt"]}] + DISK_IRQ, disk="nvme"),
+    sc("wx-early", "ранний W^X: ранняя карта страниц без W+X (проверка до vmm_enforce_wx), команда wx, запись в .text и .rodata даёт ловушку", BASIC + [
+        {"log": [r"\[KIRA VMM\] W\^X early: ok, no W\+X page since the first instruction with paging on \(text=\d+ KB ro=\d+ KB rw=\d+ KB, checked before vmm_enforce_wx\)",
+                 r"\[KIRA VMM\] W\^X kernel: ok \(text=\d+ KB ro=\d+ KB rw=\d+ KB\)"]},
+        {"log_forbid": [r"W\^X early: the early page map has", r"W\^X violated", r"wrong rights"]},
+        {"cmd": "wx", "must": [r"ранняя карта .*: без страниц W\+X с первой инструкции", r"\[KIRA VMM\] W\^X kernel: ok \(text=\d+ KB ro=\d+ KB rw=\d+ KB\)",
+                              r"запись в \.text: ловушка сработала \(#PF\)", r"запись в \.rodata: ловушка сработала \(#PF\)", r"\[KIRA WX\] итог: ok"],
+         "forbid": [r"ПРОШЛА", r"НАРУШЕНО", r"БЫЛИ страницы"]},
+        {"cmd": "wx", "must": [r"итог: ok"]},                         # ловушка повторяема: система после неё жива
+        {"cmd": "status", "must": [r"."]},
+        {"log_forbid": NO_ERR},
+    ], smp=4),
+    sc("kaslr", "KASLR: три загрузки подряд на одном диске - база ядра в журнале разная, сеть (ping), файл на диске и status работают; без режима отладки база не печатается", _kaslr_boot("a") +
+       [{"relaunch": []}] + _kaslr_boot("b") + [{"relaunch": []}] + _kaslr_boot("c") + [
+        {"distinct": r"\[KIRA KASLR\] kernel base (0x[0-9A-Fa-f]+) \(link base 0x100000, slide 0x[0-9A-Fa-f]+\)", "count": 3},
+        {"log_forbid": NO_ERR},
+    ], smp=4, mem="1G", boot_timeout=120),
+    sc("kaslr-off", "параметр ядра kira.nokaslr: образ остаётся на месте (1 МБ), причина в журнале, ранний W^X и остальное работают", BASIC + [
+        {"log": [r"\[KIRA KASLR\] off: disabled by kira.nokaslr\.", r"\[KIRA VMM\] W\^X early: ok"]},
+        {"log_forbid": [r"\[KIRA KASLR\] on:"]},
+        {"cmd": "kptr debug on", "must": [r"режим отладки: включён"]},
+        {"cmd": "kaslr", "must": [r"выключен: disabled by kira.nokaslr"]},
+        {"cmd": "wx", "must": [r"итог: ok"]},
+    ], boot="bios", bios_img="kira-bios-nokaslr.img", smp=2),
     sc("boot-1cpu", "одно ядро, 256 МБ", BASIC, smp=1, mem="256M"),
     sc("boot-8cpu", "восемь ядер, 4 ГБ (память выше 1 ГБ)", BASIC + [{"log": [r"Processors online: 8", r"Mapped RAM above 1 GB: [1-9]"]}], smp=8, mem="4G"),
     sc("isolation", "изоляция: адресные пространства, враждебные программы, IPC, потоки, FPU", [
@@ -81,12 +188,22 @@ ALL = [
         {"cmd": "test atk"}, {"sleep": 6},
         {"cmd": "test caps"}, {"sleep": 4},
         {"cmd": "test ipc"}, {"sleep": 8},
+        {"cmd": "test gfxport"}, {"sleep": 4},
+        {"log": [r"\[KIRA GFXCTL\] port kira\.gfx ready", r"gfxport: screen \d+x\d+, \d+ checks, 0 failed - PASS"]},
+        {"cmd": "test fsport"}, {"sleep": 6},
+        {"log": [r"\[KIRA FSSVC\] port kira\.fs ready", r"fsport: \d+ checks, 0 failed - PASS"]},
         {"cmd": "test threads"}, {"sleep": 6},
         {"cmd": "test fpu"}, {"sleep": 8},
+        {"cmd": "rsdemo"}, {"sleep": 4},
+        {"log": [r"rsdemo: sha256\(abc\) ok", r"rsdemo: sha256\(1e6 x 'a'\) ok", r"rsdemo: ring buffer ok", r"rsdemo: bounds ok", r"rsdemo: all checks passed \(PASS\)"]},
         {"log": [r"address spaces are isolated \(PASS\)", r"kernel GS intact after the attack \(PASS\)",
                  r"kernel pointer passed to write\(\) was rejected \(PASS\)", r"mt: .* - PASS|- PASS",
-                 r"atk-cap: 16 calls without rights refused, harmless calls work \(PASS\)", r"\[KIRA CAPS\] process 'atk-cap' .* denied, no right CAP_GFX"]},
-        {"log_forbid": [r"\(FAIL\)", r"isolation broken", r"ipc (server|client): FAIL", r"mt: FAIL"] + NO_ERR},
+                 r"atk-cap: 18 calls without rights refused, harmless calls work \(PASS\)", r"\[KIRA CAPS\] process 'atk-cap' .* denied, no right CAP_GFX",
+                 r"ipcx: foreign-domain open of a public shared-memory object refused \(PASS\)",
+                 r"ipc client: descriptors passed through messages \(private port and shared memory, both directions\) \(PASS\)",
+                 r"ipc server: descriptors received through messages: client's private port and shared memory \(PASS\)",
+                 r"ipc server: wait on two ports: messages from both seen, timeout and duplicate refused \(PASS\)"]},
+        {"log_forbid": [r"\(FAIL\)", r"isolation broken", r"ipc (server|client): FAIL", r"ipcx: FAIL", r"fsport: FAIL", r"gfxport: FAIL", r"fsport: \d+ checks, [1-9]\d* failed", r"mt: FAIL", r"rsdemo: (FAILED|panic)"] + NO_ERR},
         {"responsive": "status", "within": 5},
     ]),
     sc("soak-8cpu", "8 ядер, 30 с жизни с фоновой нагрузкой: зависаний и аварий нет", [
@@ -97,7 +214,7 @@ ALL = [
     sc("smp", "проверка ядер: расчёт, замок, вытеснение на всех ядрах", [
         {"log": [r"Processors online: 8"]},
         {"cmd": "test smp", "must": [r"started \d+ worker"]},
-        {"sleep": 15},
+        {"expect": r"RESULT: (PASS|FAIL)", "timeout": 100},   # 8 ядер спорят за один билетный замок: на 2 настоящих ядрах хозяина это от 2 с до нескольких минут
         {"log": [r"RESULT: PASS"]},
         {"log_forbid": [r"RESULT: FAIL", r"MOVED to another core", r"LOST UPDATES"]},
         {"responsive": "status", "within": 3},
@@ -114,12 +231,30 @@ ALL = [
         {"log_forbid": NO_ERR},
     ], extra=["-device", "qemu-xhci,id=xhci", "-device", "usb-hub,bus=xhci.0,port=1",
               "-device", "usb-kbd,bus=xhci.0,port=1.2", "-device", "usb-tablet,bus=xhci.0,port=2"], flash=FLASH, hub=True),
+    sc("usb-xhci-iommu", "USB xHCI под VT-d (q35): свой домен, проверка принуждения, кольца и буферы выданы, хаб, клавиатура, флешка", [
+        {"sleep": 6},
+        {"log": [r"\[KIRA IOMMU\] xHCI: enforcement check passed"]},
+        {"cmd": "usb", "must": [r"xHCI", r"хаб", r"клавиатура", r"планшет"]},
+        {"cmd": "cat /usb0/hello.txt", "must": [r"kira-ci"]},
+        {"cmd": "ls /usb0", "must": [r"hello.txt", r"big.bin"]},
+        {"cmd": "umount usb0"},
+        {"log_forbid": NO_ERR + [r"xHCI: .*NOT confirmed", r"DMA fault"]},
+    ], smp=2, mem="1G", machine="q35", extra=["-device", "intel-iommu,aw-bits=48", "-device", "qemu-xhci,id=xhci", "-device", "usb-hub,bus=xhci.0,port=1",
+              "-device", "usb-kbd,bus=xhci.0,port=1.2", "-device", "usb-tablet,bus=xhci.0,port=2"], flash=FLASH, hub=True),
     sc("usb-uhci", "USB UHCI (как в Limbo): планшет, клавиатура, флешка", [
         {"sleep": 4},
         {"cmd": "usb", "must": [r"UHCI", r"клавиатура|планшет"]},
         {"cmd": "cat /usb0/hello.txt", "must": [r"kira-ci"]},
         {"log_forbid": NO_ERR},
     ], extra=["-usb", "-device", "usb-tablet", "-device", "usb-kbd"], flash=FLASH),
+    sc("usb-uhci-iommu", "USB UHCI под VT-d (q35): свой домен, проверка принуждения, память расписания выдана, планшет, клавиатура, флешка", [
+        {"sleep": 6},
+        {"log": [r"\[KIRA IOMMU\] UHCI: enforcement check passed"]},
+        {"cmd": "usb", "must": [r"UHCI", r"клавиатура|планшет"]},
+        {"cmd": "cat /usb0/hello.txt", "must": [r"kira-ci"]},
+        {"log_forbid": NO_ERR + [r"UHCI: .*NOT confirmed", r"UHCI: could not grant", r"DMA fault"]},
+    ], smp=2, mem="1G", machine="q35", extra=["-device", "intel-iommu,aw-bits=48", "-device", "piix3-usb-uhci,id=uhc",
+              "-device", "usb-tablet,bus=uhc.0", "-device", "usb-kbd,bus=uhc.0"], flash=FLASH, flash_bus="uhc.0"),
     sc("stress-spam", "20 запусков plasma подряд: система отвечает, ядра загружены равномерно, Разум держит отклик", [
         {"log": BOOT_LOG},
         *[{"send": "plasma"} for _ in range(20)],
@@ -158,7 +293,7 @@ ALL = [
         {"log": [r"\[KIRA NET\] IPv6: fec0::5054:ff:fe12:3456 \(SLAAC /64, DAD passed\) ready"]},   # RA приходит на групповой MAC: фильтр MTA карты
         {"cmd": "ping6 fec0::2 2", "must": [r"ответ от fec0::2", r"отправлено 2, получено [1-2]"], "timeout": 20},
         {"log_forbid": NO_ERR},
-    ], smp=2, mem="512M", extra=["-netdev", "user,id=n0,ipv4=on,ipv6=on,guestfwd=tcp:10.0.2.100:80-cmd:python3 " + HTTP_ONCE, "-device", "e1000,netdev=n0"]),
+    ], smp=2, mem="512M", extra=["-netdev", "user,id=n0,ipv4=on,ipv6=on,guestfwd=tcp:10.0.2.100:80-cmd:python3 " + HTTP_ONCE, "-device", "e1000,netdev=n0"], needs=["dns"]),
     sc("net-e1000e", "сеть: Intel 82574 (e1000e) на q35 - приём по прерыванию MSI, DHCP, TCP, программа fetch", [
         {"log": BOOT_LOG}, {"sleep": 8},
         {"log": [r"\[KIRA NET\] e1000 \(8086:10d3\).*receive by MSI interrupt", r"\[KIRA NET\] DHCP: address 10\.0\.2\.15/24"]},
@@ -202,6 +337,79 @@ ALL = [
         {"cmd": "cat /fm-b/two.dat", "must": [r"kira-two"]},
         {"log_forbid": NO_ERR},
     ], smp=2, mem="512M"),
+    sc("apps-explorer-nav", "Проводник (единый стиль): навигация клавишами (вход, Alt+←/→, Backspace), сортировка щелчком по шапке колонки, создание, переименование, удаление с подтверждением и отказом, выделение и буфер обмена (Ctrl+A/C/V), контекстное меню правой кнопкой и Shift+F10; состояние читается командой fmstate, плюс снимки", [
+        {"log": BOOT_LOG},
+        {"cmd": "mkdir /nv-a"}, {"cmd": "mkdir /nv-a/sub"}, {"cmd": "mkdir /nv-b"},
+        {"cmd": "write /nv-a/a.txt x"}, {"cmd": "write /nv-a/c.txt cccccc"}, {"cmd": "write /nv-a/big.txt bigbigbigbigbigbig"},
+        {"cmd": "files /nv-a /nv-b"}, {"sleep": 3}, {"shot": "nav-open"},
+        {"cmd": "fmstate"}, {"sleep": 1},
+        {"log": [r"state: active=L mode=normal L\{path=/nv-a cur=\.\. n=5 marks=0 sort=name:asc back=1 fwd=0\} R\{path=/nv-b cur=\.\. n=1 "]},
+        # клавиши: вход в каталог, назад и вперёд по истории, вверх
+        {"keys": "", "then": ["down"]}, {"keys": "", "then": ["ret"]}, {"sleep": 1},
+        {"cmd": "fmstate"}, {"sleep": 1}, {"log": [r"L\{path=/nv-a/sub cur=\.\. n=1 marks=0 sort=name:asc back=2 fwd=0\}"]},
+        {"combo": ["alt", "left"]}, {"sleep": 1},
+        {"cmd": "fmstate"}, {"sleep": 1}, {"log": [r"L\{path=/nv-a cur=sub n=5 marks=0 sort=name:asc back=1 fwd=1\}"]},
+        {"combo": ["alt", "right"]}, {"sleep": 1},
+        {"cmd": "fmstate"}, {"sleep": 1}, {"log": [r"L\{path=/nv-a/sub cur=\.\. n=1 marks=0 sort=name:asc back=2 fwd=0\}"]},
+        {"keys": "", "then": ["backspace"]}, {"sleep": 1},
+        {"cmd": "fmstate"}, {"sleep": 1}, {"log": [r"L\{path=/nv-a cur=sub n=5 "]},
+        # сортировка щелчком по шапке: по размеру (возрастание, затем убывание), снова по имени
+        {"pointer": [673, 183]}, {"click": "left"}, {"sleep": 1},
+        {"keys": "", "then": ["home", "down", "down"]}, {"sleep": 1}, {"shot": "nav-sort-size"},
+        {"cmd": "fmstate"}, {"sleep": 1}, {"log": [r"L\{path=/nv-a cur=a\.txt n=5 marks=0 sort=size:asc "]},
+        {"click": "left"}, {"sleep": 1},
+        {"keys": "", "then": ["home", "down", "down"]}, {"sleep": 1},
+        {"cmd": "fmstate"}, {"sleep": 1}, {"log": [r"L\{path=/nv-a cur=big\.txt n=5 marks=0 sort=size:desc "]},
+        {"pointer": [600, 183]}, {"click": "left"}, {"sleep": 1},
+        {"keys": "", "then": ["home", "down", "down"]}, {"sleep": 1},
+        {"cmd": "fmstate"}, {"sleep": 1}, {"log": [r"L\{path=/nv-a cur=a\.txt n=5 marks=0 sort=name:asc "]},
+        # создание, переименование
+        {"keys": "", "then": ["f7"]}, {"sleep": 1}, {"shot": "nav-mkdir"},
+        {"cmd": "fmstate"}, {"sleep": 1}, {"log": [r"mode=input .*dialog=\"Новый каталог\""]},
+        {"keys": "newd\n"}, {"sleep": 2},
+        {"log": [r"\[KIRA FILES\] mkdir /nv-a/newd"]},
+        {"keys": "", "then": ["f2"]}, {"sleep": 1},
+        {"cmd": "fmstate"}, {"sleep": 1}, {"log": [r"mode=input .*dialog=\"Переименовать\" input=\"newd\""]},
+        {"keys": "", "then": ["backspace", "backspace", "backspace", "backspace"]}, {"keys": "renm\n"}, {"sleep": 2},
+        {"log": [r"\[KIRA FILES\] rename /nv-a/newd -> /nv-a/renm"]},
+        {"cmd": "ls /nv-a", "must": [r"renm"], "forbid": [r"newd"]},
+        # удаление: сначала отказ, затем подтверждение
+        {"keys": "", "then": ["delete"]}, {"sleep": 1}, {"shot": "nav-delete"},
+        {"cmd": "fmstate"}, {"sleep": 1}, {"log": [r"mode=confirm .*dialog=\"Удаление\""]},
+        {"keys": "", "then": ["esc"]}, {"sleep": 1},
+        {"cmd": "fmstate"}, {"sleep": 1}, {"log": [r"mode=normal "]},
+        {"cmd": "ls /nv-a", "must": [r"renm"]},
+        {"keys": "", "then": ["delete"]}, {"sleep": 1}, {"keys": "", "then": ["ret"]}, {"sleep": 2},
+        {"log": [r"\[KIRA FILES\] delete /nv-a/renm"]},
+        {"cmd": "ls /nv-a", "forbid": [r"renm"]},
+        # выделить всё и копировать через буфер обмена в правую панель
+        {"combo": ["ctrl", "a"]}, {"sleep": 1},
+        {"cmd": "fmstate"}, {"sleep": 1}, {"log": [r"L\{path=/nv-a cur=sub n=5 marks=4 "]},
+        {"combo": ["ctrl", "c"]}, {"sleep": 1}, {"keys": "", "then": ["tab"]}, {"combo": ["ctrl", "v"]}, {"sleep": 3},
+        {"log": [r"\[KIRA FILES\] copy /nv-a/big\.txt -> /nv-b/big\.txt", r"\[KIRA FILES\] copy /nv-a/a\.txt -> /nv-b/a\.txt"]},
+        {"cmd": "cat /nv-b/c.txt", "must": [r"cccccc"]},
+        {"cmd": "fmstate"}, {"sleep": 1}, {"log": [r"active=R mode=normal .* clip=4\(copy\) menu=-"]},
+        # контекстное меню: правая кнопка по строке правой панели, затем Esc; и с клавиатуры Shift+F10
+        {"pointer": [850, 240]}, {"click": "right"}, {"sleep": 1}, {"shot": "nav-menu"},
+        {"cmd": "fmstate"}, {"sleep": 1}, {"log": [r"active=R mode=menu .* menu=0"]},
+        {"keys": "", "then": ["down", "down"]}, {"sleep": 1},
+        {"cmd": "fmstate"}, {"sleep": 1}, {"log": [r"mode=menu .* menu=3"]},
+        {"keys": "", "then": ["esc"]}, {"sleep": 1},
+        {"combo": ["shift", "f10"]}, {"sleep": 1},
+        {"cmd": "fmstate"}, {"sleep": 1}, {"log": [r"mode=menu .* menu=0"]},
+        {"keys": "", "then": ["esc"]}, {"sleep": 1},
+        {"cmd": "fmstate"}, {"sleep": 1}, {"log": [r"mode=normal "]},
+        {"log_forbid": NO_ERR},
+    ], smp=2, mem="512M"),
+    sc("desktop-launcher", "меню запуска (F9): все программы по группам, поиск по названию и меткам, запуск Enter; значок открытой программы появляется в доке; закрытие Esc; снимки", [
+        {"log": BOOT_LOG},
+        {"keys": "", "then": ["f9"]}, {"sleep": 2}, {"shot": "launcher-groups"},
+        {"keys": "edit"}, {"sleep": 1}, {"shot": "launcher-search"},
+        {"keys": "", "then": ["ret"]}, {"sleep": 4}, {"shot": "launcher-edit-open"},
+        {"log": [r"\[KIRA DOCK\] открыта: edit «Текстовый редактор»"]},
+        {"keys": "", "then": ["f9"]}, {"sleep": 1}, {"keys": "", "then": ["esc"]}, {"sleep": 1}, {"shot": "launcher-closed"},
+        {"log_forbid": NO_ERR},
+    ], smp=2, mem="512M"),
     sc("apps-view", "просмотр: PNG (фильтры, dynamic/stored), BMP, PPM, GIF, JPEG базовый и прогрессивный (отказ при буфере >4 МБ), текст, двоичный - разбор в Ring 3, суммы пикселей против эталона", [
         {"log": BOOT_LOG},
         *[x for f, s in [("/pic.png", SUMS["/pic.png"]), ("/rgba.png", SUMS["/rgba.png"]), ("/pic.bmp", SUMS["/pic.bmp"]), ("/pic.ppm", SUMS["/pic.ppm"]), ("/pic.gif", SUMS["/pic.gif"]), ("/lace.gif", SUMS["/lace.gif"])]
@@ -235,7 +443,7 @@ ALL = [
         {"log": [r"\[KIRA DOCK\] закрыта: plasma «Плазма» \(значок остаётся: закреплена\)"]},
         {"shot": "dock-plasma-closed"},
         {"log_forbid": NO_ERR + [r"wasm: stopped"]},
-    ], smp=2, mem="1G", files=True),
+    ], smp=2, mem="1G", files=True, put={"/var/dock": "ci/fixtures/dock_plasma.txt"}),
     sc("apps-wasm", "WebAssembly: тот же /wasm/wtest.wasm, что у ARM64, - результат равен эталону, собранному обычным компилятором", [
         {"log": BOOT_LOG},
         {"cmd": "wasm /wasm/wtest.wasm"}, {"sleep": 4},
@@ -249,13 +457,140 @@ ALL = [
         {"log": [r"wgfx: frame0=%s frame30=%s" % WGFX, r"wgfx: 31 frames shown, ticks \d+"]},
         {"log_forbid": NO_ERR + [r"wasm: stopped"]},
     ], smp=2, mem="512M"),
+    sc("python", "Python (MicroPython на WebAssembly): команда python - код, скрипт из песочницы, интерактивный режим, исключения и код выхода", [
+        {"log": BOOT_LOG},
+        {"cmd": "python -c print(6*7)"}, {"sleep": 10},
+        {"log": [r"wasm: /wasm/python\.wasm - \d+ functions", r"\[USER pid \d+\] 42\b", r"wasm: finished with code 0"]},
+        {"cmd": "write /data/wasm/hi.py print(sum(range(101)))"},
+        {"cmd": "python hi.py"}, {"sleep": 10},
+        {"log": [r"\[USER pid \d+\] 5050\b"]},
+        {"send": "python"}, {"sleep": 10},
+        {"type": "x = [i*i for i in range(5)]"}, {"sleep": 3}, {"type": "print(x)"}, {"sleep": 3},
+        {"type": "1/0"}, {"sleep": 3}, {"type": "import sys; sys.exit(5)"}, {"sleep": 4},
+        {"log": [r"MicroPython v1\.24\.1", r"\[0, 1, 4, 9, 16\]", r"ZeroDivisionError: divide by zero", r"wasm: finished with code 5"]},
+        {"type": ""},                                                       # Enter: оболочка снова печатает приглашение
+        {"cmd": "status", "must": [r"."]},
+        {"cmd": "write /data/wasm/t.sh for i in 1 2 3; do echo n=$((i*i)); done"},
+        {"cmd": "ksh t.sh"}, {"sleep": 8},
+        {"log": [r"wasm: /wasm/ksh\.wasm - \d+ functions", r"n=1\b", r"n=4\b", r"n=9\b", r"wasm: finished with code 0"]},
+        {"log_forbid": NO_ERR + [r"wasm: stopped"]},
+    ], smp=2, mem="512M"),
+    sc("ipcbench", "замер обмена: опрос против ожидания портов, 1 МиБ сообщениями против одного вложения памяти", [
+        {"log": BOOT_LOG},
+        {"cmd": "test ipcbench"}, {"sleep": 40},
+        {"log": [r"ipcbench: round trip, polling two ports \(before\)", r"ipcbench: round trip, waiting on two ports \(after\)",
+                 r"ipcbench: round trip, one port \(floor\)", r"ipcbench: server idle 300 ms by polling: \d+ rounds",
+                 r"ipcbench: 1 MiB in 64 KiB messages \(before\)", r"ipcbench: 1 MiB by one shared-memory attachment \(after\)", r"ipcbench: done"]},
+        {"log_forbid": [r"ipcbench: FAIL"] + NO_ERR},
+    ], smp=2, mem="512M"),
+    sc("mouse-load", "замер: цикл дисплея без мыши и при потоке движений мыши (PS/2), по этапам цикла", [
+        {"log": BOOT_LOG},
+        {"sleep": 8}, {"cmd": "fb"},
+        {"sleep": 10}, {"cmd": "fb", "must": [r"\[PERIOD\] ms \d+ frames \d+"]},
+        {"mouse": {"seconds": 10, "hz": 125, "step": 10}}, {"cmd": "fb", "must": [r"\[PERIOD\] ms \d+ frames \d+"]},
+        {"mouse": {"seconds": 10, "hz": 500, "step": 10}}, {"cmd": "fb", "must": [r"\[PERIOD\] ms \d+ frames \d+"]},
+        {"sleep": 5}, {"cmd": "fb", "must": [r"\[PERIOD\] ms \d+ frames \d+"]},
+        {"cmd": "status", "must": [r"."]},
+    ], smp=2, mem="512M"),
+    sc("stall-load", "замер: 4 ядра на 2 реальных, нагрузка burn и мышь; худшие паузы цикла дисплея, ожидание замка планировщика, Разум", [
+        {"log": BOOT_LOG},
+        {"sleep": 6}, {"cmd": "fb"},
+        {"cmd": "test burn"}, {"sleep": 2},
+        {"mouse": {"seconds": 15, "hz": 250, "step": 10}}, {"cmd": "fb", "must": [r"\[PERIOD\] ms \d+ frames \d+"]},
+        {"sleep": 10}, {"cmd": "fb", "must": [r"\[PERIOD\] ms \d+ frames \d+"]},
+        {"cmd": "ai", "must": [r"."]},
+    ], smp=4, mem="512M"),
+    sc("latency", "время реакции под нагрузкой (А8): burn на всех ядрах + сеть + диск; гистограммы задержек прерывания, обработчика, критических секций и планировщика; границы из ci/latency_policy.json (стенд: QEMU TCG, -icount: время считается по числу выполненных команд, шум хозяина исключён)", LATENCY_LOAD + [
+        {"latency_policy": "latency_policy.json", "timeout": 120},
+        {"log_forbid": NO_ERR},
+    ], smp=2, mem="512M", extra=LATENCY_EXTRA),
+    sc("latency-mutation", "проверка границ мутацией (А8): в обработчик таймера вносится искусственная задержка (latency inject isr), проверка границ ОБЯЗАНА нарушиться; сценарий проходит, когда она нарушилась", LATENCY_LOAD[:3] + [
+        {"cmd": "latency inject isr 3000000", "must": [r"проверочная задержка обработчика таймера: 3000000 нс"]},
+    ] + LATENCY_LOAD[3:] + [
+        {"latency_policy": "latency_policy.json", "timeout": 120, "expect_fail": True},
+        {"log_forbid": NO_ERR},
+    ], smp=2, mem="512M", extra=LATENCY_EXTRA),
+    sc("blackbox", "чёрный ящик: событие записывается (проверочная пауза 1,3 с), кольцо сбрасывается на диск само, переживает обрыв питания и выключение; прежний запуск читается как bb old, два файла по очереди", [
+        {"log": BOOT_LOG + [r"\[KIRA BLACKBOX\] flight recorder online"]},
+        {"sleep": 3},
+        {"cmd": "bb all", "must": [r"\[BB\] событий \d+", r"запуск системы, номер 1\b", r"\[BB\] запуск #1"], "timeout": 10},
+        {"cmd": "ai fx 2"}, {"sleep": 3},
+        {"cmd": "bb pause 1300", "must": [r"пауза основного цикла на 1300 мс"], "timeout": 10},
+        {"sleep": 1},
+        {"cmd": "bb all", "must": [r"\[ТЯЖЁЛО\] пауза 1[3-9]\d\d мс: основной цикл ядра не возвращался \[core\]", r"Разум: fx \[6\] -> 2", r"тяжёлых [1-9]"], "timeout": 10},
+        {"cmd": "fb", "must": [r"\[BB\] событий \d+ \(в кольце \d+, вытеснено \d+, не записано из-за частоты \d+\): кадры \d+, замки \d+, ожидание процессора \d+, паузы [1-9]", r"\[BB\] запуск #1"]},
+        {"sleep": 5},      # поток сброса сам записывает файл после тяжёлого события, команды bb save не было
+        {"cmd": "bb file", "must": [r"\[BB\] файл /var/log/blackbox.bin: запуск #1, записей \d+", r"причина: (тяжёлое событие|первый сброс запуска|по расписанию)", r"пауза 1[3-9]\d\d мс"], "timeout": 10},
+        {"crash": []},       # обрыв питания без выключения
+        {"cmd": "bb old", "must": [r"\[BB\] файл /var/log/blackbox.bin: запуск #1", r"пауза 1[3-9]\d\d мс: основной цикл ядра не возвращался", r"Разум: fx \[6\] -> 2"], "timeout": 10},
+        {"cmd": "bb all", "must": [r"запуск системы, номер 2\b", r"\[BB\] запуск #2"], "timeout": 10},
+        {"cmd": "bb save", "must": [r"\[BB\] запуск #2, на диске /var/log/blackbox.bin записан \d+ с назад \(по команде\)"], "timeout": 10},
+        {"cmd": "ls /var/log", "must": [r"blackbox\.bin", r"blackbox\.old\.bin"], "timeout": 10},
+        {"cmd": "bb old", "must": [r"\[BB\] файл /var/log/blackbox.old.bin: запуск #1", r"пауза 1[3-9]\d\d мс"], "timeout": 10},      # первый сброс запуска #2 сдвинул файл #1 в .old
+        {"cmd": "bb file", "must": [r"\[BB\] файл /var/log/blackbox.bin: запуск #2"], "timeout": 10},
+        {"cmd": "bb pause 1100", "must": [r"пауза основного цикла на 1100 мс"], "timeout": 10},
+        {"relaunch": []},    # poweroff: перед выключением ящик сбрасывается сам
+        {"cmd": "bb old", "must": [r"\[BB\] файл /var/log/blackbox.bin: запуск #2", r"причина: перед выключением", r"пауза 1[1-9]\d\d мс"], "timeout": 10},
+        {"cmd": "bb clear", "must": [r"кольцо очищено"], "timeout": 10},
+        {"cmd": "bb", "must": [r"\[BB\] событий [1-3] \(", r"пометка: очищено"], "timeout": 10},
+        {"cmd": "bb pause 5000", "must": [r"bb pause мс \(1\.\.2000\)"], "timeout": 10},
+        {"log_forbid": NO_ERR},
+    ], smp=2, mem="512M"),
+    sc("mind-cost", "замер: сколько процессора и памяти берёт Разум (ai cost) - покой с закрытым окном, покой с открытым окном «Разум», нагрузка burn и мышь", [
+        {"log": BOOT_LOG},
+        {"sleep": 6}, {"cmd": "ai cost", "must": [r"цена Разума за \d+ мс"], "timeout": 10},
+        {"sleep": 30}, {"cmd": "ai cost", "must": [r"секундный шаг целиком: \d+ раз", r"тактика \(поток mind-tact\): \d+ раз", r"цикл экрана: проходов update_mind"], "timeout": 10},
+        {"cmd": "fb", "must": [r"\[PERIOD\] ms \d+ frames \d+"]},
+        {"pointer": [412, 20, 1280, 720]}, {"click": "left"}, {"sleep": 3}, {"shot": "mind-window"},
+        {"cmd": "ai cost", "timeout": 10},
+        {"sleep": 30}, {"cmd": "ai cost", "must": [r"перерисовок окна Разума [1-9]\d*"], "timeout": 10},
+        {"cmd": "fb", "must": [r"\[PERIOD\] ms \d+ frames \d+"]},
+        {"cmd": "test burn"}, {"sleep": 2},
+        {"mouse": {"seconds": 15, "hz": 250, "step": 10}},
+        {"cmd": "ai cost", "timeout": 10},
+        {"cmd": "fb", "must": [r"\[PERIOD\] ms \d+ frames \d+"]},
+        {"cmd": "ai", "must": [r"."], "timeout": 10},
+    ], smp=4, mem="512M"),
+    sc("mind-cost-limbo", "замер как на телефоне (Limbo, эмуляция одним потоком): сколько процессора и памяти берёт Разум (ai cost) - покой с закрытым окном, покой с открытым окном «Разум», нагрузка burn и мышь", [
+        {"log": BOOT_LOG},
+        {"sleep": 6}, {"cmd": "ai cost", "must": [r"цена Разума за \d+ мс"], "timeout": 10},
+        {"sleep": 30}, {"cmd": "ai cost", "must": [r"секундный шаг целиком: \d+ раз", r"тактика \(поток mind-tact\): \d+ раз", r"цикл экрана: проходов update_mind"], "timeout": 10},
+        {"cmd": "fb", "must": [r"\[PERIOD\] ms \d+ frames \d+"]},
+        {"pointer": [412, 20, 1280, 720]}, {"click": "left"}, {"sleep": 3}, {"shot": "mind-window"},
+        {"cmd": "ai cost", "timeout": 10},
+        {"sleep": 30}, {"cmd": "ai cost", "must": [r"перерисовок окна Разума [1-9]\d*"], "timeout": 10},
+        {"cmd": "fb", "must": [r"\[PERIOD\] ms \d+ frames \d+"]},
+        {"cmd": "test burn"}, {"sleep": 2},
+        {"mouse": {"seconds": 15, "hz": 250, "step": 10}},
+        {"cmd": "ai cost", "timeout": 10},
+        {"cmd": "fb", "must": [r"\[PERIOD\] ms \d+ frames \d+"]},
+        {"cmd": "ai", "must": [r"."], "timeout": 10},
+    ], smp=4, mem="512M", limbo=True),
+    sc("mouse-limbo", "замер как на телефоне (Limbo: эмуляция одним потоком, 4 ядра, qemu64): цикл дисплея без мыши и при потоке движений мыши", [
+        {"log": BOOT_LOG},
+        {"sleep": 8}, {"cmd": "fb"},
+        {"sleep": 10}, {"cmd": "fb", "must": [r"\[PERIOD\] ms \d+ frames \d+"]},
+        {"mouse": {"seconds": 10, "hz": 125, "step": 10}}, {"cmd": "fb", "must": [r"\[PERIOD\] ms \d+ frames \d+"]},
+        {"mouse": {"seconds": 10, "hz": 500, "step": 10}}, {"cmd": "fb", "must": [r"\[PERIOD\] ms \d+ frames \d+"]},
+        {"sleep": 5}, {"cmd": "fb", "must": [r"\[PERIOD\] ms \d+ frames \d+"]},
+        {"cmd": "ai", "must": [r"."]},
+    ], smp=4, mem="512M", limbo=True),
+    sc("wm-drag", "перетаскивание окон (А14): быстрое перетаскивание «Разума» и терминала по экрану при работающем кубе, экран 1412x1060 на virtio-gpu и один поток TCG, как Limbo на телефоне; замер времени кадра, пересчитанных точек, полных перерисовок и сверка с полной перерисовкой (остатков старого положения быть не должно); пороги - ci/wmperf_policy.json", WM_DRAG_STEPS("virtio1412"),
+       smp=4, mem="1G", limbo=True, vga="none", extra=["-device", "virtio-gpu-pci,disable-legacy=on,xres=1412,yres=1060"]),
+    sc("wm-drag-small", "то же на маленьком экране 1280x720 (кадровый буфер загрузчика): окна приложений уменьшены (кэш уменьшенного содержимого), без virtio-gpu", WM_DRAG_STEPS("vga1280"), smp=2, mem="1G"),
+    sc("hover-look", "вид: наведение на значок Dock и вкладку - подпись рисуется целиком, следов нет", [
+        {"log": BOOT_LOG}, {"sleep": 6},
+        {"pointer": [603, 672, 1280, 720]}, {"shot": "hover-dock"},
+        {"pointer": [660, 20, 1280, 720]}, {"shot": "hover-tab"},
+        {"pointer": [1100, 300, 1280, 720]}, {"shot": "hover-away"},
+    ], smp=2, mem="512M"),
     sc("wasm-speed", "WebAssembly: JIT x86-64 - плазма wgfx на стенде укладывается в порог по времени (до JIT на этом стенде было 1257 мс)", [
         {"log": BOOT_LOG},
         {"cmd": "wasm /wasm/wgfx.wasm"}, {"sleep": 6},
         {"log": [r"wasm: x86-64 native code, \d+ bytes \(JIT\)", r"wgfx: frame0=%s frame30=%s" % WGFX,
                  r"wasm: finished with code 0 in \d{1,3} ms"]},                 # порог: < 1000 мс
         {"log_forbid": NO_ERR + [r"wasm: stopped", r"wasm: interpreter mode"]},
-    ], smp=2, mem="512M"),
+    ], smp=2, mem="512M", needs=["kvm"]),
     sc("sound-hda", "звук: Intel HDA (как Sound: hda в Limbo) - кодек, путь к выходу, тон через DMA", [
         {"log": BOOT_LOG + [r"\[KIRA HDA\] Sound: codec .* output path pin \d+ <- DAC \d+"]},
         {"cmd": "sound", "must": [r"выход: вывод \d+ <- ЦАП \d+"]},
@@ -293,6 +628,118 @@ ALL = [
         {"cmd": "sound", "must": [r"от программ смешано (7[6-9]|[89]\d)\d\d\d", r"недоборов 0", r"карта забрала кадров [1-9]\d{5,}", r"блоков подтверждено [1-9]"]},
         {"log_forbid": NO_ERR},
     ], smp=2, mem="512M", extra=["-device", "sb16,audiodev=a0"]),
+    sc("net-virtio-iommu", "virtio-net под VT-d (q35): свой домен устройства, проверка принуждения, DHCP и ping работают, нарушений DMA нет", [
+        {"log": BOOT_LOG}, {"sleep": 8},
+        {"log": [r"\[KIRA IOMMU\] VT-d translation enabled on [1-9]", r"\[KIRA IOMMU\] virtio-net: enforcement check passed", r"\[KIRA NET\] virtio-net: MAC 52:54:00"]},
+        {"cmd": "net", "must": [r"карта virtio-net, канал есть", r"адрес 10\.0\.2\.15"]},
+        {"cmd": "ping 10.0.2.2 3", "must": [r"отправлено 3, получено [1-3]"], "timeout": 20},
+        {"log_forbid": NO_ERR + [r"virtio-net: .*NOT isolated"]},
+    ], smp=2, mem="1G", machine="q35", extra=["-device", "intel-iommu,aw-bits=48", "-netdev", "user,id=n0", "-device", "virtio-net-pci,netdev=n0,disable-legacy=on,iommu_platform=on"]),
+    sc("virtio-iommu-all", "virtio-rng, virtio-input и virtio-gpu под VT-d (q35): у каждого свой домен и подтверждённое принуждение, устройства работают", [
+        {"log": BOOT_LOG}, {"sleep": 6},
+        {"log": [r"\[KIRA IOMMU\] virtio-rng: enforcement check passed", r"\[KIRA IOMMU\] virtio-gpu: enforcement check passed"]},
+        {"log": [r"\[KIRA GPU\] virtio-gpu: \d+x\d+ 2D scanout"]},
+        {"cmd": "fb", "must": [r"\[PERIOD\] ms \d+ frames \d+"]},
+        {"log_forbid": NO_ERR + [r"virtio-(rng|gpu): .*NOT isolated", r"virtio-gpu found but did not start", r"virtio-gpu stopped answering"]},
+    ], smp=2, mem="1G", machine="q35", extra=["-device", "intel-iommu,aw-bits=48", "-device", "virtio-rng-pci,disable-legacy=on,iommu_platform=on",
+                                             "-device", "virtio-keyboard-pci,disable-legacy=on,iommu_platform=on", "-device", "virtio-gpu-pci,disable-legacy=on,iommu_platform=on"], vga="none"),
+    sc("nvme-iommu", "NVMe под VT-d (q35): свой домен, проверка принуждения, система читает и пишет диск через выданные буферы", BASIC + [
+        {"log": [r"\[KIRA IOMMU\] nvme: enforcement check passed", r"\[KIRA NVMe\] nvme0n1", r"NVMe .*completion by interrupt"]}] + DISK_IRQ + [
+        {"log_forbid": NO_ERR + [r"nvme: .*NOT isolated", r"could not grant buffers"]}],
+       disk="nvme", machine="q35", smp=2, mem="1G", extra=["-device", "intel-iommu,aw-bits=48"]),
+    sc("net-e1000-iommu", "e1000 под VT-d (q35): свой домен, проверка принуждения, кольца выданы устройству, DHCP и ping работают", [
+        {"log": BOOT_LOG}, {"sleep": 8},
+        {"log": [r"\[KIRA IOMMU\] e1000: enforcement check passed", r"\[KIRA NET\] e1000 \(8086:"]},
+        {"cmd": "net", "must": [r"адрес 10\.0\.2\.15"]},
+        {"cmd": "ping 10.0.2.2 3", "must": [r"отправлено 3, получено [1-3]"], "timeout": 20},
+        {"log_forbid": NO_ERR + [r"e1000: .*NOT isolated", r"e1000: could not grant"]},
+    ], smp=2, mem="1G", machine="q35", extra=["-device", "intel-iommu,aw-bits=48", "-netdev", "user,id=n0", "-device", "e1000,netdev=n0"]),
+    sc("rcon", "удалённая консоль по TCP: выключена по умолчанию; пароль, включение, вход с хозяина, команда, неверный пароль отклоняется", [
+        {"log": BOOT_LOG}, {"sleep": 6},
+        {"cmd": "rcon status", "must": [r"rcon: выключена, порт 7077, пароля нет"]},
+        {"cmd": "rcon on", "must": [r"сначала задайте пароль"]},
+        {"cmd": "rcon passwd short", "must": [r"короче 8 знаков"]},
+        {"cmd": "rcon passwd kira-test-pass", "must": [r"пароль задан"]},
+        {"cmd": "rcon on", "must": [r"включена, порт 7077"]}, {"sleep": 3},
+        {"log": [r"\[KIRA RCON\] listening on TCP port 7077"]},
+        {"host_rcon": [17077, "wrong-password-1", ["status"]]},
+        {"host_rcon": [17077, "kira-test-pass", ["PING", "rcon status", "net"]]},
+        {"sleep": 2},
+        {"log": [r"\[RCON\] KIRA-RCON 1", r"\[RCON\] ERR", r"\[RCON\] OK", r"\[RCON\] PONG", r"\[RCON\] rcon: включена, порт 7077, пароль задан, сеанс идёт",
+                 r"\[RCON\] .*адрес 10\.0\.2\.15", r"\[KIRA RCON\] client logged in"]},
+        {"cmd": "rcon status", "must": [r"сеансов 2, отказов 1"]},
+        {"cmd": "rcon off", "must": [r"выключена"]},
+        {"log_forbid": NO_ERR + [r"\[RCON\] .*kira-test-pass"]},
+    ], smp=2, mem="512M", extra=["-netdev", "user,id=n0,hostfwd=tcp:127.0.0.1:17077-:7077", "-device", "e1000,netdev=n0"]),
+    # Журнал аудита (docs/AUDIT.md, А7): события попадают в цепочку, audit verify OK, журнал переживает выключение и обрыв питания, независимая проверка
+    # tools/auditverify.py сходится с ядром. Сеть нужна для rcon (неверный пароль, вход, команда).
+    sc("audit", "журнал аудита: запуск, отказ прав, rcon (неверный пароль, вход, смена пароля) попадают в журнал; audit verify OK; цепочка не рвётся от выключения и обрыва питания; tools/auditverify.py", [
+        {"log": BOOT_LOG}, {"sleep": 10},
+        {"log": [r"\[KIRA AUDIT\] journal online: next record #\d+, boot #1, closed segments 0, key id [0-9a-f]{8}, first boot of this journal, chain verified OK"]},
+        {"cmd": "test caps"}, {"sleep": 5},
+        {"cmd": "rcon passwd kira-audit-pass", "must": [r"пароль задан"]},
+        {"cmd": "rcon on", "must": [r"включена, порт 7077"]}, {"sleep": 3},
+        {"host_rcon": [17078, "wrong-password-1", ["status"]]},
+        {"host_rcon": [17078, "kira-audit-pass", ["rcon passwd kira-audit-pass-2", "PING"]]},
+        {"sleep": 2},
+        {"cmd": "audit 100", "must": [r"boot system OK pid=0 dom=0 arg=4 kernel", r"key system OK pid=0 dom=0 arg=0 device-key \| created on first boot", r"config console OK pid=0 dom=0 arg=7077 rcon \| rcon on", r"trust system \w+ pid=0 dom=0 arg=\d+ boot-trust",
+                                      r"exec console OK pid=\d+ dom=\d+ arg=\d+ atk-cap", r"cap-deny program DENIED pid=\d+ dom=\d+ arg=1 atk-cap \| syscall \d+",
+                                      r"rcon-login rcon DENIED pid=0 dom=0 arg=1 rcon \| wrong password", r"rcon-login rcon OK pid=0 dom=0 arg=0 rcon \| client logged in",
+                                      r"rcon-passwd (console|rcon) OK .* rcon \| password changed"],
+         "forbid": [r"kira-audit-pass"]},
+        {"cmd": "audit status", "must": [r"status: boot #1, key id [0-9a-f]{16}, records \d+ \(on disk up to #\d+\)", r"lost 0, disk errors 0, tamper none, at boot: ok",
+                                         r"hot path: \d+ events, mean \d+ ns per event"]},
+        {"cmd": "audit verify", "timeout": 120, "must": [r"verify: OK: \d+ records \(#1\.\.#\d+\), [1-9]\d* signed checkpoints"], "forbid": [r"tamper detected", r"VIOLATION"]},
+        {"send": "audit key"}, {"expect": r"public key \(Ed25519\): [0-9a-f]{64}", "timeout": 20},
+        {"capture": {"pub": r"public key \(Ed25519\): ([0-9a-f]{64})"}},
+        {"send": "audit export 1 6"}, {"expect": r"AUDEND|AUDNEXT \d+", "timeout": 20},
+        {"save_log": {"pattern": r"^(AUDKEY [0-9a-f]{64}|AUDREC [0-9a-f]{320})", "as": "export1.txt", "min": 7}},
+        {"host_run": {"argv": ["python3", "-I", "tools/auditverify.py", "--pub", "<<pub>>", "--export", "{out}/export1.txt"], "rc": 0, "must": [r"^OK: записей 6 \(с 1 по 6\)"]}},
+        {"relaunch": ["-netdev", "user,id=n0,hostfwd=tcp:127.0.0.1:17078-:7077", "-device", "e1000,netdev=n0"],
+         "disk_ops": [{"get": "/var/audit.log", "as": "p1_audit.log"}, {"get": "/var/audit.ckpt", "as": "p1_audit.ckpt"}]},
+        {"sleep": 8},
+        {"log": [r"\[KIRA AUDIT\] journal online: next record #\d+, boot #2, closed segments 0, key id [0-9a-f]{8}, previous run ended cleanly, chain verified OK"]},
+        {"host_run": {"argv": ["python3", "-I", "tools/auditverify.py", "--pub", "<<pub>>", "--ckpt", "{out}/p1_audit.ckpt", "{out}/p1_audit.log"], "rc": 0, "must": [r"^OK: записей \d+ \(с 1 по \d+\), подписанных точек проверено [1-9]"]}},
+        {"cmd": "audit 100", "must": [r"shutdown system OK pid=0 dom=0 arg=0 kernel \| clean shutdown", r"boot system OK pid=0 dom=0 arg=0 kernel"]},
+        {"cmd": "audit verify", "timeout": 120, "must": [r"verify: OK: \d+ records \(#1\.\.#\d+\)"]},
+        {"cmd": "test caps"}, {"sleep": 5},
+        {"crash": ["-netdev", "user,id=n0,hostfwd=tcp:127.0.0.1:17078-:7077", "-device", "e1000,netdev=n0"]},
+        {"sleep": 8},
+        {"log": [r"\[KIRA AUDIT\] journal online: next record #\d+, boot #3, .*previous run ended without shutdown record, chain verified OK"]},
+        {"cmd": "audit verify", "timeout": 120, "must": [r"verify: OK: \d+ records \(#1\.\.#\d+\)"], "forbid": [r"VIOLATION"]},
+        {"cmd": "audit 100", "must": [r"boot system OK pid=0 dom=0 arg=1 kernel"]},
+        {"log_forbid": NO_ERR + [r"tamper detected"]},
+        # пароль не должен попасть в файл журнала на диске (в консольном логе он есть только как эхо команд харнесса)
+        {"host_run": {"argv": ["grep", "-c", "-a", "kira-audit-pass", "{out}/p1_audit.log"], "rc": 1, "must": [r"^0$"]}},
+    ], smp=2, mem="512M", extra=["-netdev", "user,id=n0,hostfwd=tcp:127.0.0.1:17078-:7077", "-device", "e1000,netdev=n0"]),
+    # Подмена: файл журнала правится на диске вне системы (машина выключена); следующая загрузка находит и показывает место, audit verify говорит то же,
+    # tools/auditverify.py на вынутом файле - тоже; неизменённая копия проходит.
+    sc("audit-tamper", "журнал аудита: файл /var/audit.log изменён на диске вне системы - следующая загрузка пишет [KIRA AUDIT] tamper detected с местом, audit verify и tools/auditverify.py сообщают нарушение", [
+        {"log": BOOT_LOG}, {"sleep": 10},
+        {"log": [r"\[KIRA AUDIT\] journal online: next record #\d+, boot #1, .*first boot of this journal, chain verified OK"]},
+        {"cmd": "test caps"}, {"sleep": 5},
+        {"cmd": "rcon passwd kira-tamper-pass", "must": [r"пароль задан"]},
+        {"cmd": "rcon passwd kira-tamper-pass2", "must": [r"пароль задан"]},
+        {"cmd": "audit checkpoint", "must": [r"checkpoint #\d+ signed and written"]},
+        {"cmd": "audit verify", "timeout": 120, "must": [r"verify: OK: \d+ records"], "forbid": [r"VIOLATION"]},
+        {"send": "audit key"}, {"expect": r"public key \(Ed25519\): [0-9a-f]{64}", "timeout": 20},
+        {"capture": {"pub": r"public key \(Ed25519\): ([0-9a-f]{64})"}},
+        {"relaunch": [], "disk_ops": [{"get": "/var/audit.log", "as": "clean_audit.log"}, {"get": "/var/audit.ckpt", "as": "clean_audit.ckpt"},
+                                      {"xor": "/var/audit.log", "offset": 256 + 160 * 4 + 64, "mask": 1}]},    # запись №5: изменён первый байт detail
+        {"sleep": 8},
+        {"log": [r"\[KIRA AUDIT\] tamper detected \(boot\): .*цепочка хэшей разорвана.*: record #6 \(file #0, offset 1056\)",
+                 r"\[KIRA AUDIT\] journal online: .*boot #2, .*chain VIOLATED"]},
+        {"cmd": "audit status", "must": [r"tamper DETECTED, at boot: CHAIN"]},
+        {"cmd": "audit verify", "timeout": 120, "must": [r"verify: VIOLATION", r"tamper detected \(verify\): .*цепочка хэшей разорвана.*record #6 \(file #0, offset 1056\)"], "forbid": [r"verify: OK"]},
+        {"cmd": "audit 100", "must": [r"tamper kernel FAIL pid=0 dom=0 arg=6 boot \| CHAIN file#0 off 1056"]},
+        {"cmd": "test caps"}, {"sleep": 5},                                   # система продолжает работать и писать в журнал, нарушение остаётся видно
+        {"relaunch": [], "disk_ops": [{"get": "/var/audit.log", "as": "after_audit.log"}, {"get": "/var/audit.ckpt", "as": "after_audit.ckpt"}]},
+        {"sleep": 8},
+        {"log": [r"\[KIRA AUDIT\] tamper detected \(boot\): .*record #6"]},
+        {"host_run": {"argv": ["python3", "-I", "tools/auditverify.py", "--pub", "<<pub>>", "--ckpt", "{out}/clean_audit.ckpt", "{out}/clean_audit.log"], "rc": 0, "must": [r"^OK: записей"]}},
+        {"host_run": {"argv": ["python3", "-I", "tools/auditverify.py", "--pub", "<<pub>>", "{out}/after_audit.log"], "rc": 1, "must": [r"НАРУШЕНИЕ: цепочка хэшей разорвана.*запись 6 \(файл №0, смещение 1056\)"]}},
+        {"log_forbid": NO_ERR},
+    ], smp=2, mem="512M"),
     sc("net-virtio", "сеть: virtio-net (MSI-X будит поток сети), DHCP, ping, программа fetch", [
         {"log": BOOT_LOG}, {"sleep": 8},
         {"log": [r"\[KIRA NET\] virtio-net: MAC 52:54:00.*MSI-X", r"\[KIRA NET\] DHCP: address 10\.0\.2\.15/24"]},
@@ -323,7 +770,7 @@ ALL = [
         {"host_http": [18080, "/hello"]}, {"host_http": [18080, "/again"]}, {"sleep": 4},   # строку о запросе serve пишет после закрытия соединения
         {"log": [r"\[HOST\] http /hello: 19\d\d\d bytes, first line 'kira-server-ok /hello', window lines 900",
                  r"\[HOST\] http /again: 19\d\d\d bytes, first line 'kira-server-ok /again'", r"serve: GET /again -> 200"]},
-        {"cmd": "net", "must": [r"TIME_WAIT: [1-9]"]},                                      # serve закрывал первым
+        {"cmd": "net", "must": [r"TIME_WAIT: \d+ \(всего [1-9]"]},                             # serve закрывал первым: запись в TIME_WAIT была (на медленной машине 60 с уже вышли - смотрим «всего»)
         {"send": "udpecho 9000 2"}, {"sleep": 2},                                           # UDP для программ: эхо хозяину
         {"host_udp": [18082, "ping-1"]}, {"host_udp": [18082, "ping-2"]}, {"sleep": 2},
         {"log": [r"\[HOST\] udp reply 'kira-udp: ping-1'", r"\[HOST\] udp reply 'kira-udp: ping-2'", r"udpecho: done, 2 answered"]},
@@ -347,13 +794,105 @@ ALL = [
         {"cmd": "ai", "must": [r"замок планировщика: ядра ждут его \d+,\d%"], "timeout": 10},
         {"log_forbid": NO_ERR},
     ], smp=4, mem="1G"),
+    sc("cube3d-bench", "3D-движок k3d: самопроверка в Kira, замер кадра без помощников и с 3 потоками (на ядра QEMU, цифры шумные), потом обычный запуск", [
+        {"log": BOOT_LOG},
+        {"send": "run cube3d bench threads=3"},
+        {"expect": r"cube3d: selftest PASS", "timeout": 150},
+        {"expect": r"cube3d: k3d engine running, 3 helper threads", "timeout": 150},
+        {"expect": r"cube3d: bench helpers=0: \d+ frames", "timeout": 150},
+        {"expect": r"cube3d: bench helpers=3: \d+ frames", "timeout": 150},
+        {"expect": r"cube3d: bench speedup x\d+\.\d+", "timeout": 150},
+        {"send": "run cube3d"}, {"sleep": 8}, {"shot": "cube3d-k3d"},
+        {"responsive": "status", "within": 5},
+        {"log_forbid": NO_ERR},
+    ], smp=4, mem="1G"),
+    sc("cube3d-bench-mttcg", "то же на настоящих потоках хозяина (MTTCG): здесь помощники k3d идут по-настоящему параллельно", [
+        {"log": BOOT_LOG},
+        {"send": "run cube3d bench threads=3"},
+        {"expect": r"cube3d: selftest PASS", "timeout": 150},
+        {"expect": r"cube3d: bench helpers=0: \d+ frames", "timeout": 150},
+        {"expect": r"cube3d: bench helpers=3: \d+ frames", "timeout": 150},
+        {"expect": r"cube3d: bench speedup x\d+\.\d+", "timeout": 150},
+        {"log_forbid": NO_ERR},
+    ], smp=4, mem="1G", mttcg=True),
+    sc("sched-scale", "планировщик на 8 ядрах: плазма x8 + burnall x3 + опрос ps/smp, замеры замков очередей (ai), отклик консоли", [
+        {"log": BOOT_LOG},
+        *[{"send": "plasma"} for _ in range(8)],
+        {"send": "burnall"}, {"sleep": 5}, {"send": "burnall"}, {"sleep": 5}, {"send": "burnall"}, {"sleep": 6},
+        {"responsive": "status", "within": 3},
+        {"cmd": "ps", "must": [r"plasma"], "timeout": 20},
+        {"cmd": "smp", "timeout": 20},
+        {"cmd": "ai", "must": [r"замок планировщика: ядра ждут его \d+,\d% времени; взятий с ожиданием \d+ из \d+; затяжных ожиданий \d+"], "timeout": 20},
+        {"responsive": "status", "within": 3},
+        {"log_forbid": NO_ERR + [r"KERNEL PANIC", r"Watchdog"]},
+    ], smp=8, mem="2G"),
     sc("power-off", "выключение: ACPI S5 из FADT/DSDT (_S5) - машина выключается сама, без -no-reboot-уловок", [
         {"log": BOOT_LOG},
         {"exit": "poweroff", "within": 20},
         {"log": [r"\[KIRA ACPI\] powering off \(S5\)"]},
         {"log_forbid": NO_ERR + [r"did not power off"]},
     ], smp=2, mem="512M"),
-    sc("power-reboot", "перезагрузка на q35 (регистр сброса FADT / 0xCF9): система поднимается снова, файл, записанный до сброса, на месте", [
+    sc("acpi-power-button", "кнопка питания (QMP system_powerdown, плата pc/PIIX): SCI -> интерпретатор AML -> штатное выключение с сохранением данных", [
+        {"log": BOOT_LOG + [r"\[KIRA ACPI\] AML up"]},
+        {"cmd": "write /acpi-btn.txt kira-acpi-button"},
+        {"qmp_exit": "system_powerdown", "within": 30},
+        {"log": [r"\[KIRA ACPI\] power button pressed", r"\[KIRA POWER\] power button: saving data", r"\[KIRA ACPI\] powering off \(S5\)"]},
+        {"log_forbid": NO_ERR + [r"did not power off", r"AML is busy"]},
+    ], smp=2, mem="512M"),
+    sc("acpi-info", "ACPI на плате pc (PIIX): сводка интерпретатора, таблицы, выгрузка DSDT в журнал", [
+        {"cmd": "acpi", "must": [r"ACPI AML: таблиц 1, объектов \d+.*ошибок загрузки 0", r"_INI 1 \(ошибок 0\)", r"ACPI _PRT .*PCI0: записей 128",
+                                 r"устр 3 INTA -> GSI 11 уровень .*связка LNKC", r"устр 3 INTC -> GSI 10 уровень .*связка LNKA", r"устр 1 INTA -> GSI 9 уровень .*связка LNKS"], "timeout": 60},
+        {"cmd": "acpi tables", "must": [r"DSDT: 0x"]},
+        {"cmd": "acpi dump dsdt", "must": [r"ACPIDUMP BEGIN DSDT \d+", r"ACPIDUMP END DSDT"], "timeout": 120},
+    ], smp=2, mem="512M"),
+    sc("acpi-info-q35", "ACPI на плате q35 (ICH9): сводка интерпретатора, таблицы, выгрузка DSDT в журнал", [
+        {"cmd": "acpi", "must": [r"ACPI AML: таблиц 1, объектов \d+.*ошибок загрузки 0", r"_INI 1 \(ошибок 0\)", r"ACPI _PRT .*PCI0: записей 128",
+                                 r"устр 25 INTA -> GSI 16 уровень .*связка GSIA", r"устр 0 INTA -> GSI 20 уровень .*связка GSIE", r"устр 31 INTD -> GSI 19 уровень .*связка GSID"], "timeout": 60},
+        {"cmd": "acpi tables", "must": [r"DSDT: 0x"]},
+        {"cmd": "acpi dump dsdt", "must": [r"ACPIDUMP BEGIN DSDT \d+", r"ACPIDUMP END DSDT"], "timeout": 120},
+    ], smp=2, mem="512M", machine="q35"),
+    sc("acpi-power-button-q35", "кнопка питания (QMP system_powerdown, плата q35/ICH9): та же цепочка на другой плате", [
+        {"log": BOOT_LOG + [r"\[KIRA ACPI\] AML up"]},
+        {"qmp_exit": "system_powerdown", "within": 30},
+        {"log": [r"\[KIRA ACPI\] power button pressed", r"\[KIRA ACPI\] powering off \(S5\)"]},
+        {"log_forbid": NO_ERR + [r"did not power off", r"AML is busy"]},
+    ], smp=2, mem="512M", machine="q35"),
+    sc("sleep-s3-q35", "сон S3 (плата q35/ICH9, сеть e1000): sleep -> QMP system_wakeup -> сеть, диск, часы, все ядра на месте", S3_STEPS, smp=4, mem="512M", machine="q35",
+       extra=["-global", "ICH9-LPC.disable_s3=0", "-global", "ICH9-LPC.disable_s4=1", "-nic", "user,model=e1000"]),
+    sc("sleep-s3-q35-virtio", "сон S3 (плата q35, сеть virtio-net): та же цепочка с virtio-устройствами", S3_STEPS, smp=4, mem="512M", machine="q35",
+       extra=["-global", "ICH9-LPC.disable_s3=0", "-global", "ICH9-LPC.disable_s4=1", "-nic", "user,model=virtio-net-pci"]),
+    sc("sleep-s3-pc", "сон S3 (плата pc/PIIX4, сеть e1000): sleep -> QMP system_wakeup -> всё работает", S3_STEPS, smp=4, mem="512M",
+       extra=["-global", "PIIX4_PM.disable_s3=0", "-global", "PIIX4_PM.disable_s4=1", "-nic", "user,model=e1000"]),
+    sc("sleep-s3-nvme-iommu", "сон S3: NVMe под VT-d (q35): контроллер и трансляция возвращаются, диск читается и пишется после пробуждения", s3_steps(boot=[r"\[KIRA NVMe\] nvme0n1"]),
+       disk="nvme", machine="q35", smp=4, mem="1G", extra=S3_Q35 + ["-device", "intel-iommu,aw-bits=48", "-nic", "user,model=e1000"]),
+    sc("sleep-s3-sata", "сон S3: AHCI (SATA) на плате q35: порт останавливается и запускается, диск читается и пишется", s3_steps(boot=[r"\[KIRA AHCI\] sata0"]),
+       disk="sata", machine="q35", smp=4, mem="512M", extra=S3_Q35 + ["-nic", "user,model=e1000"]),
+    sc("sleep-s3-ata", "сон S3: IDE (ATA PIO) на плате pc", s3_steps(boot=[r"\[KIRA ATA\] Disk"]), disk="ata", smp=4, mem="512M",
+       extra=["-global", "PIIX4_PM.disable_s3=0", "-global", "PIIX4_PM.disable_s4=1", "-nic", "user,model=e1000"]),
+    sc("sleep-s3-usb-xhci", "сон S3: xHCI с хабом, клавиатурой, планшетом и флешкой: после пробуждения устройства подключаются заново, флешка читается", s3_steps(
+        before=[{"sleep": 3}, {"cmd": "usb", "must": [r"xHCI", r"хаб", r"клавиатура", r"планшет"]}, S3_USB],
+        after=[{"sleep": 6}, {"cmd": "usb", "must": [r"xHCI", r"хаб", r"клавиатура", r"планшет"]}, {"cmd": "df", "must": [r"usb0"]}, S3_USB]),
+       machine="q35", smp=4, mem="512M", flash=FLASH, hub=True,
+       extra=S3_Q35 + ["-nic", "user,model=e1000", "-device", "qemu-xhci,id=xhci", "-device", "usb-hub,bus=xhci.0,port=1",
+                       "-device", "usb-kbd,bus=xhci.0,port=1.2", "-device", "usb-tablet,bus=xhci.0,port=2"]),
+    sc("sleep-s3-usb-uhci", "сон S3: UHCI с планшетом, клавиатурой и флешкой (плата pc)", s3_steps(
+        before=[{"sleep": 3}, {"cmd": "usb", "must": [r"UHCI", r"клавиатура|планшет"]}, S3_USB],
+        after=[{"sleep": 6}, {"cmd": "usb", "must": [r"UHCI", r"клавиатура|планшет"]}, S3_USB]),
+       smp=4, mem="512M", flash=FLASH,
+       extra=["-global", "PIIX4_PM.disable_s3=0", "-global", "PIIX4_PM.disable_s4=1", "-nic", "user,model=e1000", "-usb", "-device", "usb-tablet", "-device", "usb-kbd"]),
+    sc("sleep-s3-hda", "сон S3: Intel HDA: контроллер и кодек возвращаются, тон снова играет через DMA", s3_steps(before=[S3_BEEP], after=[S3_BEEP], boot=[r"\[KIRA HDA\] Sound: codec"]),
+       machine="q35", smp=4, mem="512M", extra=S3_Q35 + ["-nic", "user,model=e1000", "-device", "intel-hda", "-device", "hda-duplex,audiodev=a0"]),
+    sc("sleep-s3-ac97", "сон S3: Intel AC'97", s3_steps(before=[S3_BEEP], after=[S3_BEEP], boot=[r"\[KIRA AC97\] Sound: codec"]),
+       machine="q35", smp=4, mem="512M", extra=S3_Q35 + ["-nic", "user,model=e1000", "-device", "AC97,audiodev=a0"]),
+    sc("sleep-s3-sb16", "сон S3: Sound Blaster 16 (ISA)", s3_steps(before=[S3_BEEP], after=[S3_BEEP], boot=[r"\[KIRA SB16\] Sound: Sound Blaster 16"]),
+       smp=4, mem="512M", extra=["-global", "PIIX4_PM.disable_s3=0", "-global", "PIIX4_PM.disable_s4=1", "-nic", "user,model=e1000", "-device", "sb16,audiodev=a0"]),
+    sc("sleep-s3-virtio-iommu", "сон S3: virtio-rng, virtio-input, virtio-gpu и virtio-net под VT-d (q35): домены возвращаются, экран, ввод и сеть работают", s3_steps(
+        before=[{"cmd": "fb", "must": [r"\[PERIOD\] ms \d+ frames \d+"]}], after=[{"cmd": "fb", "must": [r"\[PERIOD\] ms \d+ frames \d+"]}],
+        boot=[r"\[KIRA IOMMU\] virtio-rng: enforcement check passed", r"\[KIRA GPU\] virtio-gpu: \d+x\d+ 2D scanout"], net=True),
+       smp=4, mem="1G", machine="q35", vga="none",
+       extra=S3_Q35 + ["-device", "intel-iommu,aw-bits=48", "-device", "virtio-rng-pci,disable-legacy=on,iommu_platform=on", "-device", "virtio-keyboard-pci,disable-legacy=on,iommu_platform=on",
+                       "-device", "virtio-gpu-pci,disable-legacy=on,iommu_platform=on", "-netdev", "user,id=n0", "-device", "virtio-net-pci,netdev=n0,disable-legacy=on,iommu_platform=on"]),
+    sc("power-reboot","перезагрузка на q35 (регистр сброса FADT / 0xCF9): система поднимается снова, файл, записанный до сброса, на месте", [
         {"log": BOOT_LOG},
         {"cmd": "write /reboot.txt kira-before-reboot"},
         {"send": "reboot"},
@@ -395,7 +934,7 @@ ALL = [
         {"cmd": "net", "must": [r"фрагменты IP: собрано [1-9]\d*"]},
         {"log_forbid": NO_ERR + [r"is already used by another node"]},
     ], smp=2, mem="512M", extra=["-netdev", "user,id=n0,ipv4=on,ipv6=on,hostfwd=udp:127.0.0.1:18082-:9000",
-                                 "-device", "virtio-net-pci,netdev=n0"]),
+                                 "-device", "virtio-net-pci,netdev=n0"], needs=["ipv6"]),
 ]
 
 # ---- Разум: рычаги 13-23 ----
@@ -408,7 +947,7 @@ ALL.append(sc("mind-levers", "Разум: 11 рычагов (13-23) в `ai lever
     *MELODY_LOOP,
     {"log": [r"\[KIRA MIND\] рычаг 19 «опережение звука перед картой»: пробую \d+ мс вместо 100 \(причина: ",
              r"\[KIRA MIND\] рычаг 19 «опережение звука перед картой»: (оставлено|откат на|срочный откат) "]},
-    {"cmd": "ai levers", "must": [r"19\. опережение звука перед картой: \d+ мс \(обычно 100\) - [^\n]*проб [1-9]", r"смен значений за запуск [1-9]"], "timeout": 10},
+    {"cmd": "ai levers", "must": [r"19\. опережение звука перед картой: \d+ мс \(обычно 100\) - [^\n]*проб \d+, удач \d+, откатов \d+", r"смен значений за запуск [1-9]"], "timeout": 10},   # откат из-за «нагрузка изменилась» (нечестное сравнение) в счётчик проб не идёт - на медленной машине так бывает всегда
     *[{"send": "plasma"} for _ in range(8)],
     {"sleep": 40}, {"shot": "levers-load"},
     {"responsive": "status", "within": 5},
@@ -417,6 +956,18 @@ ALL.append(sc("mind-levers", "Разум: 11 рычагов (13-23) в `ai lever
     {"cmd": "ls /var", "must": [r"mind\.dat"]},
     {"log_forbid": NO_ERR},
 ], smp=4, mem="2G", extra=["-device", "intel-hda", "-device", "hda-duplex,audiodev=a0"]))
+
+# Испытательное семя опыта собирается на лету, если его ещё нет (ci-out не в git).
+def _mind_seed_fixture():
+    import os, subprocess
+    out = "ci-out/mind_seed_fixture.bin"
+    if os.path.exists(out):
+        return
+    os.makedirs("ci-out", exist_ok=True)
+    exe = "ci-out/mindseed_tool"
+    subprocess.run(["cc", "-O1", "-I.", "-o", exe, "tools/mindseed.c", "mind.c", "mindnet.c"], check=True)
+    subprocess.run([exe, "--fixture", out], check=True, stdout=subprocess.DEVNULL)
+_mind_seed_fixture()
 
 # Повреждённый основной файл Mind не должен ломать запуск: архив проверяется, затем используется
 # ограниченное семя, а нормы текущей машины обучаются заново.
@@ -540,9 +1091,63 @@ ALL.append(sc("drv-edu", "MMIO-only Ring 3: хеш и подтверждение
     {"log": [r"drvedu: crashing on purpose", r"\[KIRA PROC\] pid \d+ killed by CPU exception #14", r"\[KIRA DRV\] drv-edu \(pid \d+\) завершён"]},
     {"sleep": 2},
     {"cmd": "drv start edu", "must": [r"драйвер запущен как drv-edu"]}, {"sleep": 3},
-    {"log_forbid": [r"drvedu: .*\(FAIL\)", r"УТЕЧКА"] + NO_ERR},
+    {"cmd": "drv stop edu"}, {"sleep": 2},
+    # Тот же драйвер на Rust (userland/rust/rsedu.rs): те же проверки устройства и отказов ядра, без unsafe в коде драйвера
+    {"cmd": "drv start rsedu", "must": [r"драйвер запущен как drv-rsedu"]}, {"sleep": 3},
+    {"log": [r"rsedu: device 0x1234:0x11e8, rights 0x4800, no MSI", r"rsedu: id=0x10000ed", r"rsedu: factorial ok",
+             r"rsedu: DMA denied: CAP_DMA not granted \(least-privilege PASS\)", r"rsedu: kernel guards ok", r"rsedu: PASS"]},
+    {"cmd": "drv stop rsedu"}, {"sleep": 2},
+    # выход за BAR в Rust - проверка смещения, паника и штатный выход 101 (не исключение процессора)
+    {"cmd": "drv start rsedu oob", "must": [r"драйвер запущен как drv-rsedu"]}, {"sleep": 3},
+    {"log": [r"rsedu: reading past the BAR on purpose", r"rust: panic", r"\[KIRA DRV\] drv-rsedu \(pid \d+\) завершён"]},
+    {"log_forbid": [r"drvedu: .*\(FAIL\)", r"rsedu: .*\(FAIL\)", r"УТЕЧКА"] + NO_ERR},
     {"responsive": "status", "within": 5},
 ], smp=2, mem="1G", extra=["-device", "edu"]))
+
+
+# Диск virtio-blk в Ring 3 (CAP_BLKDEV, kdrv_blk.h): плата q35 с VT-d; системный диск vda берёт встроенный драйвер, второй virtio-blk (iommu_platform) ядро не берёт -
+# его получает драйвер Ring 3 (пакет vblk), заводит в blk.c как vdb и обслуживает кольца запросов в общей памяти по прерываниям MSI-X (без опроса).
+# Проверка диска - test blk vdb: запись и чтение 300 секторов (три буфера), возврат прежнего содержимого, выход за границы отклоняется (ядро режет до драйвера).
+# Затем: остановка драйвера (диск остаётся в списке, операции - ошибка, ядро живо), перезапуск с враждебными ответами (evil), падение драйвера посреди записи
+# (crash), пакет без права CAP_BLKDEV (vblknc) - регистрация отклонена.
+ALL.append(sc("drv-blk", "Ring 3: диск virtio-blk через CAP_BLKDEV (кольца в общей памяти, VT-d, MSI-X): чтение/запись/границы, остановка, враждебные ответы, падение посреди записи, пакет без права диска", [
+    {"log": BOOT_LOG},
+    {"log": [r"\[KIRA IOMMU\] VT-d translation enabled on [1-9]"]},
+    {"sleep": 8},
+    {"log": [r"\[KIRA DRV\] vblk: устройство .* 1af4:1042 -> драйвер запущен как drv-vblk \(pid \d+\), SHA-256 сверен, права: .*CAP_DMA.*CAP_BLKDEV",
+             r"drvvblk: bad-reg: name=-10 sector=-10 empty=-10 huge=-10 flags=-10 bits=-10 noterm=-10 nullptr=-10 \(refused PASS\)",
+             r"drvvblk: capacity 32768 sectors, queue 32, features 0x[0-9a-f]+, completion by interrupt",
+             r"drvvblk: disk vdb registered, data at 0x[0-9a-f]+, ring slots 8",
+             r"\[KIRA DRV\] vblk: диск vdb заведён в blk\.c: 32768 секторов по 512 Б"]},
+    {"cmd": "disk", "must": [r"vda\s+.*\[системный\]", r"vdb\s+16 МБ\s+Ring 3 drv-vblk\s+\[пустой\]"]},
+    {"cmd": "test blk vdb", "must": [r"запись\+чтение 300 секторов совпали", r"прежнее содержимое возвращено", r"выход за границы отклонён \(5 из 5\)", r"flush ok PASS"], "timeout": 60,
+     "forbid": [r"FAIL"]},
+    {"cmd": "drv", "must": [r"drv-vblk pid \d+.*прерываний [1-9]\d*.*диск vdb: запросов [1-9]\d*, битых ответов 0"]},
+    {"cmd": "drv stop vblk", "must": [r"останавливаю drv-vblk"]}, {"sleep": 2},
+    {"log": [r"\[KIRA DRV\] drv-vblk \(pid \d+\) завершён: устройство .* остановлено",
+             r"\[KIRA DRV\] vblk: возвращено памяти DMA и колец [1-9]\d* из [1-9]\d* стр\..*утечек нет"]},
+    {"cmd": "test blk vdb", "must": [r"vdb: чтение 300 секторов: ошибка 5 .*FAIL"]},              # драйвера нет: ошибка, не авария ядра
+    {"cmd": "disk", "must": [r"vdb\s+16 МБ\s+Ring 3 drv-vblk"]},                                   # диск остаётся в списке
+    {"responsive": "status", "within": 5},
+    {"cmd": "drv start vblk evil", "must": [r"драйвер запущен как drv-vblk"]}, {"sleep": 4},
+    {"log": [r"drvvblk: evil: rsp_head out of ring", r"\[KIRA DRV\] vblk: диск vdb заведён в blk\.c"]},
+    {"cmd": "test blk vdb", "must": [r"запись\+чтение 300 секторов совпали", r"выход за границы отклонён \(5 из 5\)", r"PASS"], "timeout": 60, "forbid": [r"FAIL"]},
+    {"log": [r"drvvblk: evil: response with unknown id"]},
+    {"cmd": "drv", "must": [r"drv-vblk pid \d+.*диск vdb: запросов [1-9]\d*, битых ответов [1-9]\d*"]},      # ядро отбросило и посчитало враждебные ответы
+    {"cmd": "drv stop vblk"}, {"sleep": 2},
+    {"cmd": "drv start vblk crash", "must": [r"драйвер запущен как drv-vblk"]}, {"sleep": 4},
+    {"cmd": "test blk vdb", "must": [r"запись: ошибка 5 FAIL"], "timeout": 60},                  # драйвер падает на первой записи: запрос в полёте завершается ошибкой
+    {"log": [r"drvvblk: crashing on purpose", r"\[KIRA PROC\] pid \d+ killed by CPU exception #14", r"\[KIRA DRV\] drv-vblk \(pid \d+\) завершён"]},
+    {"responsive": "status", "within": 5}, {"sleep": 2},
+    {"cmd": "drv start vblknc", "must": [r"драйвер запущен как drv-vblknc"]}, {"sleep": 4},
+    {"log": [r"drvvblk: CAP_BLKDEV not granted: register denied \(least-privilege PASS\)", r"\[KIRA CAPS\] process 'drv-vblknc' .* denied, no right CAP_BLKDEV"]},
+    {"cmd": "drv start vblk", "must": [r"драйвер запущен как drv-vblk"]}, {"sleep": 4},
+    {"cmd": "test blk vdb", "must": [r"запись\+чтение 300 секторов совпали", r"прежнее содержимое возвращено", r"PASS"], "timeout": 60, "forbid": [r"FAIL"]},
+    {"log_forbid": [r"drvvblk: .*\(FAIL\)", r"УТЕЧКА", r"\[KIRA IOMMU\] DMA fault", r"драйвер не ответил"] + NO_ERR},
+    {"responsive": "status", "within": 5},
+], smp=2, mem="1G", machine="q35", spare_mb=16,
+   extra=["-device", "intel-iommu,aw-bits=48", "-drive", "file={spare},format=raw,if=none,id=kd1",
+          "-device", "virtio-blk-pci,drive=kd1,disable-legacy=on,iommu_platform=on"]))
 
 
 # Порты ввода-вывода Ring 3 (KDRV_SYS_IO): драйвер читает MAC из PROM настоящей карты ne2k_pci через порты её I/O BAR и проверяет отказы ядра.
@@ -590,7 +1195,7 @@ def _bsd_dma_sc(name, about, pci, ifname, qdev, irq=True):
         {"cmd": "net", "must": [r"канал есть", r"адрес 10\.0\.2\.15"]},
         {"cmd": "ping 10.0.2.2 3", "must": [r"ответ от 10\.0\.2\.2", r"отправлено 3, получено [1-3]"], "timeout": 20},
         {"sleep": 6},
-        {"log": [r"bsdrt: прерывания: INTx по событию", r"bsdrt: %s: tx [1-9][0-9]* rx [1-9][0-9]* .* irq [1-9][0-9]*" % ifname]} if irq else
+        {"log": [r"\[KIRA DRV\] INTx: GSI (1[6-9]|2[0-3]) via IOAPIC vector", r"bsdrt: прерывания: INTx по событию", r"bsdrt: %s: tx [1-9][0-9]* rx [1-9][0-9]* .* irq [1-9][0-9]*" % ifname]} if irq else
         {"log": [r"bsdrt: прерывания: опрос раз в 10 мс", r"bsdrt: %s: tx [1-9][0-9]* rx [1-9][0-9]* " % ifname]},
         {"log_forbid": [r"bsdrt: .*FAIL", r"bsd panic", r"irq [0-9]{5,}", r"\[KIRA IOMMU\] DMA fault", r"00:03\.0 .*NOT isolated: (named|no active|domain setup)",
                         r"00:03\.0 back to passthrough"] + NO_ERR},
@@ -599,6 +1204,15 @@ def _bsd_dma_sc(name, about, pci, ifname, qdev, irq=True):
 
 
 ALL.append(_bsd_dma_sc("drv-bsd-pcn", "драйвер OpenBSD pcn(4) в Ring 3 с DMA под VT-d: карта pcnet на q35, DHCP и ping через неё, прерывания INTx", "1022:2000", "pcn0", "pcnet"))
+ALL.append(sc("drv-bsd-pcn-bridge", "драйвер OpenBSD pcn(4) в Ring 3 за мостом PCIe (корневой порт, шина 1) под VT-d: линия INTx по правилу моста, DHCP, ping", [
+    {"log": BOOT_LOG}, {"sleep": 8},
+    {"log": [r"pcn0 at pci 1022:2000", r"\[KIRA DRV\] INTx: GSI (1[6-9]|2[0-3]) via IOAPIC vector \(PCI 1:0\.0\)", r"bsdrt: pcn0 up, mac 52:54:00:12:34:56",
+             r"\[KIRA NET\] DHCP: address 10\.0\.2\.15/24"]},
+    {"cmd": "ping 10.0.2.2 3", "must": [r"отправлено 3, получено [1-3]"], "timeout": 20},
+    {"sleep": 6},
+    {"log": [r"bsdrt: прерывания: INTx по событию", r"bsdrt: pcn0: tx [1-9][0-9]* rx [1-9][0-9]* .* irq [1-9][0-9]*"]},
+    {"log_forbid": [r"bsdrt: .*FAIL", r"bsd panic", r"irq [0-9]{5,}"] + NO_ERR},
+], smp=2, mem="1G", machine="q35", extra=["-device", "intel-iommu,aw-bits=48", "-netdev", "user,id=n0", "-device", "pcie-root-port,id=rp1,chassis=1,slot=1", "-device", "pcnet,netdev=n0,bus=rp1,romfile="]))
 ALL.append(_bsd_dma_sc("drv-bsd-fxp", "драйвер OpenBSD fxp(4) в Ring 3 с DMA под VT-d: Intel 82559 (i82559er) на q35, DHCP и ping через неё, прерывания INTx", "8086:1209", "fxp0", "i82559er"))
 ALL.append(_bsd_dma_sc("drv-bsd-dc", "драйвер OpenBSD dc(4) в Ring 3 с DMA под VT-d: DEC 21143 (tulip) на q35, DHCP и ping, прерывания INTx", "1011:0019", "dc0", "tulip"))
 
@@ -939,3 +1553,224 @@ ALL.append(sc("mind-build-propose", "Разум предлагает задан�
     {"log_forbid": NO_ERR + [r"\[KIRA PROC\] pid \d+ 'kcc'", r"\[USER pid \d+\] \[BUILD\]", r"\[LOCAL\]", r"разрешён (человеком|подписью)"]},
     {"responsive": "status", "within": 5},
 ], smp=2, mem="1G"))
+
+
+# ---------- А2. Доверенная загрузка по UEFI Secure Boot (docs/SECURE_BOOT.md) ----------
+# Прошивка OVMF с включённым Secure Boot (ключи PK/KEK/db создаёт ci/sb_fixture.py на лету, в ci-out/secureboot, в git их нет) проверяет подпись
+# BOOTX64.EFI; загрузчик проверяет подписанный манифест KIRA.SIG и хэш ядра. ESP - диск AHCI на плате q35 с SMM (так требует OVMF secboot).
+# Сценарии отказа не доходят до приглашения (no_prompt): они ждут строку причины и проверяют, что ядро НЕ стартовало.
+_SB = dict(machine="q35,smm=on", smp=2, mem="1G", needs=["secureboot"])
+_SB_NO_KERNEL = [r"\[KIRA OS\] Kernel core starting", r"\[KIRA UEFI\] Common BootInfo accepted", r"\[KIRA CONSOLE\] Command line ready",
+                 r"KIRA UEFI: handing off to kernel", r"trusted boot: signature verified"]
+
+ALL.append(sc("secureboot-ok", "Secure Boot включён, образ подписан: прошивка проверила загрузчик, загрузчик - манифест и хэш ядра, ядро сообщает состояние цепочки", [
+    {"log": BOOT_LOG},
+    {"log": [r"\[KIRA BOOT\] Secure Boot: enabled \(firmware verified the signature of this loader\)",
+             r"\[KIRA BOOT\] trusted mode: the kernel must be signed with the release key embedded in this loader",
+             r"\[KIRA BOOT\] kernel KIRA\.ELF: SHA-256 and size match the signed manifest",
+             r"\[KIRA BOOT\] TPM: not present, boot is not measured",
+             r"\[KIRA BOOT\] trusted boot: signature verified, handing off to the kernel",
+             # строки самого ядра: состояние пришло из заголовка BootInfo, а не из предположения
+             r"\[KIRA BOOT\] Secure Boot: enabled\r?\n",
+             r"\[KIRA BOOT\] Image signature: verified by the loader \(boot files match the signed manifest\), release 3\r?\n",
+             r"\[KIRA BOOT\] Measured boot \(TPM PCR 9\): no",
+             r"\[KIRA BOOT\] Trusted boot: YES"]},
+    {"cmd": "test mem", "must": [r"heap: PASS", r"PMM: PASS", r"VMM: PASS"]},
+    {"log_forbid": NO_ERR + [r"TRUSTED BOOT REFUSED", r"Trust chain: the loader reports none"]},
+], secureboot={"image": "good", "vars": "secboot"}, boot_timeout=240, **_SB))
+
+ALL.append(sc("secureboot-tamper-loader", "загрузчик изменён на 1 байт после подписи: прошивка с Secure Boot его отвергает, загрузчик и ядро не запускаются", [
+    {"expect": r"Access Denied", "timeout": 120},
+    {"sleep": 10},
+    {"log_forbid": _SB_NO_KERNEL + [r"KIRA OS UEFI loader", r"\[KIRA BOOT\]"]},
+], secureboot={"image": "tamper-loader", "vars": "secboot"}, no_prompt=True, **_SB))
+
+ALL.append(sc("secureboot-unsigned-loader", "загрузчик без подписи ключа db: прошивка с Secure Boot его отвергает", [
+    {"expect": r"Access Denied", "timeout": 120},
+    {"sleep": 10},
+    {"log_forbid": _SB_NO_KERNEL + [r"KIRA OS UEFI loader", r"\[KIRA BOOT\]"]},
+], secureboot={"image": "unsigned-loader", "vars": "secboot"}, no_prompt=True, **_SB))
+
+ALL.append(sc("secureboot-tamper-kernel", "подпись загрузчика верна, ядро изменено на 1 байт: загрузчик отказывается и пишет причину на экран и в COM1, ядро не стартует", [
+    {"expect": r"\[KIRA BOOT\] Secure Boot: enabled \(firmware verified the signature of this loader\)", "timeout": 120},
+    {"expect": r"\[KIRA BOOT\] TRUSTED BOOT REFUSED: the kernel is NOT started", "timeout": 120},
+    {"expect": r"\[KIRA BOOT\]   object: \\EFI\\KIRA\\KIRA\.ELF", "timeout": 20},
+    {"expect": r"\[KIRA BOOT\]   reason: file was modified: SHA-256 differs from the signed manifest", "timeout": 20},
+    {"sleep": 8},
+    {"log": [r"KIRA BOOT: TRUSTED BOOT REFUSED: the kernel is NOT started"]},         # то же сообщение на экране (консоль вывода прошивки)
+    {"log_forbid": _SB_NO_KERNEL},
+], secureboot={"image": "tamper-kernel", "vars": "secboot"}, no_prompt=True, **_SB))
+
+ALL.append(sc("secureboot-no-manifest", "подписанный загрузчик, но манифеста KIRA.SIG нет: загрузка отклонена, а не продолжена без проверки", [
+    {"expect": r"\[KIRA BOOT\] TRUSTED BOOT REFUSED: the kernel is NOT started", "timeout": 120},
+    {"expect": r"\[KIRA BOOT\]   reason: signed manifest is missing: an unsigned image is not booted", "timeout": 20},
+    {"sleep": 8},
+    {"log_forbid": _SB_NO_KERNEL},
+], secureboot={"image": "no-manifest", "vars": "secboot"}, no_prompt=True, **_SB))
+
+ALL.append(sc("secureboot-rollback", "манифест выпуска 3, а загрузчик допускает выпуски не ниже 5: откат отклонён (поле номера выпуска для А3)", [
+    {"expect": r"\[KIRA BOOT\] TRUSTED BOOT REFUSED: the kernel is NOT started", "timeout": 120},
+    {"expect": r"\[KIRA BOOT\]   reason: image version is older than the allowed minimum \(rollback refused\)", "timeout": 20},
+    {"sleep": 8},
+    {"log_forbid": _SB_NO_KERNEL},
+], secureboot={"image": "rollback", "vars": "secboot"}, no_prompt=True, **_SB))
+
+ALL.append(sc("secureboot-required", "прошивка без ключей (Secure Boot выключен), а загрузчик доверенный: цепочка не начинается с прошивки, загрузка отклонена", [
+    {"expect": r"\[KIRA BOOT\] Secure Boot: disabled", "timeout": 120},
+    {"expect": r"\[KIRA BOOT\] TRUSTED BOOT REFUSED: the kernel is NOT started", "timeout": 120},
+    {"expect": r"\[KIRA BOOT\]   reason: Secure Boot is not enabled with enrolled keys", "timeout": 20},
+    {"sleep": 8},
+    {"log_forbid": _SB_NO_KERNEL},
+], secureboot={"image": "good", "vars": "plain"}, no_prompt=True, **_SB))
+
+# Измеряемая загрузка (этап 2): эмулируемый TPM 2.0 (swtpm). Загрузчик вносит манифест и ядро в PCR 9 и печатает значение, прочитанное из самого TPM;
+# проверка независимая: ожидаемое значение хост считает по файлам образа (ci/sb_fixture.py: H(PCR || H(данные)) по порядку).
+ALL.append(sc("secureboot-measured", "доверенная загрузка с эмулируемым TPM 2.0: PCR 9 равен расчёту по манифесту и ядру, ядро сообщает, что загрузка измерена", [
+    {"log": BOOT_LOG},
+    {"log": [r"\[KIRA BOOT\] TPM: PCR 9 \(SHA-256\) = <<pcr9>>\r?\n",
+             r"\[KIRA BOOT\] TPM: boot payload measured into PCR 9",
+             r"\[KIRA BOOT\] Measured boot \(TPM PCR 9\): yes",
+             r"\[KIRA BOOT\] Trusted boot: YES"]},
+    {"log_forbid": NO_ERR + [r"TRUSTED BOOT REFUSED", r"TPM: measurement failed", r"TPM: PCR 9 could not be read back"]},
+], secureboot={"image": "good", "vars": "secboot", "tpm": True}, boot_timeout=240, **dict(_SB, needs=["secureboot", "swtpm"])))
+
+
+# ---------- А3. Защита от отката и подмены (docs/SECURE_BOOT.md, раздел «Откат»; docs/PLAN.md, А3) ----------
+# 1. Откат образа: монотонный счётчик выпуска в эмулируемом TPM (swtpm). Состояние TPM лежит в ci-out/tpm-state-<имя> и переживает перезапуски машины
+#    внутри сценария (как NV-память настоящего TPM); перед сценарием оно стирается. Загрузчик сверяет выпуск из подписанного манифеста со счётчиком,
+#    ядро поднимает счётчик после подтверждённой «хорошей» загрузки (20 секунд работы).
+ALL.append(sc("secureboot-rollback-tpm", "выпуск 5 грузится и поднимает счётчик TPM, затем выпуск 3 с верной подписью отвергается; счётчик пережил перезапуск; выпуск 5 грузится снова", [
+    {"log": BOOT_LOG},
+    {"log": [r"\[KIRA BOOT\] rollback: TPM release counter created \(first use of this TPM\)",
+             r"\[KIRA BOOT\] rollback: release 5 is not older than the TPM counter 0 \(the kernel raises the counter after a confirmed good boot\)",
+             r"\[KIRA BOOT\] Image signature: verified by the loader \(boot files match the signed manifest\), release 5\r?\n",
+             r"\[KIRA BOOT\] rollback: TPM 2\.0 \(TIS\) found; release 5, TPM counter 0",
+             r"\[KIRA BOOT\] Trusted boot: YES"]},
+    {"expect": r"\[KIRA BOOT\] rollback: good boot confirmed, TPM counter is now 5\r?\n", "timeout": 180},
+    # выпуск 3: подпись манифеста верна (тот же ключ выпуска), но счётчик TPM уже 5
+    {"relaunch": [], "esp": "good", "prompt": False, "from_start": True},
+    {"expect": r"\[KIRA BOOT\] rollback: release 3 is older than the TPM counter 5 \(rollback refused\)", "timeout": 240},
+    {"expect": r"\[KIRA BOOT\] TRUSTED BOOT REFUSED: the kernel is NOT started", "timeout": 30},
+    {"expect": r"\[KIRA BOOT\]   reason: release is older than the TPM rollback counter \(rollback refused\)", "timeout": 30},
+    {"sleep": 8},
+    {"forbid_since": _SB_NO_KERNEL},
+    # счётчик пережил перезапуск, а законный выпуск 5 по-прежнему грузится (равный счётчику допустим)
+    {"relaunch": [], "esp": "release5", "hard": True, "from_start": True},
+    {"expect": r"\[KIRA BOOT\] rollback: release 5 is not older than the TPM counter 5 ", "timeout": 30},
+    {"log_forbid": NO_ERR},
+], secureboot={"image": "release5", "vars": "secboot", "tpm": True, "tpm_state": "rollback"}, boot_timeout=300, **dict(_SB, needs=["secureboot", "swtpm"])))
+
+# Без TPM защита образа - только вшитый порог, и журнал говорит об этом прямо (а не молчит).
+ALL.append(sc("secureboot-rollback-no-tpm", "доверенная загрузка без TPM: прежнее поведение (порог KIRA_MIN_IMAGE_VERSION), в журнале честная строка, что счётчика нет", [
+    {"log": BOOT_LOG},
+    {"log": [r"\[KIRA BOOT\] rollback: no TPM counter: only the embedded minimum release 0 protects from rollback; release 3",
+             r"\[KIRA BOOT\] rollback: no TPM driver device: image rollback is checked only against the embedded minimum release; disk rollback is not detected",
+             r"\[KIRA BOOT\] Trusted boot: YES"]},
+    {"cmd": "fsanchor", "must": [r"fsanchor: TPM absent"]},
+    {"log_forbid": NO_ERR + [r"TRUSTED BOOT REFUSED"]},
+], secureboot={"image": "good", "vars": "secboot"}, boot_timeout=240, **_SB))
+
+# 2. Откат диска: эпоха тома KiraFS и якорь в TPM. Старая копия диска (снимок до последних записей) ставится на место текущего - том открывается только для чтения.
+ALL.append(sc("fs-rollback-tpm", "эпоха диска KiraFS закрепляется в TPM; подмена диска старой копией обнаруживается при монтировании, том только для чтения, оператор подтверждает", [
+    {"log": BOOT_LOG},
+    {"log": [r"\[KIRA BOOT\] rollback: TPM 2\.0 \(TIS\) found; boot is not signed, the release counter is not used",
+             r"\[KIRA FS\] anchor: none in TPM yet, disk epoch \d+ is taken as the starting point"]},
+    {"cmd": "write /old.txt first", "must": [r"."]},
+    {"cmd": "fsanchor sync", "must": [r"\[KIRA FS\] anchor: disk epoch \d+ saved in TPM \(command\)", r"fsanchor: done"]},
+    {"cmd": "fsanchor", "must": [r"TPM present", r"TPM anchor \d+"]},
+    {"relaunch": [], "save_disk": "old", "from_start": True},                        # выключение: эпоха и якорь на носитель; снимок диска = «старая копия»
+    {"expect": r"\[KIRA FS\] anchor: disk epoch (\d+) is not older than the TPM anchor \1: ok", "timeout": 10},
+    {"cmd": "write /new.txt second", "must": [r"."]},
+    {"cmd": "cat /new.txt", "must": [r"second"]},
+    {"relaunch": [], "restore_disk": "old", "from_start": True},                    # выключение закрепило новую эпоху; затем на место диска ставится старая копия
+    {"expect": r"\[KIRA FS\] rollback detected: disk epoch \d+ is older than the TPM anchor \d+: an old copy of the disk was put in place\. The volume is READ-ONLY", "timeout": 10},
+    {"capture": {"ep": r"rollback detected: disk epoch (\d+) is older", "an": r"is older than the TPM anchor (\d+): an old copy"}},
+    {"num": ["an", "ep", 1, 100000]},
+    {"cmd": "cat /old.txt", "must": [r"first"]},                                      # читать можно
+    {"cmd": "cat /new.txt", "forbid": [r"second"]},                                   # в старой копии новых данных нет
+    {"cmd": "write /x.txt blocked", "must": [r"только для чтения"]},                  # писать нельзя: безопасный режим
+    {"cmd": "fsanchor", "must": [r"READ-ONLY \(rollback\)"]},
+    {"cmd": "fsanchor sync", "must": [r"rollback detected"]},
+    {"cmd": "fsanchor accept", "must": [r"operator accepted the disk", r"volume is writable"]},
+    {"cmd": "write /x.txt allowed", "must": [r"."]},
+    {"cmd": "cat /x.txt", "must": [r"allowed"]},
+    {"cmd": "fsanchor sync", "must": [r"fsanchor: done"]},
+    {"cmd": "fsanchor", "must": [r"TPM anchor \d+"], "forbid": [r"READ-ONLY"]},
+    {"log_forbid": NO_ERR},
+], smp=2, mem="1G", tpm=True, tpm_state="fsrollback", needs=["swtpm"], boot_timeout=120))
+
+ALL.append(sc("fs-anchor-no-tpm", "без TPM защита диска от отката недоступна, и ядро говорит об этом строкой в журнале и командой fsanchor", [
+    {"log": BOOT_LOG},
+    {"log": [r"\[KIRA BOOT\] rollback: no TPM driver device: image rollback is checked only against the embedded minimum release; disk rollback is not detected",
+             r"\[KIRA FS\] anchor: no TPM, a rolled-back disk copy would not be detected"]},
+    {"cmd": "fsanchor", "must": [r"fsanchor: TPM absent"]},
+    {"cmd": "write /a.txt works", "must": [r"."]}, {"cmd": "cat /a.txt", "must": [r"works"]},       # без TPM запись работает как раньше
+    {"log_forbid": NO_ERR + [r"rollback detected"]},
+], smp=2, mem="1G"))
+
+# 3. Подпись приложений: манифест /etc/apps.manifest подписан ключом издателя (/etc/apps.sig, домен APPS). Нужно ядро с тестовыми ключами (KIRA_TEST_TRUST=1:
+#    сборка в отдельном каталоге; метка kira.testtrust), боевое ядро доверяет только офлайн-ключу издателя. Допуск по подписи включает строка ядра kira.signedapps
+#    (образ kira-bios-signedapps.img) или доверенная загрузка (там подпись обязательна всегда).
+_APPS_PUT = {"/etc/apps.manifest": "{apps_manifest}", "/etc/apps.sig": "{apps_sig_a}"}
+_DEMO_OK = r"data page intact after 3 sleeps: address spaces are isolated \(PASS\)"
+_APPS = dict(boot="bios", bios_img="kira-bios-signedapps.img", smp=2, mem="1G", apps=True, needs=["testtrust"], boot_timeout=120)
+
+ALL.append(sc("apps-signed-ok", "манифест приложений с верной подписью издателя: программа запускается и допускается по подписанному манифесту", [
+    {"log": BOOT_LOG},
+    {"log": [r"\[KIRA APPS\] policy: signed application manifest required \(kira\.signedapps, development boot\)"]},
+    {"cmd": "run demo"}, {"sleep": 6},
+    {"log": [_DEMO_OK]},
+    {"cmd": "progs", "must": [r"demo\s+доверенная"]},
+    {"log_forbid": NO_ERR + [r"launch refused", r"Запуск отклонён"]},
+], put=_APPS_PUT, **_APPS))
+
+ALL.append(sc("apps-signed-tampered", "манифест приложений подменён после подписи: подпись не принимается, программа не запускается", [
+    {"log": BOOT_LOG},
+    {"cmd": "run demo"}, {"sleep": 4},
+    {"log": [r"\[PROG\] /bin/demo: signed application manifest: manifest signature rejected: хеш пакета не совпал с манифестом; launch refused",
+             r"\[IMMUNE\] /bin/demo: подписанный манифест не принят\. Запуск отклонён"]},
+    {"cmd": "progs", "must": [r"demo\s+чужая"]},
+    {"log_forbid": NO_ERR + [_DEMO_OK]},
+], put={"/etc/apps.manifest": "{apps_manifest_bad}", "/etc/apps.sig": "{apps_sig_a}"}, **_APPS))
+
+ALL.append(sc("apps-signed-missing", "в режиме подписи манифеста приложений нет вообще: программы не запускаются (встроенного манифеста для обхода нет)", [
+    {"log": BOOT_LOG},
+    {"cmd": "run demo"}, {"sleep": 4},
+    {"log": [r"\[PROG\] /bin/demo: signed application manifest: signed manifest /etc/apps\.manifest is missing; launch refused"]},
+    {"log_forbid": NO_ERR + [_DEMO_OK]},
+], **_APPS))
+
+ALL.append(sc("apps-signed-revoked", "манифест подписан новым ключом (ротация): запускается; ключ отозван командой drv revoke - отказ; ключ A по-прежнему принимается", [
+    {"log": BOOT_LOG},
+    {"send": "run demo"}, {"expect": _DEMO_OK, "timeout": 30},                               # ключ TEST-ED25519-002 в таблице ядра: принят
+    {"cmd": "drv revoke TEST-ED25519-002", "must": [r"."]},
+    {"cmd": "run demo"}, {"sleep": 4},
+    {"log": [r"\[PROG\] /bin/demo: signed application manifest: manifest signature rejected: издательский ключ отозван; launch refused"]},
+    {"log_forbid": NO_ERR},
+], put={"/etc/apps.manifest": "{apps_manifest}", "/etc/apps.sig": "{apps_sig_b}"}, **_APPS))
+
+ALL.append(sc("apps-dev-mode", "режим разработки (без kira.signedapps и без доверенной загрузки): допуск по встроенному манифесту SHA-256 как раньше, подпись не требуется и подменённый манифест на диске ничего не меняет", [
+    {"log": BOOT_LOG},
+    {"log": [r"\[KIRA APPS\] policy: development mode, programs are admitted by the SHA-256 manifest built into the kernel \(signature not required\)"]},
+    {"cmd": "run demo"}, {"sleep": 6},
+    {"log": [_DEMO_OK]},
+    {"cmd": "progs", "must": [r"demo\s+доверенная"]},
+    {"log_forbid": NO_ERR + [r"launch refused", r"Запуск отклонён"]},
+], put={"/etc/apps.manifest": "{apps_manifest_bad}", "/etc/apps.sig": "{apps_sig_a}"}, smp=2, mem="1G", apps=True, needs=["testtrust"]))
+
+# В доверенной загрузке подпись манифеста приложений обязательна без всякой строки ядра (ядро с тестовыми ключами и ESP из kira.bin этой же сборки).
+ALL.append(sc("secureboot-apps", "доверенная загрузка: программа с верно подписанным манифестом запускается", [
+    {"log": BOOT_LOG},
+    {"log": [r"\[KIRA APPS\] policy: signed application manifest required \(trusted boot\)", r"\[KIRA BOOT\] Trusted boot: YES"]},
+    {"cmd": "run demo"}, {"sleep": 8},
+    {"log": [_DEMO_OK]},
+    {"log_forbid": NO_ERR + [r"launch refused"]},
+], put=_APPS_PUT, apps=True, secureboot={"image": "good", "vars": "secboot"}, boot_timeout=240, **dict(_SB, needs=["secureboot", "testtrust"])))
+
+ALL.append(sc("secureboot-apps-unsigned", "доверенная загрузка без подписанного манифеста: программа не запускается, обхода через встроенный манифест нет", [
+    {"log": BOOT_LOG},
+    {"log": [r"\[KIRA BOOT\] Trusted boot: YES", r"\[KIRA APPS\] policy: signed application manifest required \(trusted boot\)"]},
+    {"cmd": "run demo"}, {"sleep": 6},
+    {"log": [r"\[PROG\] /bin/demo: signed application manifest: signed manifest /etc/apps\.manifest is missing; launch refused"]},
+    {"log_forbid": NO_ERR + [_DEMO_OK]},
+], apps=True, secureboot={"image": "good", "vars": "secboot"}, boot_timeout=240, **dict(_SB, needs=["secureboot", "testtrust"])))

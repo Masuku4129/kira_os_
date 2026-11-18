@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include "arch_vmm.h"
+#include "hwprofile.h"
 
 /* Куча программы Ring 3: растёт только вверх от UHEAP_VA страницами по 4 КБ, память нулевая, RW-NX.
    Системный вызов SYS_HEAP(pages) возвращает адрес начала НОВОГО куска; куски идут подряд, так что
@@ -26,5 +27,7 @@ uint64_t uheap_reserve_kb(uint64_t total_kb);
 /* Решает, можно ли выдать req страниц, если уже выдано cur. free_kb - свободная память ядра, total_kb - вся ОЗУ.
    Таблицы страниц тоже занимают память: по странице на каждые 512 страниц данных плюс запас на верхние уровни. */
 int uheap_check(uint64_t cur_pages, uint64_t req_pages, uint64_t free_kb, uint64_t total_kb);
+
+void uheap_describe_limits(const hw_profile_t* p, void (*out)(const char*));   /* строка hw_describe про пределы машины */
 
 #endif

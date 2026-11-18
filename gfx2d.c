@@ -102,20 +102,35 @@ void gfx_blit_alpha(surface_t* dst, int dx, int dy, const surface_t* src, int sx
         const uint32_t* sp = src->px + (long)(sy + j) * src->pitch + sx;
         uint32_t* dp = dst->px + (long)(dy + j) * dst->pitch + dx;
         for (int i = 0; i < w; i++) {
-            uint32_t s = sp[i], d = dp[i];
+            uint32_t s = sp[i];
             uint32_t a = s >> 24;
             if (a == 255) { dp[i] = s & 0x00FFFFFF; continue; }
             if (a == 0) continue;
-            uint32_t ia = 255 - a;
-            // (c*a + d*(255-a) + 127) / 255, точно: x/255 = (x + 128 + ((x + 128) >> 8)) >> 8
-            uint32_t r = ((s >> 16) & 255) * a + ((d >> 16) & 255) * ia;
-            uint32_t g = ((s >> 8) & 255) * a + ((d >> 8) & 255) * ia;
-            uint32_t b = (s & 255) * a + (d & 255) * ia;
-            r = (r + 128 + ((r + 128) >> 8)) >> 8;
-            g = (g + 128 + ((g + 128) >> 8)) >> 8;
-            b = (b + 128 + ((b + 128) >> 8)) >> 8;
-            dp[i] = (r << 16) | (g << 8) | b;
+            uint32_t d = dp[i], ia = 255 - a;
+            /* Два канала за одно умножение (красный+синий в одном слове, зелёный отдельно); точное деление на 255:
+               x/255 = (x + 128 + ((x + 128) >> 8)) >> 8, в каждой 16-битной полосе сумма не переполняется (<= 65407). */
+            uint32_t rb = (s & 0x00FF00FF) * a + (d & 0x00FF00FF) * ia + 0x00800080;
+            uint32_t g  = ((s >> 8) & 0xFF) * a + ((d >> 8) & 0xFF) * ia + 0x80;
+            rb = ((rb + ((rb >> 8) & 0x00FF00FF)) >> 8) & 0x00FF00FF;
+            g  = (g + (g >> 8)) >> 8;
+            dp[i] = rb | (g << 8);
         }
+    }
+}
+
+/* Смешивание цвета с отрезком строки: t = 0..256 (256 - сплошной цвет). Два канала за умножение:
+   канал = (старый*(256-t) + цвет*t) >> 8, то же, что ui_mix. Без ограничений по границам: вызывающий обрезает. */
+void gfx_span_blend(uint32_t* p, int n, uint32_t color, unsigned t) {
+    if (n <= 0 || t == 0) return;
+    color &= 0x00FFFFFF;
+    if (t >= 256) { for (int i = 0; i < n; i++) p[i] = color; return; }
+    unsigned it = 256 - t;
+    uint32_t crb = (color & 0x00FF00FF) * t, cg = ((color >> 8) & 0xFF) * t;
+    for (int i = 0; i < n; i++) {
+        uint32_t d = p[i];
+        uint32_t rb = (((d & 0x00FF00FF) * it + crb) >> 8) & 0x00FF00FF;
+        uint32_t g  = ((((d >> 8) & 0xFF) * it + cg) >> 8) & 0xFF;
+        p[i] = rb | (g << 8);
     }
 }
 

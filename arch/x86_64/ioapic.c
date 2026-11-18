@@ -3,6 +3,7 @@
 #ifndef KIRA_HOST_TEST
 #include "vmm.h"
 #include "uart.h"
+#include "heap.h"
 #endif
 
 #define IOREGSEL 0x00
@@ -105,6 +106,28 @@ int ioapic_route_pci(const acpi_info_t* a, unsigned irq, uint32_t dest) {
     return 0;
 }
 
+/* Любая линия по номеру GSI (INTx устройств PCI, GSI 16 и выше): уровень, активный низкий; сначала запись с маской и проверка,
+   затем снятие маски. 0 - готово. */
+int ioapic_route_gsi(const acpi_info_t* a, uint32_t gsi, uint8_t vector, uint32_t dest) {
+    unsigned i, p;
+    if (find(a, gsi, &i, &p) != 0) return -1;
+    uint32_t lo, hi;
+    ioapic_encode(vector, 1, 1, 1, dest, &lo, &hi);
+    wr(i, REG_REDIR(p) + 1, hi);
+    wr(i, REG_REDIR(p), lo);
+    if ((rd(i, REG_REDIR(p)) & ~0x5000u) != (lo & ~0x5000u) || rd(i, REG_REDIR(p) + 1) != hi) return -2;
+    ioapic_encode(vector, 1, 1, 0, dest, &lo, &hi);
+    wr(i, REG_REDIR(p), lo);
+    return 0;
+}
+void ioapic_mask_gsi(const acpi_info_t* a, uint32_t gsi, int masked) {
+    unsigned i, p;
+    if (find(a, gsi, &i, &p) != 0) return;
+    uint32_t lo = rd(i, REG_REDIR(p));
+    if (masked) lo |= 1u << 16; else lo &= ~(1u << 16);
+    wr(i, REG_REDIR(p), lo);
+}
+
 void ioapic_mask_isa(const acpi_info_t* a, unsigned irq, int masked) {
     irq_line_t l = ioapic_resolve(a, irq);
     unsigned i, p;
@@ -115,4 +138,47 @@ void ioapic_mask_isa(const acpi_info_t* a, unsigned irq, int masked) {
 }
 
 unsigned ioapic_entry_count(void) { return count ? nent[0] : 0; }
+
+/* Сон S3: IOAPIC после пробуждения сброшен (все линии замаскированы, номер на шине - по умолчанию). Таблица перенаправления запоминается целиком
+   (вектор, полярность, триггер, получатель, маска) вместе с номером на шине; возврат - сначала записи с маской, затем настоящие значения,
+   чтобы линия не сработала на полузаписанном векторе. Память под снимок берётся на время сна. */
+static uint32_t* snap;                       /* на каждый IOAPIC: [id][пары lo/hi по числу записей] */
+static unsigned snap_n[ACPI_MAX_IOAPIC];
+int ioapic_save(void) {
+    unsigned total = 0;
+    for (unsigned i = 0; i < count; i++) total += 1 + 2 * nent[i];
+    if (!count) return 0;
+    if (snap) { kfree(snap); snap = 0; }
+    snap = (uint32_t*)kmalloc(total * sizeof(uint32_t));
+    if (!snap) return -1;
+    uint32_t* o = snap;
+    for (unsigned i = 0; i < count; i++) {
+        snap_n[i] = nent[i];
+        *o++ = rd(i, REG_ID);
+        for (unsigned p = 0; p < nent[i]; p++) { *o++ = rd(i, REG_REDIR(p)); *o++ = rd(i, REG_REDIR(p) + 1); }
+    }
+    return 0;
+}
+int ioapic_restore(void) {
+    if (!count) return 0;
+    if (!snap) return -1;
+    const uint32_t* r = snap; int bad = 0;
+    for (unsigned i = 0; i < count; i++) {
+        uint32_t id = *r++;
+        wr(i, REG_ID, id);
+        const uint32_t* e = r;
+        for (unsigned p = 0; p < snap_n[i]; p++) {
+            wr(i, REG_REDIR(p) + 1, e[2 * p + 1]);
+            wr(i, REG_REDIR(p), e[2 * p] | (1u << 16));       /* пока замаскирована */
+        }
+        for (unsigned p = 0; p < snap_n[i]; p++) {
+            uint32_t lo = e[2 * p] & ~0x5000u;                   /* статус доставки и remote IRR - только для чтения */
+            wr(i, REG_REDIR(p), lo);
+            if (((rd(i, REG_REDIR(p)) ^ lo) & ~0x5000u) != 0 || rd(i, REG_REDIR(p) + 1) != e[2 * p + 1]) bad++;
+        }
+        r += 2 * snap_n[i];
+    }
+    kfree(snap); snap = 0;
+    return bad ? -2 : 0;
+}
 #endif

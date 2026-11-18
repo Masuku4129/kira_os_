@@ -15,7 +15,7 @@
 #define SMMU_EVTQ_BYTES      (SMMU_QUEUE_ENTRIES * 32u)
 #define SMMU_EVTQ_ALIGN      SMMU_EVTQ_BYTES
 #define SMMU_EVTQ_ALLOC_PAGES ((SMMU_EVTQ_BYTES / SMMU_PAGE_SIZE) + (SMMU_EVTQ_ALIGN / SMMU_PAGE_SIZE) - 1u)
-#define SMMU_REGISTER_MAP_SIZE (2u * SMMU_PAGE_SIZE)
+#define SMMU_REGISTER_MAP_SIZE (32u * SMMU_PAGE_SIZE)   /* страница 0 и страница 1 (очереди событий) лежат через 64 КБ */
 #define SMMU_STRTAB_ENTRIES  256u
 #define SMMU_STRTAB_BYTES    (SMMU_STRTAB_ENTRIES * 64u)
 #define SMMU_STRTAB_PAGES    (SMMU_STRTAB_BYTES / SMMU_PAGE_SIZE)
@@ -42,8 +42,8 @@
 #define SMMU_CMDQ_PROD       0x0098u
 #define SMMU_CMDQ_CONS       0x009cu
 #define SMMU_EVTQ_BASE       0x00a0u
-#define SMMU_EVTQ_PROD       0x10a8u
-#define SMMU_EVTQ_CONS       0x10acu
+#define SMMU_EVTQ_PROD       0x100a8u
+#define SMMU_EVTQ_CONS       0x100acu
 
 #define SMMU_CR0_SMMUEN      (1u << 0)
 #define SMMU_CR0_EVENTQEN    (1u << 2)
@@ -54,6 +54,14 @@
 #define SMMU_CR0ACK_CMDQEN   (1u << 3)
 
 #define SMMU_QUEUE_LOG2      8u
+/* CR1: как обращается к памяти сам SMMU - таблицы (STE/CD/трансляция) и очереди. Write-back, внутренне общие: так процессор (кэшируемая память ядра)
+   и SMMU видят одни и те же данные без очистки кэша; без этого (сброс - 0) обращения шли бы мимо кэша. Нужно железу с IDR0.COHACC; в QEMU не видно. */
+#define SMMU_CR1_TABLE_SH_ISH (3u << 10)
+#define SMMU_CR1_TABLE_OC_WB  (1u << 8)
+#define SMMU_CR1_TABLE_IC_WB  (1u << 6)
+#define SMMU_CR1_QUEUE_SH_ISH (3u << 4)
+#define SMMU_CR1_QUEUE_OC_WB  (1u << 2)
+#define SMMU_CR1_QUEUE_IC_WB  (1u << 0)
 #define SMMU_QUEUE_BASE_ADDR_MASK 0x000fffffffffffe0ull
 #define SMMU_STRTAB_BASE_ADDR_MASK 0x000fffffffffffc0ull
 #define SMMU_IDR1_CMDQS_SHIFT 21u
@@ -371,6 +379,9 @@ int kira_smmu_v3_enable(struct kira_smmu *smmu,
         platform->clean_cache(platform->context, smmu->evtq,
                               SMMU_EVTQ_BYTES);
     }
+    smmu_write32(smmu->registers, SMMU_CR1,
+                 SMMU_CR1_TABLE_SH_ISH | SMMU_CR1_TABLE_OC_WB | SMMU_CR1_TABLE_IC_WB |
+                 SMMU_CR1_QUEUE_SH_ISH | SMMU_CR1_QUEUE_OC_WB | SMMU_CR1_QUEUE_IC_WB);
     if (platform->write_barrier)
         platform->write_barrier(platform->context);
 

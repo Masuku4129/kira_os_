@@ -9,6 +9,8 @@
 
 void ui_blend(surface_t* s, int x, int y, uint32_t color, unsigned alpha);
 void ui_round_rect(surface_t* s, int x, int y, int w, int h, int r, uint32_t color, unsigned alpha);
+/* Без дыры (hx,hy,hw,hh): под непрозрачным содержимым смешивать незачем. */
+void ui_round_rect_hole(surface_t* s, int x, int y, int w, int h, int r, uint32_t color, unsigned alpha, int hx, int hy, int hw, int hh);
 void ui_round_frame(surface_t* s, int x, int y, int w, int h, int r, uint32_t color, unsigned alpha);  /* контур 1 px */
 void ui_disc(surface_t* s, int cx, int cy, int r, uint32_t color, unsigned alpha);                      /* (cx,cy) - центр, r - радиус в пикселях */
 void ui_ring(surface_t* s, int cx, int cy, int r_in, int r_out, uint32_t color, unsigned alpha);
@@ -37,5 +39,21 @@ void ui_statusbar(surface_t* s, int y, const char* left, uint32_t left_color, co
 /* Полоса подсказки клавиш как в mc: n одинаковых ячеек на всю ширину; hover - номер ячейки под мышью или -1. */
 void ui_keybar(surface_t* s, int y, const ui_key_t* k, int n, int hover);
 int  ui_keybar_hit(int width, int n, int x);              /* номер ячейки по x или -1 */
+
+
+/* ---- состояния и общие элементы единого стиля (docs/UI_DESIGN.md) ---- */
+enum { UI_ST_NORMAL, UI_ST_HOVER, UI_ST_PRESSED, UI_ST_SELECTED, UI_ST_DISABLED };
+uint32_t ui_state_bg(int state, uint32_t base);            /* фон элемента по состоянию */
+uint32_t ui_state_fg(int state);                           /* цвет текста по состоянию */
+void ui_focus_ring(surface_t* s, int x, int y, int w, int h);   /* видимая рамка клавиатурного фокуса, 2 px */
+void ui_toolbtn(surface_t* s, int x, int y, int w, int h, const char* label, int state, int focus);
+void ui_col_header(surface_t* s, int x, int y, int w, int h, const char* label, int dir, int hover);   /* dir: 0 нет, 1 вверх, -1 вниз */
+void ui_list_row(surface_t* s, int x, int y, int w, int h, int selected, int active, int hover, int alt);
+void ui_scrollbar(surface_t* s, int x, int y, int h, int total, int visible, int top, int active);
+int  ui_menu_height(const char* const* items, int n);
+void ui_menu(surface_t* s, int x, int y, int w, const char* const* items, int n, int sel, unsigned off);   /* "" - разделитель */
+int  ui_menu_hit(int x, int y, int w, const char* const* items, int n, int px, int py);
+void ui_dialog_frame(surface_t* s, int x, int y, int w, int h, const char* title, int danger);
+void ui_input(surface_t* s, int x, int y, int w, int h, const char* text, int focus);
 
 #endif

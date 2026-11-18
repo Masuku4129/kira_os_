@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "kobj.h"
+#include "caps.h"
 #include "futex.h"
 #include "sched.h"
 #include "spinlock.h"
@@ -222,6 +223,86 @@ int main(void) {
     CHECK(futex_wake(key, 1) == 0);                                          /* очередь пуста */
     dying = 1; CHECK(futex_wait(key, (uint64_t)(uintptr_t)&word, load_word, 7, ~0ULL, stop_fn) == KE_INTR); dying = 0;
 
-    printf("%s\n", fails ? "FAILED" : "kobj: names, handles, ports (order, overflow, wait/timeout/wake, kill), shared memory, futex passed");
+    /* домены приложений: общий объект открывается только доменами, до которых дотягивается домен создателя */
+    { kobj_t *o = 0, *r = 0;
+    CHECK(port_open_in("dom.pub", KOPEN_CREATE | KOPEN_PUBLIC, 10, DOM_MEDIA, &o) == 0 && o);
+    CHECK(port_open_in("dom.pub", 0, 11, DOM_MEDIA, &r) == 0 && r == o);
+    CHECK(port_open_in("dom.pub", 0, 12, DOM_SYSTEM, &r) == 0 && r == o);
+    CHECK(port_open_in("dom.pub", 0, 13, DOM_NET, &r) == KE_PERM);
+    CHECK(port_open_in("dom.pub", 0, 14, DOM_TOOLS, &r) == KE_PERM);
+    CHECK(port_open_in("dom.pub", 0, 15, DOM_UNTRUSTED, &r) == KE_PERM);
+    CHECK(port_open_in("dom.pub", KOPEN_CREATE | KOPEN_EXCL, 11, DOM_MEDIA, &r) == KE_EXIST);
+    /* Приватный объект по-прежнему только создателю, даже внутри домена и даже для system. */
+    CHECK(port_open_in("dom.priv", KOPEN_CREATE, 10, DOM_MEDIA, &o) == 0);
+    CHECK(port_open_in("dom.priv", 0, 11, DOM_MEDIA, &r) == KE_PERM && port_open_in("dom.priv", 0, 12, DOM_SYSTEM, &r) == KE_PERM);
+    /* Память: то же правило. */
+    CHECK(shm_open_in("dom.shm", 1, KOPEN_CREATE | KOPEN_PUBLIC, 20, DOM_NET, &o) == 0 && o);
+    CHECK(shm_open_in("dom.shm", 1, 0, 21, DOM_NET, &r) == 0 && shm_open_in("dom.shm", 1, 0, 22, DOM_MEDIA, &r) == KE_PERM);
+    }
+
+    /* вложения в сообщения портов: передача объекта, права доменов, правило глубины 1 */
+    { kobj_t *srv = 0, *rep = 0, *shm = 0, *got = 0, *other = 0; char buf[16]; uint32_t from = 0;
+    unsigned objs0 = kobj_count(); uint64_t live0 = pages_live;
+    CHECK(port_open_in("att.srv", KOPEN_CREATE | KOPEN_PUBLIC, 30, DOM_SYSTEM, &srv) == 0);
+    CHECK(port_open_in("att.rep", KOPEN_CREATE, 31, DOM_MEDIA, &rep) == 0);              /* приватный порт клиента: сервер откроет его только из вложения */
+    CHECK(shm_open_in("att.shm", 1, KOPEN_CREATE, 31, DOM_MEDIA, &shm) == 0);
+    kobj_retain(rep);
+    CHECK(port_send_att(srv, 31, "hi", 2, rep) == 0 && port_queued(srv) == 1);
+    CHECK(port_recv_att(srv, buf, sizeof buf, 0, &from, 0, &got) == 2 && from == 31 && got == rep);   /* ссылка у получателя */
+    kobj_release(got);
+    kobj_retain(shm);
+    CHECK(port_send_att(rep, 30, "d", 1, shm) == 0);                                      /* ответ с памятью в порт из вложения */
+    CHECK(port_recv_att(rep, buf, sizeof buf, 0, &from, 0, &got) == 1 && got == shm);
+    kobj_release(got);
+    /* без att_out вложение отбрасывается, ссылки не текут */
+    kobj_retain(shm);
+    CHECK(port_send_att(rep, 30, "d", 1, shm) == 0 && port_recv(rep, buf, sizeof buf, 0, &from, 0) == 1);
+    /* домен: порт SYSTEM принимает вложения из любого домена, до которого он дотягивается; медийный порт не принимает вложение домена NET */
+    CHECK(port_open_in("att.net", KOPEN_CREATE | KOPEN_PUBLIC, 40, DOM_NET, &other) == 0);
+    kobj_retain(other); CHECK(port_send_att(rep, 31, "x", 1, other) == KE_PERM); kobj_release(other);
+    kobj_release(other);
+    /* глубина 1: порт с вложением нельзя вложить; вложенному порту вложения нельзя; самого в себя нельзя */
+    kobj_retain(shm); CHECK(port_send_att(rep, 30, "d", 1, shm) == 0);                    /* в rep лежит вложение */
+    kobj_retain(rep); CHECK(port_send_att(srv, 31, "r", 1, rep) == KE_PERM); kobj_release(rep);   /* rep несёт вложение - вкладываться не может */
+    CHECK(port_recv(rep, buf, sizeof buf, 0, &from, 0) == 1);                             /* вложение отброшено */
+    kobj_retain(rep); CHECK(port_send_att(srv, 31, "r", 1, rep) == 0);                    /* теперь можно: rep в пути */
+    kobj_retain(shm); CHECK(port_send_att(rep, 30, "d", 1, shm) == KE_PERM); kobj_release(shm);   /* вложенному порту вложения нельзя */
+    CHECK(port_send_att(rep, 30, "plain", 5, 0) == 0);                                    /* обычные сообщения - можно */
+    kobj_retain(srv); CHECK(port_send_att(srv, 30, "s", 1, srv) == KE_ARG); kobj_release(srv);
+    CHECK(port_recv(srv, buf, sizeof buf, 0, &from, 0) == 1 && port_queued(srv) == 0);          /* "r" с вложением rep (без att_out - отброшено) */
+    kobj_release(srv);
+    while (port_recv(rep, buf, sizeof buf, 0, &from, 0) >= 0) {}
+    kobj_release(rep); kobj_release(shm);
+    CHECK(kobj_count() == objs0 + 0 && pages_live == live0);                               /* всё освобождено, включая вложения в очередях при уничтожении */
+    /* уничтожение порта с вложениями в очереди отпускает вложения */
+    CHECK(port_open_in("att.q", KOPEN_CREATE, 50, DOM_SYSTEM, &srv) == 0 && shm_open_in("att.q.shm", 1, KOPEN_CREATE, 50, DOM_SYSTEM, &shm) == 0);
+    kobj_retain(shm); CHECK(port_send_att(srv, 50, "d", 1, shm) == 0);
+    kobj_release(shm); CHECK(pages_live == live0 + 1);                                    /* память держит очередь */
+    kobj_release(srv);
+    CHECK(pages_live == live0 && kobj_count() == objs0);
+    }
+    /* ожидание нескольких портов сразу */
+    {
+    kobj_t *a, *b, *c, *ws[3];
+    char wb[8]; uint32_t wf;
+    CHECK(port_open_in("wt.a", KOPEN_CREATE, 60, DOM_SYSTEM, &a) == 0 && port_open_in("wt.b", KOPEN_CREATE, 60, DOM_SYSTEM, &b) == 0 && port_open_in("wt.c", KOPEN_CREATE, 60, DOM_SYSTEM, &c) == 0);
+    ws[0] = a; ws[1] = b; ws[2] = c;
+    CHECK(port_wait(ws, 3, 0, 0) == KE_AGAIN);                                          /* пусто, срок 0 */
+    CHECK(port_wait(ws, 0, 0, 0) == KE_ARG && port_wait(0, 1, 0, 0) == KE_ARG && port_wait(ws, 9, 0, 0) == KE_ARG);
+    { kobj_t* d[2] = { a, a }; CHECK(port_wait(d, 2, 0, 0) == KE_ARG); }                   /* повтор порта */
+    CHECK(port_send(b, 7, "x", 1) == 0);
+    CHECK(port_wait(ws, 3, 0, 0) == 1);                                                  /* готов второй */
+    CHECK(port_wait(ws, 3, 0, 0) == 1 && port_queued(b) == 1);                           /* сообщение осталось в очереди */
+    CHECK(port_recv(b, wb, sizeof wb, 0, &wf, 0) == 1 && wf == 7);
+    uint64_t t0 = fake_ticks;
+    CHECK(port_wait(ws, 3, 50, 0) == KE_TIMEOUT && fake_ticks >= t0 + 50);               /* никто не разбудил */
+    for (int i = 0; i < 3; i++) CHECK(port_waiters(ws[i]) == 0);                 /* из очередей ушли */
+    g_port = c; woken = 0; while_asleep = send_hello;                                     /* пока спим, другой поток шлёт в третий порт */
+    CHECK(port_wait(ws, 3, ~0ULL, 0) == 2 && woken >= 1);
+    CHECK(port_recv(c, wb, sizeof wb, 0, &wf, 0) >= 0);
+    for (int i = 0; i < 3; i++) CHECK(port_waiters(ws[i]) == 0);
+    kobj_release(a); kobj_release(b); kobj_release(c);
+    }
+    printf("%s\n", fails ? "FAILED" : "kobj: names, handles, ports (order, overflow, wait/timeout/wake, kill), wait on several ports, shared memory, futex, domains, attachments passed");
     return fails != 0;
 }

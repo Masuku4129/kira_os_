@@ -16,11 +16,16 @@ COMMON="-ffreestanding -fno-omit-frame-pointer -fno-pic -fno-pie -fno-stack-prot
 # Ядро собирается БЕЗ SSE/MMX: обработчики прерываний не трогают регистры xmm,
 # поэтому прерванному потоку не нужно сохранять их при входе в прерывание.
 CFLAGS="$COMMON -mno-mmx -mno-sse -mno-sse2 -I. -Iarch/x86_64"
+# Тестовая сборка ядра (KIRA_TEST_TRUST=1): в таблице доверенных ключей издателя тестовые ключи RFC 8032 (закрытые части общеизвестны), чтобы сценарии QEMU
+# могли подписывать манифест приложений (ci/apps_fixture.py). Такое ядро НЕ выпускается: kdrv_trust.h запрещает флаг вне KIRA_TEST_BUILD, рядом кладётся
+# метка kira.testtrust, без неё сценарии с подписями пропускаются.
+rm -f kira.testtrust
+if [ "${KIRA_TEST_TRUST:-0}" = 1 ]; then CFLAGS="$CFLAGS -DKIRA_TEST_BUILD -DKDRV_TEST_TRUST"; : > kira.testtrust; echo "[!] ТЕСТОВАЯ сборка: в доверии тестовые ключи издателя (только для сценариев А3, не для выпуска)"; fi
 
-C_SOURCES="syscall.c percpu.c mem.c sched.c console.c kernel.c pmm.c vmm.c heap.c keyboard.c timer.c mind.c mindnet.c mind_sys.c rtc.c watchdog.c immune.c sha256.c uart.c clock.c klog.c gfx2d.c font8x16.c fb.c fbcon.c display.c wm.c input.c acpi.c proc.c caps.c elf.c trust.c life.c progs.c fsrv.c ata.c store.c experience.c gfxsrv.c gfxui.c icons.c brainfx.c apps.c explorer.c fm.c dock.c usbhid.c usb.c usbhub.c usbmsc.c uhci.c xhci.c kfs.c fat.c part.c vfs.c ahci.c nvme.c uaccess.c devhealth.c kpar.c fscmd.c buildcmd.c mind_build_core.c mind_build_grant.c pci.c virtio.c virtio_blk.c virtio_gpu.c virtio_input.c e1000.c virtio_net.c net.c ip6.c ipfrag.c irqwait.c kdrv.c kdrv_fmt.c hda.c ac97.c sb16.c audio.c blk.c bootmap.c bootinfo.c bootinfo_mb2.c bootinfo_uefi.c mbinfo.c earlycon.c crashdump.c uheap.c userlog.c hwprofile.c ramext.c kmutex.c linebuf.c corefault.c iommu_vtd.c iommu.c drivers/iommu/intel_vtd.c drivers/iommu/vtd_domain.c crypto.c pk.c kdrv_sig.c kdrv_state.c rng.c virtio_rng.c scale.c kobj.c futex.c wx.c framegov.c"
+C_SOURCES="syscall.c percpu.c mem.c sched.c console.c kernel.c pmm.c vmm.c heap.c keyboard.c timer.c mind.c mindnet.c wallpaper.c zstd.c cbor.c json.c cas.c sysseal.c mind_sys.c rtc.c watchdog.c immune.c sha256.c uart.c clock.c klog.c bbring.c bbsave.c auditcore.c auditstore.c audit.c latency.c latency_k.c gfx2d.c font8x16.c fb.c fbcon.c display.c wm.c input.c acpi.c proc.c caps.c elf.c trust.c life.c progs.c fsrv.c ata.c store.c experience.c gfxsrv.c gfxui.c icons.c brainfx.c apps.c explorer.c fm.c dock.c usbhid.c usb.c usbhub.c usbmsc.c uhci.c xhci.c kfs.c fat.c part.c vfs.c ahci.c nvme.c uaccess.c devhealth.c kpar.c fscmd.c buildcmd.c mind_build_core.c mind_build_grant.c pci.c virtio.c virtio_blk.c virtio_gpu.c virtio_input.c e1000.c virtio_net.c net.c ip6.c ipfrag.c rcon.c irqwait.c kdrv.c kdrv_fmt.c kdrv_blk.c hda.c ac97.c sb16.c audio.c blk.c bootmap.c bootinfo.c bootinfo_mb2.c bootinfo_uefi.c boottrust.c appman.c tpm2.c rollback.c tpmtis.c trustanchor.c mbinfo.c earlycon.c crashdump.c uheap.c userlog.c hwprofile.c ramext.c kmutex.c linebuf.c corefault.c iommu_vtd.c iommu.c iommu_amd.c drivers/iommu/amd_vi.c drivers/iommu/intel_vtd.c drivers/iommu/vtd_domain.c crypto.c pk.c kdrv_sig.c kdrv_state.c rng.c virtio_rng.c scale.c kobj.c fssvc.c ksvc.c gfxctl.c futex.c wx.c framegov.c ftstat.c rgn.c wire.c usbmsc_fs.c aml.c aml_exec.c acpidev.c kptr.c kaslr.c earlymap.c devpm.c sleep.c"
 # Код, зависящий от процессора x86-64 (вход в ядро, прерывания, APIC, ядра, FPU, системные вызовы): arch/x86_64
 ARCH=arch/x86_64
-ARCH_SOURCES="$ARCH/gdt.c $ARCH/idt.c $ARCH/pic.c $ARCH/apic.c $ARCH/ioapic.c $ARCH/irqmode.c $ARCH/fpu.c $ARCH/syscall_arch.c $ARCH/exceptions.c $ARCH/smp.c $ARCH/percpu_arch.c $ARCH/proc_arch.c $ARCH/uaccess_arch.c $ARCH/msi_arch.c $ARCH/power.c $ARCH/rng_arch.c"
+ARCH_SOURCES="$ARCH/gdt.c $ARCH/idt.c $ARCH/pic.c $ARCH/apic.c $ARCH/ioapic.c $ARCH/irqmode.c $ARCH/fpu.c $ARCH/syscall_arch.c $ARCH/exceptions.c $ARCH/smp.c $ARCH/percpu_arch.c $ARCH/proc_arch.c $ARCH/uaccess_arch.c $ARCH/msi_arch.c $ARCH/power.c $ARCH/rng_arch.c $ARCH/acpirt.c $ARCH/acpirt_cmd.c $ARCH/kaslr_arch.c $ARCH/kaslrcmd.c $ARCH/sleep.c"
 
 echo "[*] Ассемблер..."
 rm -f *.o arch/x86_64/*.o kira.bin
@@ -28,17 +33,36 @@ nasm -f elf64 $ARCH/boot.s -o boot.o
 nasm -f elf64 $ARCH/interrupts.s -o interrupts.o
 nasm -f elf64 $ARCH/context.s -o context.o
 nasm -f elf64 $ARCH/ap_tramp.s -o ap_tramp.o
+nasm -f elf64 $ARCH/sleep_ctx.s -o sleep_ctx.o
 nasm -f elf64 $ARCH/uaccess.s -o uaccess_s.o
 
 echo "[*] Userland (Ring 3): программы собираются в ELF и кладутся на диск, ядро их не содержит..."
 UCFLAGS="-ffreestanding -fPIE -fvisibility=hidden -mno-red-zone -mno-sse -mno-mmx -fno-stack-protector -fno-asynchronous-unwind-tables -O2 -Wall -Wextra"
 ULINK="-T userland/user.ld -z max-page-size=4096 -z noseparate-code -z norelro"
 UELF=""
-for app in plasma paint burn mt ipc serve melody udpecho rec atk-cap; do
+for app in plasma paint burn mt serve melody udpecho rec atk-cap ipcx; do
     $CC $UCFLAGS -c userland/$app.c -o userland/$app.o
     ld.lld $ULINK -o userland/$app.elf userland/$app.o
     UELF="$UELF userland/$app.elf"
 done
+# ipc: сообщения портов - CBOR (cbor.c - тот же файл, что у ядра)
+$CC $UCFLAGS -I. -c userland/ipc.c -o userland/ipc.o
+$CC $UCFLAGS -I. -c cbor.c -o userland/u_cbor.o
+$CC $UCFLAGS -c userland/libc_min.c -o userland/u_libc_min.o
+ld.lld $ULINK -o userland/ipc.elf userland/ipc.o userland/u_cbor.o userland/u_libc_min.o
+UELF="$UELF userland/ipc.elf"
+# fsport: проверка файловой службы на портах (CBOR)
+$CC $UCFLAGS -I. -c userland/fsport.c -o userland/fsport.o
+ld.lld $ULINK -o userland/fsport.elf userland/fsport.o userland/u_cbor.o userland/u_libc_min.o
+UELF="$UELF userland/fsport.elf"
+# gfxport: проверка управляющего слоя графики на портах (CBOR)
+$CC $UCFLAGS -I. -c userland/gfxport.c -o userland/gfxport.o
+ld.lld $ULINK -o userland/gfxport.elf userland/gfxport.o userland/u_cbor.o userland/u_libc_min.o
+UELF="$UELF userland/gfxport.elf"
+# ipcbench: замер обмена между процессами
+$CC $UCFLAGS -I. -c userland/ipcbench.c -o userland/ipcbench.o
+ld.lld $ULINK -o userland/ipcbench.elf userland/ipcbench.o userland/u_libc_min.o
+UELF="$UELF userland/ipcbench.elf"
 # fetch: HTTP и HTTPS - TLS 1.3 и криптография (crypto.c, sha256.c - те же файлы, что у ядра) внутри программы
 $CC $UCFLAGS -I. -Iuserland -c userland/fetch.c -o userland/fetch.o
 $CC $UCFLAGS -I. -Iuserland -c userland/tls.c -o userland/u_tls.o
@@ -88,11 +112,16 @@ ld.lld $ULINK -o userland/drvman.elf userland/drvman.o userland/drvget_lib.o use
 UELF="$UELF userland/drvman.elf"
 # Программы с вещественной арифметикой (3D, тест FPU): SSE2 разрешён только им, ядро собирается без SSE.
 USSE_FLAGS="-ffreestanding -fPIE -fvisibility=hidden -mno-red-zone -msse2 -mfpmath=sse -mno-mmx -fno-math-errno -fno-stack-protector -fno-asynchronous-unwind-tables -O2 -Wall -Wextra"
-for app in cube3d fpu wasm; do
+for app in fpu wasm; do
     $CC $USSE_FLAGS -c userland/$app.c -o userland/$app.o
     ld.lld $ULINK -o userland/$app.elf userland/$app.o
     UELF="$UELF userland/$app.elf"
 done
+# cube3d: сцена (userland/cube3d.c) + 3D-движок k3d (userland/k3d.c, плиточный растеризатор с потоками) + мини-libc (компилятор сам вызывает memcpy/memset)
+$CC $USSE_FLAGS -c userland/cube3d.c -o userland/cube3d.o
+$CC $USSE_FLAGS -c userland/k3d.c -o userland/k3d.o
+ld.lld $ULINK -o userland/cube3d.elf userland/cube3d.o userland/k3d.o userland/u_libc_min.o
+UELF="$UELF userland/cube3d.elf"
 # Программы с текстом: шрифт ядра (font8x16.c) собирается вместе с программой
 for app in edit view; do
     $CC $UCFLAGS -I. -c userland/$app.c -o userland/$app.o
@@ -105,9 +134,20 @@ for app in demo atk-mem atk-priv atk-sys atk-gs; do
     ld.lld $ULINK -o userland/$app.elf userland/$app.o
     UELF="$UELF userland/$app.elf"
 done
+# Rust (no_std): userland/rust/*.rs -> ELF для Ring 3 (docs/architecture/FORMATS_AND_LANGUAGES.md). Нет rustc - сборка идёт без Rust-программ.
+# На машине без rustc или без core для x86-64 (Debian на телефоне ARM64) шаг пропускается, сборка ОС продолжается.
+if command -v rustc >/dev/null 2>&1; then
+    if userland/rust/build.sh; then
+        for src in userland/rust/*.rs; do n=$(basename $src .rs); [ "$n" = rsedu ] || UELF="$UELF userland/$n.elf"; done   # rsedu - драйвер, идёт в /drv
+    else
+        rc=$?; [ $rc -eq 3 ] || { echo "[!] Rust: ошибка сборки (код $rc)"; exit $rc; }
+    fi
+else
+    echo "[!] rustc не найден: Rust-программы (userland/rust) не собраны"
+fi
 
 # Пользовательская сборка (--android или KIRA_RELEASE=1): тестовые и учебные программы на диск не кладутся (CI собирает полный набор).
-TESTPROGS="burn mt ipc udpecho melody demo fpu atk-cap atk-mem atk-priv atk-sys atk-gs atk-jmp"
+TESTPROGS="burn mt ipc ipcbench fsport gfxport ipcx udpecho melody demo rsdemo fpu atk-cap atk-mem atk-priv atk-sys atk-gs atk-jmp"
 RELEASE=0; case " $* " in *" --android "*) RELEASE=1 ;; esac; [ -n "$KIRA_RELEASE" ] && RELEASE=1
 if [ "$RELEASE" = 1 ]; then
     KEEP=""; for e in $UELF; do n=$(basename $e .elf); case " $TESTPROGS " in *" $n "*) ;; *) KEEP="$KEEP $e" ;; esac; done
@@ -116,9 +156,10 @@ fi
 
 echo "[*] Инструмент kfstool, манифест доверенных программ и установка в образ диска..."
 HOSTCC="${HOSTCC:-clang}"
-$HOSTCC -O1 -Wall -DKFS_NO_THREADS -I. -Iarch/x86_64 -o tools/kfstool tools/kfstool.c kfs.c store.c sha256.c
+$HOSTCC -O1 -Wall -DKFS_NO_THREADS -I. -Iarch/x86_64 -o tools/kfstool tools/kfstool.c kfs.c zstd.c store.c sha256.c sysseal.c cbor.c cas.c
 tools/kfstool manifest $UELF > manifest.h
-rm -f kira.disk; dd if=/dev/zero of=kira.disk bs=1M count=8 2>/dev/null     # образ каждый раз новый: старые файлы не остаются
+tools/kfstool appman "${KIRA_APPS_SERIAL:-1}" apps.manifest $UELF     # то же, в бинарном виде под подпись издателя (docs/APP_ISOLATION.md): подписанный манифест кладётся на диск как /etc/apps.manifest и /etc/apps.sig
+rm -f kira.disk; dd if=/dev/zero of=kira.disk bs=1M count=16 2>/dev/null     # образ каждый раз новый: старые файлы не остаются
 tools/kfstool kira.disk init
 for e in $UELF; do
     tools/kfstool kira.disk put /bin/$(basename $e .elf) $e
@@ -129,9 +170,16 @@ if [ "$RELEASE" != 1 ]; then
     $CC $UCFLAGS -I. -Iuserland -c userland/drvedu.c -o userland/drvedu.o
     ld.lld $ULINK -o userland/drvedu.elf userland/drvedu.o
     tools/mkdrv.sh kira.disk userland/drvedu.elf "$HOSTCC"
+    # Тот же edu на Rust (userland/rust/rsedu.rs): драйвер Ring 3 без unsafe в своём коде; запускается сценарием после остановки edu
+    [ -s userland/rsedu.elf ] && tools/mkdrv_pkg.sh kira.disk rsedu userland/rsedu.elf 1234:11e8 mmio,pcidev "$HOSTCC"
     $CC $UCFLAGS -I. -Iuserland -c userland/drvne2kio.c -o userland/drvne2kio.o
     ld.lld $ULINK -o userland/drvne2kio.elf userland/drvne2kio.o
     tools/mkdrv_pkg.sh kira.disk ne2kio userland/drvne2kio.elf 10ec:8029 mmio,pcidev "$HOSTCC"
+    # Диск virtio-blk в Ring 3 (CAP_BLKDEV): второй диск машины, который ядро не берёт; vblknc - тот же ELF без права диска (отказ обязан сработать). Порядок важен: vblk первым.
+    $CC $UCFLAGS -I. -Iuserland -c userland/drvvblk.c -o userland/drvvblk.o
+    ld.lld $ULINK -o userland/drvvblk.elf userland/drvvblk.o
+    tools/mkdrv_pkg.sh kira.disk vblk userland/drvvblk.elf 1af4:1042,1af4:1001 mmio,pcidev,dma,irq,blkdev "$HOSTCC"
+    tools/mkdrv_pkg.sh kira.disk vblknc userland/drvvblk.elf 1af4:1042,1af4:1001 mmio,pcidev,dma,irq "$HOSTCC"
     # Драйвер BSD из корпуса OpenBSD через слой совместимости (docs/BSD_COMPAT.md): NE2000/RTL8029 - карта ne2k_pci QEMU
     if tools/bsd_build.sh ne2k ne ne_pci_ca build-bsd/ne2k.elf dev/ic/dp8390.c dev/ic/ne2000.c dev/ic/rtl80x9.c dev/pci/if_ne_pci.c; then
         tools/mkdrv_pkg.sh kira.disk bsdne build-bsd/ne2k.elf 10ec:8029 mmio,pcidev,netdev,irq "$HOSTCC"
@@ -163,10 +211,14 @@ for b in /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt ${P
 done
 ROOTS_N=$([ -n "$ROOTS_SRC" ] && tools/pem2der "$ROOTS_SRC" tools/roots.der)
 [ -n "$ROOTS_N" ] && echo "[*] Корневые сертификаты: $ROOTS_N из $ROOTS_SRC" || echo "[!] Связки корневых сертификатов нет (пакет ca-certificates): fetch https откажется проверять сервер"
-[ -n "$ROOTS_N" ] && tools/kfstool kira.disk put /etc/ssl/roots.der tools/roots.der
+[ -n "$ROOTS_N" ] && tools/kput.sh kira.disk /etc/ssl/roots.der tools/roots.der
 tools/kfstool kira.disk put /etc/ssl/drivers.index drivers/index.txt
 # Семя опыта Разума (получено в QEMU workflow mind-train): стартовые веса предвидения и подсказки по рычагам, если своего опыта на диске нет
 [ -f data/mind_seed.bin ] && tools/kfstool kira.disk put /etc/mind_seed.bin data/mind_seed.bin >/dev/null
+# Обои рабочего стола (KWP1; свою картинку - tools/mkwallpaper.py)
+[ -f data/wallpaper.kwp.zst ] && tools/kfstool kira.disk put /etc/wallpaper.kwp.zst data/wallpaper.kwp.zst >/dev/null
+# Печать системы (последней: SHA-256 всех файлов /bin и /etc, корень Меркла) - команда verify и строка [KIRA SEAL] при загрузке
+tools/kfstool kira.disk seal
 
 echo "[*] Компиляция C..."
 OBJ="boot.o"
@@ -184,10 +236,24 @@ for src in $C_SOURCES $ARCH_SOURCES; do
     OBJ="$OBJ ${src%.c}.o"
 done
 fi
-OBJ="$OBJ interrupts.o context.o ap_tramp.o uaccess_s.o"
+OBJ="$OBJ interrupts.o context.o ap_tramp.o sleep_ctx.o uaccess_s.o"
 
 echo "[*] Линковка..."
-ld.lld -T $ARCH/linker.ld -nostdlib -z max-page-size=0x1000 $OBJ -o kira.bin
+# Образ слинкован по фиксированному адресу (ET_EXEC, 1 МБ: так его грузят GRUB, BIOS- и UEFI-загрузчик); для KASLR он при загрузке
+# копирует себя по случайному адресу и исправляет слова с абсолютными адресами по таблице перемещений (секция .kreloc).
+# Таблицу строит tools/mkkreloc.py из перемещений, сохранённых компоновщиком (--emit-relocs). Проход 1: образ с пустой таблицей
+# -> таблица; проход 2: с таблицей (она в самом конце файловой части, адреса остальных секций не меняются) -> проверка, что
+# таблица по-прежнему верна; проход 3: итоговый kira.bin без служебных секций с перемещениями + проверка, что он совпал с проверенным.
+LDK="ld.lld -T $ARCH/linker.ld -nostdlib -z max-page-size=0x1000"
+python3 -c "import struct;open('kreloc.bin','wb').write(struct.pack('<5I',0x434C524B,1,0,0,0))"
+nasm -f elf64 $ARCH/kreloc.s -o kreloc.o
+$LDK --emit-relocs $OBJ kreloc.o -o kira.reloc.elf
+python3 tools/mkkreloc.py build kira.reloc.elf kreloc.bin
+nasm -f elf64 $ARCH/kreloc.s -o kreloc.o
+$LDK --emit-relocs $OBJ kreloc.o -o kira.reloc.elf
+python3 tools/mkkreloc.py check kira.reloc.elf kreloc.bin
+$LDK $OBJ kreloc.o -o kira.bin
+python3 tools/mkkreloc.py same kira.reloc.elf kira.bin
 
 if command -v nasm >/dev/null 2>&1; then
     echo "[*] Собственный BIOS-загрузчик (без GRUB): kira-bios.img"
@@ -200,6 +266,12 @@ if command -v nasm >/dev/null 2>&1; then
     else
         python3 tools/mkbios.py bios-stage1.bin bios-stage2.bin kira.bin kira-bios.img
     fi
+    # Тот же образ с параметром командной строки ядра kira.nokaslr (отключает случайный адрес ядра; сценарий kaslr-off)
+    _ini=()
+    if [[ -n "${KIRA_INITRD:-}" ]]; then _ini=("$KIRA_INITRD"); elif [[ -s "$PWD/initrd.img" ]]; then _ini=("$PWD/initrd.img"); fi
+    KIRA_CMDLINE=kira.nokaslr python3 tools/mkbios.py bios-stage1.bin bios-stage2.bin kira.bin kira-bios-nokaslr.img "${_ini[@]}"
+    # И с kira.signedapps: допуск приложений только по подписанному манифесту без доверенной загрузки (А3, сценарии apps-*)
+    KIRA_CMDLINE=kira.signedapps python3 tools/mkbios.py bios-stage1.bin bios-stage2.bin kira.bin kira-bios-signedapps.img "${_ini[@]}"
 fi
 
 UEFI_DIR=
@@ -207,7 +279,7 @@ UEFI_DIR=
 if command -v mcopy >/dev/null 2>&1 && [ -s /usr/include/efi/efi.h -o -n "${EFI_INCLUDE:-}" ]; then
     echo "[*] Собственный UEFI-загрузчик (без GRUB): kira-uefi.img"
     _u=$(mktemp -d)
-    if bash ./build_uefi.sh "$_u" >/dev/null 2>"$_u/err"; then
+    if KIRA_SECURE=0 bash ./build_uefi.sh "$_u" >/dev/null 2>"$_u/err"; then   # образ разработки всегда с обычным загрузчиком: доверенный режим - отдельная цель ниже
         if [[ -s "$_u/EFI/KIRA/INITRD.IMG" ]]; then
             python3 tools/mkuefi.py "$_u/EFI/BOOT/BOOTX64.EFI" "$_u/EFI/KIRA/KIRA.ELF" kira-uefi.img 64 "$_u/EFI/KIRA/INITRD.IMG"
         else
@@ -227,6 +299,23 @@ elif [ -s prebuilt/BOOTX64.EFI ] && command -v mcopy >/dev/null 2>&1; then
     else
         echo "[!] prebuilt/BOOTX64.EFI устарел или изменён (исходники загрузчика другие): UEFI-вход в образ не войдёт. Пересоберите на x86-64 (build_uefi.sh) и обновите prebuilt."
     fi
+fi
+
+# Доверенный режим (А2, docs/SECURE_BOOT.md) - ОТДЕЛЬНАЯ цель, ежедневную сборку не меняет: KIRA_SECURE=1 ./build_clang.sh --no-run
+# собирает ещё и kira-secure.img (загрузчик с вшитым ключом выпуска, подпись db, манифест KIRA.SIG). Нужны ключи вне репозитория:
+#   KIRA_BOOT_PUBKEY (32 байта) и KIRA_RELEASE_KEY (PEM Ed25519) - python3 tools/kirasig.py keygen; KIRA_DB_KEY и KIRA_DB_CERT - ключ db прошивки;
+#   KIRA_IMAGE_VERSION - номер выпуска (по умолчанию 1); при желании KIRA_MIN_IMAGE_VERSION, KIRA_REQUIRE_SB=0, KIRA_REQUIRE_TPM=1.
+if [ "${KIRA_SECURE:-0}" = 1 ]; then
+    echo "[*] Доверенный режим: kira-secure.img"
+    for _v in KIRA_BOOT_PUBKEY KIRA_RELEASE_KEY KIRA_DB_KEY KIRA_DB_CERT; do
+        [ -s "${!_v:-/nonexistent}" ] || { echo "[!] KIRA_SECURE=1: не задан или не найден файл $_v (см. docs/SECURE_BOOT.md)"; exit 1; }
+    done
+    _s=$(mktemp -d)
+    KIRA_SECURE=1 bash ./build_uefi.sh "$_s" >/dev/null 2>"$_s/err" || { echo "[!] доверенный загрузчик не собран:"; tail -3 "$_s/err"; exit 1; }
+    _i=(); [ -s "${KIRA_INITRD:-initrd.img}" ] && _i=(--initrd "${KIRA_INITRD:-initrd.img}")
+    tools/sbsign_image.sh --loader "$_s/EFI/BOOT/BOOTX64.EFI" --kernel kira.bin "${_i[@]}" --release-key "$KIRA_RELEASE_KEY" \
+        --version "${KIRA_IMAGE_VERSION:-1}" --db-key "$KIRA_DB_KEY" --db-cert "$KIRA_DB_CERT" --out kira-secure.img || exit 1
+    rm -rf "$_s"
 fi
 
 echo "[*] ISO..."
@@ -267,16 +356,21 @@ case "$1" in
             tools/kfstool "$OUT/kira_disk.img" init >/dev/null
             for t in $TESTPROGS; do tools/kfstool "$OUT/kira_disk.img" rm /bin/$t >/dev/null 2>&1 || true; done   # убрать тестовые программы прежних версий
             # Удалить учебные unsigned EDU-пакеты из ранее собранных образов; пользовательские драйверы не трогать.
-            for t in abad eduun edu edunc; do
+            for t in abad eduun edu edunc rsedu; do
                 tools/kfstool "$OUT/kira_disk.img" rm /drv/$t.kdrv >/dev/null 2>&1 || true
                 tools/kfstool "$OUT/kira_disk.img" rm /drv/$t.rec >/dev/null 2>&1 || true
             done
+            for n in $TESTPROGS; do tools/kfstool "$OUT/kira_disk.img" rm /bin/$n >/dev/null 2>&1 || true; done   # тестовые программы прежних сборок
             for e in $UELF; do tools/kfstool "$OUT/kira_disk.img" put /bin/$(basename $e .elf) $e >/dev/null; done
             for w in build-wasm/*.wasm; do tools/kfstool "$OUT/kira_disk.img" put /wasm/$(basename $w) $w >/dev/null; done
             for h in kcc/include/*.h; do tools/kfstool "$OUT/kira_disk.img" put /etc/kcc/include/$(basename $h) $h >/dev/null; done
             tools/put_bsd_inc.sh "$OUT/kira_disk.img"
-            [ -n "$ROOTS_N" ] && tools/kfstool "$OUT/kira_disk.img" put /etc/ssl/roots.der tools/roots.der >/dev/null
+            [ -n "$ROOTS_N" ] && tools/kput.sh "$OUT/kira_disk.img" /etc/ssl/roots.der tools/roots.der >/dev/null
             tools/kfstool "$OUT/kira_disk.img" put /etc/ssl/drivers.index drivers/index.txt >/dev/null
+            [ -f data/mind_seed.bin ] && tools/kfstool "$OUT/kira_disk.img" put /etc/mind_seed.bin data/mind_seed.bin >/dev/null
+            tools/kfstool "$OUT/kira_disk.img" rm /etc/wallpaper.kwp >/dev/null 2>&1 || true     # старые несжатые обои
+            [ -f data/wallpaper.kwp.zst ] && tools/kfstool "$OUT/kira_disk.img" put /etc/wallpaper.kwp.zst data/wallpaper.kwp.zst >/dev/null
+            tools/kfstool "$OUT/kira_disk.img" seal
             echo "[*] Диск $OUT/kira_disk.img обновлён: новые программы в /bin, опыт и данные сохранены."
         else
             cp kira.disk "$OUT/kira_disk.img"

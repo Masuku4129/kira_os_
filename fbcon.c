@@ -18,11 +18,11 @@
 #define MAX_PER_UPDATE 4096
 
 #define C_TAG_KIRA TH_CYAN
-#define C_TAG_USER TH_GREEN
+#define C_TAG_USER TH_ACCENT     /* зелёный только для состояния «норма»: приглашение и теги - акцент */
 #define C_TAG_TEST TH_PURPLE
 #define C_TAG_MIND 0x00C084FCu
 #define C_TAG_OTHER 0x0060A5FAu
-#define C_PROMPT TH_GREEN
+#define C_PROMPT TH_ACCENT
 #define C_INPUT  TH_TEXT
 
 static surface_t* scr;

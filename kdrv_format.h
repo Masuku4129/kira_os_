@@ -10,6 +10,7 @@
    Права процесса = запрошенные в заголовке И подтверждённые в .rec. Все числа - порядок байт процессора (x86-64, ARM64: little). */
 #include <stdint.h>
 #include "caps.h"
+#include "kdrv_blk.h"      /* блочное устройство драйвера: KDRV_SYS_BLKDEV, кольца, чистые проверки */
 
 #define KDRV_MAGIC      0x5652444Bu        /* "KDRV" */
 #define KREC_MAGIC      0x4345524Bu        /* "KREC" */
@@ -31,7 +32,7 @@ typedef struct {
     uint16_t hdr_size;                     /* sizeof(kdrv_header_t): ELF начинается здесь */
     char     name[16];                     /* [a-z0-9_-], до KDRV_NAME_MAX знаков, с нулём */
     uint32_t version;
-    uint32_t caps;                         /* запрошенные права (CAP_MMIO | CAP_IRQ | CAP_DMA | CAP_PCIDEV | CAP_NETDEV) */
+    uint32_t caps;                         /* запрошенные права (CAP_MMIO | CAP_IRQ | CAP_DMA | CAP_PCIDEV | CAP_NETDEV | CAP_BLKDEV) */
     uint32_t elf_size;
     uint32_t nmatch;                       /* 1..KDRV_MATCH_MAX */
     kdrv_match_t match[KDRV_MATCH_MAX];
@@ -68,17 +69,11 @@ const char* kdrv_strerror(int err);
 int kdrv_dma_policy_allow(uint32_t granted_caps, int device_isolated);
 
 /* ---- Договор драйвера с ядром (системные вызовы 48..55 и 57; номера не пересекаются с syscall.c) ---- */
-enum { KDRV_SYS_INFO = 48,         /* (буфер kdrv_info_t, ёмкость) -> 0: свои устройство и права */
-       KDRV_SYS_CFG_READ = 49,     /* (смещение < 256, ширина 1/2/4) -> значение; CAP_PCIDEV */
-       KDRV_SYS_CFG_WRITE = 50,    /* (смещение < 256, ширина 1/2/4, значение) -> 0; CAP_PCIDEV; не BAR, не MSI/MSI-X/PCIe, команда - только MEM/IO/MASTER/INTx-off */
-       KDRV_SYS_MMIO_MAP = 51,     /* (номер BAR, смещение, длина) -> адрес; CAP_MMIO; страницы устройства без кэша и без исполнения */
-       KDRV_SYS_DMA_ALLOC = 52,    /* (байт, предел адреса в битах или 0, kdrv_dma_t*) -> 0; CAP_DMA; освобождается при гибели драйвера */
-       KDRV_SYS_IRQ_WAIT = 53,     /* (срок в 10 мс или ~0) -> маска KDRV_EV_* или KE_TIMEOUT; CAP_IRQ */
-       KDRV_SYS_NETDEV = 54,       /* (операция KDRV_NET_*, аргумент, флаги) ; CAP_NETDEV */
-       KDRV_SYS_PCILIST = 55,      /* (буфер kdrv_pcient_t[], число записей, номер первой) -> записано; ТОЛЬКО ЧТЕНИЕ, право CAP_PCILIST (любая программа, не драйвер) */
-       KDRV_SYS_IO = 57 };         /* (упаковка kdrv_io_pack, смещение в BAR, значение или буфер) -> значение/0; CAP_MMIO; порты ТОЛЬКО своего I/O BAR, x86 */
+/* Номера вызовов KDRV_SYS_* - в kdrv_sysnr.h (их разбирает диспетчер системных вызовов ядра). */
+#include "kdrv_sysnr.h"
 #define KDRV_EV_IRQ 1u             /* пришло прерывание устройства */
 #define KDRV_EV_TX  2u             /* ядро положило кадр в кольцо передачи */
+#define KDRV_EV_BLK 4u             /* ядро положило запрос в кольцо запросов блочного устройства (CAP_BLKDEV) */
 /* Порты ввода-вывода своего I/O BAR (KDRV_SYS_IO). a1 = bar | ширина(1/2/4) << 8 | операция << 16 | число << 24. */
 enum { KDRV_IO_READ = 0, KDRV_IO_WRITE = 1, KDRV_IO_READ_MULTI = 2, KDRV_IO_WRITE_MULTI = 3 };   /* MULTI - один порт много раз (ins/outs) */
 #define KDRV_IO_MAX_BYTES 4096u

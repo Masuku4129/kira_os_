@@ -128,10 +128,12 @@ int ps2_mouse_feed(ps2_mouse_decoder_t* d, uint8_t byte, mouse_event_t* ev) {
 static ps2_mouse_decoder_t mdec;
 static mouse_event_t mring[MRING];
 static volatile uint32_t mhead, mtail;
+static volatile uint32_t mdropped, mpushed;      /* потеряно и принято движений мыши (для замеров) */
 
 static void mpush(const mouse_event_t* ev) {
     uint32_t h = mhead;
-    if (h - mtail >= MRING) return;                 /* очередь полна: потребитель отстал, старое важнее */
+    if (h - mtail >= MRING) { mdropped++; return; } /* очередь полна: потребитель отстал, старое важнее */
+    mpushed++;
     mring[h & (MRING - 1)] = *ev;
     __atomic_store_n(&mhead, h + 1, __ATOMIC_RELEASE);
 }
@@ -249,3 +251,9 @@ int input_pop(input_event_t* ev) {
 }
 
 uint32_t input_dropped(void) { return dropped; }
+uint32_t input_mouse_dropped(void) { return mdropped; }
+uint32_t input_mouse_pushed(void) { return mpushed; }
+
+static volatile uint32_t event_count;
+void input_note_event(void) { event_count++; }
+uint32_t input_take_events(void) { uint32_t n = event_count; event_count = 0; return n; }

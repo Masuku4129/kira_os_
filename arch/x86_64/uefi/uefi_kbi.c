@@ -197,6 +197,8 @@ EFI_STATUS kira_uefi_build_kbi(const void *efi_map,
     header->rsdp_phys = info->rsdp;
     header->kernel_phys_base = info->kernel_base;
     header->kernel_size = info->kernel_size;
+    header->trust_flags = info->trust_flags;
+    header->image_version = info->image_version;
 
     if (info->rsdp)
         header->flags |= KBI_F_ACPI;
@@ -255,6 +257,19 @@ EFI_STATUS kira_uefi_build_kbi(const void *efi_map,
         entries[i].length = descriptor.NumberOfPages * 4096ull;
         entries[i].type = kbi_mem_type(descriptor.Type);
         entries[i].attributes = (uint32_t)(descriptor.Attribute & 0xffffffffu);
+    }
+
+    /* UEFI не требует порядка в карте памяти: EDK2 на плате q35 с SMM дописывает в конец область 0x30000-0x4FFFF (SMRAM) после записей
+       у 1 ГиБ. kbi_validate и ядро ждут возрастания адресов, поэтому записи упорядочиваются устойчивой вставкой (карта почти упорядочена;
+       записей не больше KIRA_BOOTINFO_MAX_MMAP). Настоящие пересечения после этого по-прежнему отклоняет kbi_validate. */
+    for (i = 1; i < count; ++i) {
+        kbi_mmap_entry_t moved = entries[i];
+        UINTN j = i;
+        while (j > 0 && entries[j - 1].base > moved.base) {
+            entries[j] = entries[j - 1];
+            --j;
+        }
+        entries[j] = moved;
     }
 
     /* Validate the complete handoff before exposing it to the kernel.

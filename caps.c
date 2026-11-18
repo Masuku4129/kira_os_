@@ -3,11 +3,11 @@
 
 static const struct { const char* name; uint32_t caps; } table[] = {
     { "plasma",   CAP_GFX },
-    { "cube3d",   CAP_GFX },
+    { "cube3d",   CAP_GFX | CAP_THREAD },     /* окно и потоки-помощники движка k3d (растеризация плиток параллельно) */
     { "paint",    CAP_GFX | CAP_FS },
     { "edit",     CAP_GFX | CAP_FS },
     { "view",     CAP_GFX | CAP_GRANT },
-    { "wasm",     CAP_GFX | CAP_GRANT | CAP_JIT },
+    { "wasm",     CAP_GFX | CAP_GRANT | CAP_JIT | CAP_FS | CAP_STDIN },   /* модуль WASM: окно, один выданный файл, JIT, своя песочница /data/wasm (файловый WASI) и ввод строк консоли */
     { "fetch",    CAP_NET | CAP_FS | CAP_SYSFILES },
     { "serve",    CAP_NET_SERVE },
     { "udpecho",  CAP_UDP },
@@ -15,6 +15,10 @@ static const struct { const char* name; uint32_t caps; } table[] = {
     { "melody",   CAP_SND },
     { "rec",      CAP_REC | CAP_FS },
     { "ipc",      CAP_IPC },
+    { "ipcbench", CAP_IPC },                 /* замер обмена между процессами: опрос против ожидания, копирование против вложения */
+    { "gfxport",  CAP_IPC | CAP_GFX },      /* проверка управляющего слоя графики на портах (kira.gfx) */
+    { "fsport",   CAP_IPC | CAP_FS },       /* проверка файловой службы на портах (kira.fs) */
+    { "ipcx",     CAP_IPC },                /* проверка границы доменов: живёт в домене media, открывает общий объект домена tools (ядро обязано отказать) */
     { "mt",       CAP_THREAD },
     { "kcc",      CAP_FS },                 /* компилятор: исходники и результат в /data/kcc, заголовки - FS_OP_INC_* (только kcc); больше ничего */
     { "drvget",   CAP_NET | CAP_FS | CAP_SYSFILES },   /* загрузка исходников драйвера по HTTPS, сборка встроенным kcc, запись пакета в /drv (FS_OP_DRV_*, только drvget) */
@@ -29,6 +33,8 @@ static const struct { const char* name; uint32_t caps; } table[] = {
     { "atk-jmp",  0 },
     { "atk-cap",  0 },
 };
+
+const char* caps_program_at(unsigned i) { return i < sizeof table / sizeof table[0] ? table[i].name : 0; }
 
 uint32_t caps_for_program(const char* name) {
     /* Программа, собранная пользователем на Кире и запущенная командой runlocal (progs.c): доверие дано явной командой, а не манифестом
@@ -56,6 +62,38 @@ const char* caps_bit_name(uint32_t bit) {
     case CAP_MMIO: return "CAP_MMIO";         case CAP_IRQ: return "CAP_IRQ";
     case CAP_DMA: return "CAP_DMA";           case CAP_PCIDEV: return "CAP_PCIDEV";
     case CAP_NETDEV: return "CAP_NETDEV";     case CAP_PCILIST: return "CAP_PCILIST";
-    case CAP_JIT: return "CAP_JIT";           default: return "CAP_?";
+    case CAP_JIT: return "CAP_JIT";           case CAP_STDIN: return "CAP_STDIN";       case CAP_BLKDEV: return "CAP_BLKDEV";
+    case CAP_AUDIT: return "CAP_AUDIT";
+    default: return "CAP_?";
     }
 }
+
+/* ---- домены ---- */
+static const struct { const char* name; uint32_t caps_max; unsigned procs; uint32_t reach; } doms[DOM_COUNT] = {
+    /* system: окна управления драйверами; видит общие объекты всех доменов (управление) */
+    [DOM_SYSTEM]    = { "system",    CAP_GFX | CAP_NET | CAP_FS | CAP_SYSFILES | CAP_THREAD | CAP_PCILIST, 4,
+                        (1u << DOM_COUNT) - 1 },
+    [DOM_DRIVER]    = { "driver",    CAP_DRIVER_, 16, 1u << DOM_DRIVER },
+    [DOM_MEDIA]     = { "media",     CAP_GFX | CAP_FS | CAP_GRANT | CAP_SND | CAP_REC | CAP_IPC | CAP_THREAD, 16, 1u << DOM_MEDIA },
+    [DOM_NET]       = { "net",       CAP_NET | CAP_NET_SERVE | CAP_UDP | CAP_FS | CAP_SYSFILES, 8, 1u << DOM_NET },
+    [DOM_TOOLS]     = { "tools",     CAP_GFX | CAP_FS | CAP_GRANT | CAP_JIT | CAP_IPC | CAP_THREAD | CAP_STDIN, 16, 1u << DOM_TOOLS },
+    [DOM_UNTRUSTED] = { "untrusted", 0, 16, 1u << DOM_UNTRUSTED },
+};
+
+static int name_is(const char* a, const char* b) { unsigned k = 0; while (a[k] && a[k] == b[k]) k++; return !a[k] && !b[k]; }
+
+uint32_t domain_for_program(const char* name) {
+    static const struct { const char* name; uint32_t dom; } map[] = {
+        { "drvget", DOM_SYSTEM }, { "drvman", DOM_SYSTEM },
+        { "plasma", DOM_MEDIA }, { "cube3d", DOM_MEDIA }, { "paint", DOM_MEDIA }, { "view", DOM_MEDIA },
+        { "melody", DOM_MEDIA }, { "rec", DOM_MEDIA }, { "ipcx", DOM_MEDIA },
+        { "fetch", DOM_NET }, { "serve", DOM_NET }, { "udpecho", DOM_NET }, { "net6", DOM_NET },
+        { "edit", DOM_TOOLS }, { "kcc", DOM_TOOLS }, { "wasm", DOM_TOOLS }, { "ipc", DOM_TOOLS }, { "ipcbench", DOM_TOOLS }, { "fsport", DOM_TOOLS }, { "gfxport", DOM_TOOLS }, { "mt", DOM_TOOLS },
+    };
+    for (unsigned i = 0; i < sizeof map / sizeof map[0]; i++) if (name_is(map[i].name, name)) return map[i].dom;
+    return DOM_UNTRUSTED;
+}
+uint32_t domain_caps_max(uint32_t d) { return d < DOM_COUNT ? doms[d].caps_max : 0; }
+unsigned domain_proc_max(uint32_t d) { return d < DOM_COUNT ? doms[d].procs : 0; }
+int domain_may_reach(uint32_t from, uint32_t to) { return from < DOM_COUNT && to < DOM_COUNT && (doms[from].reach >> to & 1u); }
+const char* domain_name(uint32_t d) { return d < DOM_COUNT ? doms[d].name : "?"; }

@@ -1,0 +1,99 @@
+prestat fd3 rc 0
+prestat tag 0
+prestat name len 1
+prestat fd4 rc 8
+prestat dir name rc 0
+prestat dir name /
+open missing rc 44
+create rc 0
+create fd 4
+write 11
+fsync rc 0
+close rc 0
+write on closed rc 8
+open read rc 0
+read 5
+read data hello
+tell rc 0
+tell 5
+seek end rc 0
+seek end pos 11
+seek set rc 0
+read 5
+read data world
+read at eof 0
+pread rc 0
+pread n 5
+pread data hello
+seek negative rc 28
+write to read-only fd rc 8
+fdstat rc 0
+fdstat filetype 4
+filestat rc 0
+filestat type 4
+filestat size 11
+close rc 0
+open append rc 0
+append write 2
+close rc 0
+path_filestat rc 0
+size after append 13
+open rw rc 0
+rw read 5
+rw data hello
+overwrite at pos 5
+set size rc 0
+close rc 0
+open read rc 0
+read 4
+data hell
+excl existing rc 20
+subdir name rc 44
+dotdot name rc 76
+bad char rc 76
+long name rc 37
+not a dir rc 54
+mkdir rc 58
+bad dirfd rc 8
+fd_allocate rc 52
+open dir rc 0
+dir fd 4
+dir fdstat rc 0
+dir fdstat type 3
+read on dir rc 31
+readdir rc 0
+readdir used 29
+dirent namlen 5
+dirent type 4
+dirent name a.txt
+readdir after last rc 0
+readdir after last used 0
+rename rc 0
+old gone rc 44
+new there rc 0
+new size 4
+unlink rc 0
+unlink again rc 44
+open big rc 0
+big written 524288
+big stop rc 51
+close big rc 0
+pool opened 4
+pool 5th rc 33
+stdin 1 6
+stdin data hello
+stdin 2 3
+stdin part wor
+stdin 2 rest 3
+stdin eof 0
+args rc 0
+argc 3
+args_get rc 0
+argv1 one
+argv2 two
+poll rc 0
+poll events 1
+poll userdata 42
+poll error 0
+poll fd_read rc 52
+wasifs: done

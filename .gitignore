@@ -34,3 +34,7 @@ build-bsd/
 *.o.tmp
 kira-grub.iso
 tools/mindseed
+kira-arm64.iso
+kreloc.bin
+kira.reloc.elf
+kira-bios-nokaslr.img

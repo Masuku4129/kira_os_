@@ -18,6 +18,8 @@ SIZE = 144
 MAX_PACKAGE = (8 << 20) + 136
 DOMAIN = b"KIRA-KDRV-SIG-V1"
 DOMAIN_APP = b"KIRA-APP-SIG--V1"
+DOMAIN_SEAL = b"KIRA-SEAL-SIG-V1"
+DOMAIN_APPS = b"KIRA-APPS-SIG-V1"
 
 
 def load_key(path: Path):
@@ -43,7 +45,7 @@ def main() -> int:
     parser.add_argument("--key-id", required=True, help="16-byte ASCII key ID from the trust header")
     parser.add_argument("--not-before", required=True, type=int, help="signature start, Unix UTC seconds")
     parser.add_argument("--not-after", required=True, type=int, help="exclusive expiry, Unix UTC seconds")
-    parser.add_argument("--domain", choices=("driver", "app"), default="driver", help="signature purpose: driver package (default) or application ELF")
+    parser.add_argument("--domain", choices=("driver", "app", "seal", "apps"), default="driver", help="signature purpose: driver package (default), application ELF, system seal (/etc/system.cbor) or application manifest (/etc/apps.manifest)")
     parser.add_argument("--output", type=Path, help="output .sig path (default: package basename with .sig)")
     args = parser.parse_args()
 
@@ -82,7 +84,7 @@ def main() -> int:
 
     key_id = args.key_id.encode("ascii")
     digest = hashlib.sha256(package).digest()
-    message = (DOMAIN_APP if args.domain == "app" else DOMAIN) + key_id + digest + struct.pack("<QQQ", len(package), args.not_before, args.not_after)
+    message = {"app": DOMAIN_APP, "seal": DOMAIN_SEAL, "apps": DOMAIN_APPS}.get(args.domain, DOMAIN) + key_id + digest + struct.pack("<QQQ", len(package), args.not_before, args.not_after)
     signature = key.sign(message)
     envelope = struct.pack("<IHH16s32sQQQ64s", MAGIC, FORMAT, SIZE, key_id, digest,
                            len(package), args.not_before, args.not_after, signature)

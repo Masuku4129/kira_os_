@@ -10,6 +10,7 @@
    устройство останавливается (bus master, память, MSI выключены), DMA и кольца возвращаются через 100 мс, отображения исчезают с
    адресным пространством. Ограничение железа (без IOMMU): устройство с DMA может писать в любую память, этого программно не убрать. */
 
+unsigned kdrv_active_count(char* name);                /* сон S3: сколько драйверов Ring 3 держат устройства (имя первого - в name[16]) */
 void    kdrv_poll(void);                                  /* основной цикл ядра: первое сканирование /drv, отложенное освобождение */
 void    kdrv_proc_gone(uint32_t slot, uint32_t pid);      /* proc.c, при гибели процесса-драйвера (прерывания выключены, спать нельзя) */
 int64_t kdrv_sys(unsigned nr, uint64_t a1, uint64_t a2, uint64_t a3);   /* syscall.c: вызовы KDRV_SYS_* */
@@ -19,5 +20,7 @@ int     kdrv_ctl_request(int op, const char* name);      /* fsrv.c: окно «�
 void    kdrv_cmd(const char* arg);                        /* консоль: drv [start ИМЯ [арг] | stop ИМЯ | rescan] */
 
 int kdrv_app_sig_check(const char* path, const void* image, size_t len, int* missing);
+int kdrv_apps_sig_check(const void* manifest, size_t len, int* missing);   /* подпись манифеста приложений /etc/apps.sig (appman.h) */
+int kdrv_seal_sig_check(const void* manifest, size_t len, int* missing);   /* подпись печати системы /etc/system.sig */
 
 #endif

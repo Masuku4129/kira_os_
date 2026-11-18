@@ -3,7 +3,7 @@
    поток «net»; у 82540EM (e1000 QEMU и Limbo) MSI нет, а маршрут INTx на x86 описан только в AML (_PRT) - там опрос
    каждый тик. */
 #include "e1000.h"
-#include "net.h"
+#include "netdev.h"
 #include "pci.h"
 #include "virtio.h"          /* virtio_dma_alloc (непрерывная память для устройства), MMIO_R32/W32 */
 #include "uart.h"
@@ -11,6 +11,11 @@
 #include "vmm.h"
 #include "cpu.h"
 #include "msi.h"
+#ifndef KIRA_HOST_TEST
+#include "iommu.h"
+#include "pmm.h"
+#include "devpm.h"
+#endif
 
 enum { CTRL = 0x0, STATUS = 0x8, EERD = 0x14, ICR = 0xC0, IMS = 0xD0, IMC = 0xD8, RCTL = 0x100, TCTL = 0x400, TIPG = 0x410,
        RDBAL = 0x2800, RDBAH = 0x2804, RDLEN = 0x2808, RDH = 0x2810, RDT = 0x2818,
@@ -35,6 +40,10 @@ static struct {
     netdev_t nd;
     irqwait_t iw;
     uint64_t irqs;
+    uint64_t rx_p, tx_p;                                           /* кольца дескрипторов (адреса для устройства) */
+    uint32_t mta[128];                                             /* копия таблицы групповых адресов: после сна карта пуста */
+    int msi_on;                                                    /* прерывания приёма включены */
+    volatile int asleep;                                           /* сон S3: карта сброшена, обращаться к ней нельзя */
 } e = { .iw = IRQWAIT_INIT };
 
 /* Прерывание (MSI): причина читается - это её же и сбрасывает; поток сети просыпается и забирает кадры. */
@@ -49,6 +58,7 @@ static int send(netdev_t* d, const void* frame, uint32_t len) {
     uint32_t n = len;
     if (len < 60) len = 60;                                        /* короче нельзя: дополняется нулями */
     uint64_t f = spin_lock_irqsave(&e.txlk);
+    if (e.asleep) { spin_unlock_irqrestore(&e.txlk, f); return -1; }
     txd_t* t = &e.tx[e.tx_next];
     if (t->cmd && !(t->status & 1)) { spin_unlock_irqrestore(&e.txlk, f); return -1; }   /* кольцо полно */
     uint8_t* b = e.txb + e.tx_next * BUF;
@@ -65,6 +75,7 @@ static int send(netdev_t* d, const void* frame, uint32_t len) {
 
 static int recv(netdev_t* d, void* buf, uint32_t max) {
     (void)d;
+    if (e.asleep) return 0;
     rxd_t* x = &e.rx[e.rx_next];
     cpu_mb();
     if (!(x->status & 1)) return 0;                               /* DD: кадр ещё не принят */
@@ -79,14 +90,15 @@ static int recv(netdev_t* d, void* buf, uint32_t max) {
     return ok ? (int)n : 0;
 }
 
-static int link(netdev_t* d) { (void)d; return (rd(STATUS) >> 1) & 1; }
+static int link(netdev_t* d) { (void)d; return e.asleep ? 1 : (rd(STATUS) >> 1) & 1; }
 
 /* Групповой адрес в таблицу MTA (хэш по битам 47:36 адреса при RCTL.MO = 0, как у драйвера Intel): карта принимает кадры
    на него, остальные групповые по-прежнему отбрасываются. Биты только добавляются (сброс - при инициализации). */
 static int mcast_add(netdev_t* d, const uint8_t mac[6]) {
     (void)d;
     unsigned h = (((unsigned)mac[4] >> 4) | ((unsigned)mac[5] << 4)) & 0xFFF;
-    wr(MTA + 4 * (h >> 5), rd(MTA + 4 * (h >> 5)) | (1u << (h & 31)));
+    e.mta[h >> 5] |= 1u << (h & 31);
+    wr(MTA + 4 * (h >> 5), e.mta[h >> 5]);
     return 0;
 }
 
@@ -97,39 +109,10 @@ static uint16_t eeprom(uint8_t a) {
     return 0xFFFF;
 }
 
-int e1000_probe(void) {
-    const pci_dev_t* p = 0;
-    for (unsigned i = 0; i < sizeof ids / sizeof ids[0] && !p; i++) p = pci_find(0x8086, ids[i]);
-    if (!p) return -1;
-    e82574 = p->device == 0x10D3;
-    if (p->bar[0].io || !p->bar[0].base) { uart_print("[KIRA NET] e1000: register BAR is not memory - not supported.\n"); return -2; }
-    pci_enable(p, PCI_CMD_MEM | PCI_CMD_MASTER);
-    e.r = (volatile uint8_t*)vmm_map_mmio(p->bar[0].base, p->bar[0].size ? p->bar[0].size : 0x20000, VMM_MMIO_UC);
-    if (!e.r) return -3;
-
-    wr(IMC, 0xFFFFFFFF);                                          /* без прерываний: опрос */
-    wr(CTRL, rd(CTRL) | (1u << 26));                              /* сброс */
-    for (int i = 0; i < 1000000 && (rd(CTRL) & (1u << 26)); i++) cpu_relax();
-    wr(IMC, 0xFFFFFFFF);
-    wr(CTRL, (rd(CTRL) | (1u << 6) | (1u << 5)) & ~(1u << 3));    /* SLU, ASDE; без сброса канала */
-
-    uint32_t lo = rd(RAL0), hi = rd(RAH0);
-    if (hi & (1u << 31)) {
-        for (int i = 0; i < 4; i++) e.nd.mac[i] = (uint8_t)(lo >> (8 * i));
-        e.nd.mac[4] = (uint8_t)hi; e.nd.mac[5] = (uint8_t)(hi >> 8);
-    } else {                                                      /* адрес не загружен - прочитать из EEPROM */
-        for (int i = 0; i < 3; i++) { uint16_t w = eeprom((uint8_t)i); e.nd.mac[2 * i] = (uint8_t)w; e.nd.mac[2 * i + 1] = (uint8_t)(w >> 8); }
-        wr(RAL0, (uint32_t)e.nd.mac[0] | (uint32_t)e.nd.mac[1] << 8 | (uint32_t)e.nd.mac[2] << 16 | (uint32_t)e.nd.mac[3] << 24);
-        wr(RAH0, (uint32_t)e.nd.mac[4] | (uint32_t)e.nd.mac[5] << 8 | (1u << 31));
-    }
-    for (int i = 0; i < 128; i++) wr(MTA + 4 * (unsigned)i, 0);
-
-    uint64_t rx_p, tx_p;
-    e.rx = (rxd_t*)virtio_dma_alloc(NRX * sizeof(rxd_t), &rx_p);
-    e.tx = (txd_t*)virtio_dma_alloc(NTX * sizeof(txd_t), &tx_p);
-    e.rxb = (uint8_t*)virtio_dma_alloc(NRX * BUF, &e.rxb_p);
-    e.txb = (uint8_t*)virtio_dma_alloc(NTX * BUF, &e.txb_p);
-    if (!e.rx || !e.tx || !e.rxb || !e.txb) { uart_print("[KIRA NET] e1000: no memory for rings.\n"); return -4; }
+/* Дескрипторы и регистры колец приёма и передачи: порядок запуска, общий для первого пуска и пробуждения из сна (память колец и буферов - прежняя). */
+static void rings_start(void) {
+    uint64_t rx_p = e.rx_p, tx_p = e.tx_p;
+    e.rx_next = 0; e.tx_next = 0;
     for (unsigned i = 0; i < NRX; i++) { e.rx[i].addr = e.rxb_p + i * BUF; e.rx[i].status = 0; }
     for (unsigned i = 0; i < NTX; i++) { e.tx[i].cmd = 0; e.tx[i].status = 1; }
 
@@ -141,6 +124,120 @@ int e1000_probe(void) {
     wr(TIPG, 0x0060200A);
     wr(TCTL, (1u << 1) | (1u << 3) | (0x0Fu << 4) | (0x40u << 12)); /* EN, PSP, порог коллизий, полный дуплекс */
 
+}
+#ifndef KIRA_HOST_TEST
+/* Сон S3: карта тихо останавливается (приём и передача выключены, прерывания сняты, сброс), после пробуждения проходит весь путь запуска на прежних
+   кольцах и буферах: сброс, связь, адрес, групповые адреса из копии, кольца, прерывания. */
+static int e1000_suspend(void* ctx) {
+    (void)ctx;
+    uint64_t f = spin_lock_irqsave(&e.txlk);
+    e.asleep = 1;
+    spin_unlock_irqrestore(&e.txlk, f);
+    wr(IMC, 0xFFFFFFFF);
+    wr(RCTL, 0); wr(TCTL, 0);
+    wr(CTRL, rd(CTRL) | (1u << 26));
+    for (int i = 0; i < 1000000 && (rd(CTRL) & (1u << 26)); i++) cpu_relax();
+    wr(IMC, 0xFFFFFFFF);
+    return 0;
+}
+static int e1000_resume(void* ctx) {
+    (void)ctx;
+    wr(IMC, 0xFFFFFFFF);
+    wr(CTRL, rd(CTRL) | (1u << 26));
+    for (int i = 0; i < 1000000 && (rd(CTRL) & (1u << 26)); i++) cpu_relax();
+    wr(IMC, 0xFFFFFFFF);
+    if (rd(STATUS) == 0xFFFFFFFFu) return -1;                    /* регистры не отвечают: карта не вернулась */
+    wr(CTRL, (rd(CTRL) | (1u << 6) | (1u << 5)) & ~(1u << 3));
+    wr(RAL0, (uint32_t)e.nd.mac[0] | (uint32_t)e.nd.mac[1] << 8 | (uint32_t)e.nd.mac[2] << 16 | (uint32_t)e.nd.mac[3] << 24);
+    wr(RAH0, (uint32_t)e.nd.mac[4] | (uint32_t)e.nd.mac[5] << 8 | (1u << 31));
+    for (int i = 0; i < 128; i++) wr(MTA + 4 * (unsigned)i, e.mta[i]);
+    uint64_t f = spin_lock_irqsave(&e.txlk);
+    rings_start();
+    e.asleep = 0;
+    spin_unlock_irqrestore(&e.txlk, f);
+    if (e.msi_on) { (void)rd(ICR); wr(IMS, (1u << 7) | (1u << 6) | (1u << 4) | (1u << 2)); }
+    return 0;
+}
+#endif
+#ifndef KIRA_HOST_TEST
+/* Проверка принуждения IOMMU: кольцо передачи указывает на память, которая устройству НЕ выдана; одно обращение карты за
+   дескриптором должно кончиться записью нарушения. Нет нарушения - изоляция не объявляется (домен снимается). */
+static int iommu_enforced(const pci_dev_t* p) {
+    uint64_t cp;
+    txd_t* c = (txd_t*)virtio_dma_alloc(4096, &cp);
+    if (!c) return 0;
+    for (int i = 0; i < 4096 / (int)sizeof(txd_t); i++) { c[i].addr = 0; c[i].len = 0; c[i].cmd = 0; c[i].status = 0; }
+    uint32_t before = iommu_fault_count(p);
+    iommu_expect_fault(p, 1);
+    wr(TDBAL, (uint32_t)cp); wr(TDBAH, (uint32_t)(cp >> 32)); wr(TDLEN, 128 * (unsigned)sizeof(txd_t));
+    wr(TDH, 0); wr(TDT, 0);
+    wr(TCTL, (1u << 1) | (1u << 3));
+    wr(TDT, 1);                                                   /* карта идёт читать дескриптор из невыданной памяти */
+    int seen = 0;
+    for (uint32_t i = 0; i < 200000 && !seen; i++) { (void)iommu_fault_poll(); seen = iommu_fault_count(p) > before; if (!seen) cpu_relax(); }
+    iommu_expect_fault(p, 0);
+    wr(TCTL, 0);
+    wr(CTRL, rd(CTRL) | (1u << 26));                              /* сброс: карта больше не обращается к памяти */
+    for (int i = 0; i < 1000000 && (rd(CTRL) & (1u << 26)); i++) cpu_relax();
+    wr(IMC, 0xFFFFFFFF);
+    pmm_free_contiguous(cp, 1);
+    return seen;
+}
+#endif
+
+int e1000_probe(void) {
+    const pci_dev_t* p = 0;
+    for (unsigned i = 0; i < sizeof ids / sizeof ids[0] && !p; i++) p = pci_find(0x8086, ids[i]);
+    if (!p) return -1;
+    e82574 = p->device == 0x10D3;
+    if (p->bar[0].io || !p->bar[0].base) { uart_print("[KIRA NET] e1000: register BAR is not memory - not supported.\n"); return -2; }
+    int iso = 0;
+    (void)iso;
+#ifndef KIRA_HOST_TEST
+    iso = iommu_isolate_device(p) == 0;                           /* свой домен VT-d без отображений - до включения bus mastering */
+#endif
+    pci_enable(p, PCI_CMD_MEM | PCI_CMD_MASTER);
+    e.r = (volatile uint8_t*)vmm_map_mmio(p->bar[0].base, p->bar[0].size ? p->bar[0].size : 0x20000, VMM_MMIO_UC);
+    if (!e.r) return -3;
+
+    wr(IMC, 0xFFFFFFFF);                                          /* без прерываний: опрос */
+    wr(CTRL, rd(CTRL) | (1u << 26));                              /* сброс */
+    for (int i = 0; i < 1000000 && (rd(CTRL) & (1u << 26)); i++) cpu_relax();
+    wr(IMC, 0xFFFFFFFF);
+    wr(CTRL, (rd(CTRL) | (1u << 6) | (1u << 5)) & ~(1u << 3));    /* SLU, ASDE; без сброса канала */
+
+#ifndef KIRA_HOST_TEST
+    if (iso) {
+        if (iommu_enforced(p)) uart_print("[KIRA IOMMU] e1000: enforcement check passed - DMA to memory that was not granted is blocked.\n");
+        else { uart_print("[KIRA IOMMU] e1000: no DMA fault seen in the enforcement check: isolation NOT confirmed, device stays passthrough.\n"); iommu_release_device(p); iso = 0; }
+        wr(CTRL, (rd(CTRL) | (1u << 6) | (1u << 5)) & ~(1u << 3));
+    }
+#endif
+    uint32_t lo = rd(RAL0), hi = rd(RAH0);
+    if (hi & (1u << 31)) {
+        for (int i = 0; i < 4; i++) e.nd.mac[i] = (uint8_t)(lo >> (8 * i));
+        e.nd.mac[4] = (uint8_t)hi; e.nd.mac[5] = (uint8_t)(hi >> 8);
+    } else {                                                      /* адрес не загружен - прочитать из EEPROM */
+        for (int i = 0; i < 3; i++) { uint16_t w = eeprom((uint8_t)i); e.nd.mac[2 * i] = (uint8_t)w; e.nd.mac[2 * i + 1] = (uint8_t)(w >> 8); }
+        wr(RAL0, (uint32_t)e.nd.mac[0] | (uint32_t)e.nd.mac[1] << 8 | (uint32_t)e.nd.mac[2] << 16 | (uint32_t)e.nd.mac[3] << 24);
+        wr(RAH0, (uint32_t)e.nd.mac[4] | (uint32_t)e.nd.mac[5] << 8 | (1u << 31));
+    }
+    for (int i = 0; i < 128; i++) { wr(MTA + 4 * (unsigned)i, 0); e.mta[i] = 0; }
+
+    uint64_t rx_p, tx_p;
+    e.rx = (rxd_t*)virtio_dma_alloc(NRX * sizeof(rxd_t), &rx_p);
+    e.tx = (txd_t*)virtio_dma_alloc(NTX * sizeof(txd_t), &tx_p);
+    e.rxb = (uint8_t*)virtio_dma_alloc(NRX * BUF, &e.rxb_p);
+    e.txb = (uint8_t*)virtio_dma_alloc(NTX * BUF, &e.txb_p);
+    if (!e.rx || !e.tx || !e.rxb || !e.txb) { uart_print("[KIRA NET] e1000: no memory for rings.\n"); return -4; }
+#ifndef KIRA_HOST_TEST
+    if (iso && (iommu_map(p, rx_p, rx_p, NRX * sizeof(rxd_t), IOMMU_R | IOMMU_W) || iommu_map(p, tx_p, tx_p, NTX * sizeof(txd_t), IOMMU_R | IOMMU_W) ||
+                iommu_map(p, e.rxb_p, e.rxb_p, NRX * BUF, IOMMU_R | IOMMU_W) || iommu_map(p, e.txb_p, e.txb_p, NTX * BUF, IOMMU_R | IOMMU_W))) {
+        uart_print("[KIRA NET] e1000: could not grant the rings to the device.\n"); return -5;
+    }
+#endif
+    e.rx_p = rx_p; e.tx_p = tx_p;
+    rings_start();
     const char nm[] = "e1000";
     for (unsigned i = 0; i < sizeof nm; i++) e.nd.name[i] = nm[i];
     e.nd.send = send; e.nd.recv = recv; e.nd.link = link; e.nd.priv = 0; e.nd.iw = 0; e.nd.mcast_add = mcast_add;
@@ -151,6 +248,7 @@ int e1000_probe(void) {
         (void)rd(ICR);
         wr(IMS, (1u << 7) | (1u << 6) | (1u << 4) | (1u << 2));   /* RXT0 (кадр принят), RXO, RXDMT0 (кольцо почти пусто), LSC */
         e.nd.iw = &e.iw;
+        e.msi_on = 1;
     }
     static const char hx[] = "0123456789abcdef";
     char m[18];
@@ -159,6 +257,10 @@ int e1000_probe(void) {
     uart_print("[KIRA NET] e1000 (8086:"); uart_print(id); uart_print("): MAC "); uart_print(m);
     uart_print(link(&e.nd) ? ", link up" : ", no link yet");
     uart_print(e.nd.iw ? ", receive by MSI interrupt\n" : has_msi ? ", MSI refused - polled\n" : ", no MSI on this card - polled every tick\n");
-    net_register(&e.nd);
+#ifndef KIRA_HOST_TEST
+    (void)devpm_register("e1000", e1000_suspend, e1000_resume, 0);
+#endif
     return 0;
 }
+
+netdev_t* e1000_netdev(void) { return &e.nd; }

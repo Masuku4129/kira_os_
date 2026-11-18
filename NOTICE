@@ -1,0 +1,188 @@
+NOTICE - уведомления о сторонних компонентах Kira OS
+====================================================
+Kira OS: Copyright (c) 2026 Пастушенко Константин Олегович. Все права защищены (см. LICENSE).
+Ниже тексты уведомлений, которые лицензии сторонних компонентов требуют сохранять при распространении.
+Полная инвентаризация, версии и выводы: docs/THIRD_PARTY.md. Это не юридическое заключение.
+Файл составлен по текстам лицензий: MicroPython и wasi-libc - из репозиториев на закреплённых коммитах (tools/mpy_kira/pins.txt),
+gnu-efi - из /usr/share/doc/gnu-efi/copyright пакета gnu-efi 3.0.15-1build1 (Ubuntu), Unifont - со страницы проекта.
+
+------------------------------------------------------------------------------
+1. MicroPython  (в образе: python.wasm; MIT)
+------------------------------------------------------------------------------
+The MIT License (MIT)
+
+Copyright (c) 2013-2024 Damien P. George
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+
+Отдельные файлы могут нести дополнительных правообладателей; их заголовки в исходниках сохраняются.
+
+------------------------------------------------------------------------------
+2. wasi-libc  (в образе внутри python.wasm и ksh.wasm; многолицензионный)
+------------------------------------------------------------------------------
+wasi-libc as a whole is multi-licensed under the
+Apache License v2.0 with LLVM Exceptions, the Apache License v2.0, and
+the MIT License. See the LICENSE-APACHE-LLVM, LICENSE-APACHE and LICENSE-MIT
+files, respectively, for details.
+
+Portions of this software are derived from third-party works covered by
+their own licenses:
+
+dlmalloc/                     - CC0; see the notice in malloc.c for details
+emmalloc/                     - MIT; see the notice in emmalloc.c for details
+libc-bottom-half/cloudlibc/   - BSD-2-Clause; see the LICENSE file for details
+libc-top-half/musl/           - MIT; see the COPYRIGHT file for details
+fts/musl-fts/                 - BSD-3-Clause; see the COPYING file for details
+
+wasi-libc's changes to these files are multi-licensed under the
+Apache License v2.0 with LLVM Exceptions, the Apache License v2.0,
+the MIT License, and the original licenses of the third-party works.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND (полный текст в LICENSE-MIT, LICENSE-APACHE, LICENSE-APACHE-LLVM
+репозитория wasi-libc).
+
+2a. musl (libc-top-half; MIT)
+Copyright © 2005-2020 Rich Felker, et al.
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files (the
+"Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+Для частей musl (regex/TRE, математика, crypt и др.) действуют уведомления в заголовках исходных файлов и в COPYRIGHT musl
+(Ville Laurikari - BSD-2; Sun Microsystems, David Schultz, Steven G. Kargl, Bruce D. Evans, Stephen L. Moshier, Arm Limited и др.).
+
+2b. cloudlibc (libc-bottom-half; BSD-2-Clause)
+Copyright (c) 2015-2017 Nuxi (https://nuxi.nl/) and contributors.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions
+are met:
+1. Redistributions of source code must retain the above copyright
+   notice, this list of conditions and the following disclaimer.
+2. Redistributions in binary form must reproduce the above copyright
+   notice, this list of conditions and the following disclaimer in the
+   documentation and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+SUCH DAMAGE.
+
+2c. dlmalloc (Doug Lea) - передан в общественное достояние (CC0), требования к уведомлению нет; упоминание сохраняется по вежливости.
+
+------------------------------------------------------------------------------
+3. compiler-rt builtins (LLVM)  (в образе внутри python.wasm; Apache-2.0 WITH LLVM-exception)
+------------------------------------------------------------------------------
+Copyright (c) LLVM Project contributors. The LLVM Project is under the Apache License v2.0 with LLVM Exceptions.
+Исключение LLVM: встроенные в объектный код части Software можно распространять в объектной форме без выполнения условий
+4(a), 4(b), 4(d) лицензии Apache-2.0. Текст: compiler-rt/LICENSE.TXT на коммите 3b5b5c1ec4a3095ab096dd780e84d7ab81f3d7ff,
+https://llvm.org/LICENSE.txt
+
+------------------------------------------------------------------------------
+4. gnu-efi  (в образе: BOOTX64.EFI, prebuilt/BOOTX64.EFI; libgnuefi, libefi, crt0, заголовки)
+------------------------------------------------------------------------------
+4a. Hewlett-Packard Co. (crt0, libgnuefi, часть lib; BSD-3-Clause) - Copyright 1999-2014 Hewlett-Packard Co.
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions
+are met:
+
+* Redistributions of source code must retain the above copyright
+  notice, this list of conditions and the following disclaimer.
+* Redistributions in binary form must reproduce the above
+  copyright notice, this list of conditions and the following
+  disclaimer in the documentation and/or other materials
+  provided with the distribution.
+* Neither the name of Hewlett-Packard Co. nor the names of its
+  contributors may be used to endorse or promote products derived
+  from this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
+CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
+INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS
+BE LIABLE FOR ANYDIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
+OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR
+TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
+THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+SUCH DAMAGE.
+
+4b. Intel Corporation (inc/*, lib/*; BSD-2-Clause) - Copyright 1996-2013 Intel Corporation; 2008-2009 Apple Inc.; 2011, 2013 ARM.
+Redistribution and use in source and binary forms, with or without modification, are permitted
+provided that the following conditions are met:
+
+Redistributions of source code must retain the above copyright notice, this
+list of conditions and the following disclaimer.
+
+Redistributions in binary form must reproduce the above copyright notice, this
+list of conditions and the following disclaimer in the documentation and/or
+other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
+INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL INTEL BE
+LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+POSSIBILITY OF SUCH DAMAGE. THE EFI SPECIFICATION AND ALL OTHER INFORMATION
+ON THIS WEB SITE ARE PROVIDED "AS IS" WITH NO WARRANTIES, AND ARE SUBJECT
+TO CHANGE WITHOUT NOTICE.
+
+4c. inc/efipoint.h - Copyright 2014 John Cronin; лицензия Expat (MIT): условия те же, что в разделе 1.
+
+------------------------------------------------------------------------------
+5. GNU Unifont  (в образе: растровые глифы шрифта font8x16.c; двойная лицензия SIL OFL 1.1 / GPL-2.0-или-новее с исключением)
+------------------------------------------------------------------------------
+Содержит данные GNU Unifont, Copyright 1998-2019 Jungshik Shin, Roman Czyborra, Qianqian Fang, Luis Alejandro Gonzalez Miranda,
+Paul Hardy, Andrew Miller, David Corbett, Johnnie Weaver и др. (список правообладателей: debian/copyright пакета fonts-unifont 15.1.01).
+Лицензия: SIL Open Font License 1.1 (вариант, выбираемый для поставки; решение владельца - docs/THIRD_PARTY.md, риск Р3).
+ПОЛНЫЙ ТЕКСТ OFL 1.1 НУЖНО ПРИЛОЖИТЬ ПЕРЕД ПОСТАВКОЙ (https://openfontlicense.org): в этом файле он не воспроизведён.
+Версия Unifont, из которой взяты глифы, в репозитории не записана.
+
+------------------------------------------------------------------------------
+Не входит в поставку, но упомянуто для полноты: драйверы OpenBSD (скачиваются на машине пользователя по хешам, исходники с
+заголовками лицензий сохраняются как есть), GRUB (только запасной образ kira-grub.iso, см. docs/THIRD_PARTY.md).

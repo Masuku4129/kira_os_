@@ -31,7 +31,7 @@ static void same_as_full(surface_t* scr, const char* what) {
     static uint32_t snap[1024 * 768];
     frame();
     memcpy(snap, scr->px, sizeof snap);
-    wm_set_culling(0); wm_invalidate_all(); frame(); wm_set_culling(1);
+    wm_set_culling(0); wm_set_scale_cache(0); wm_invalidate_all(); frame(); wm_set_culling(1); wm_set_scale_cache(1);
     if (memcmp(snap, scr->px, sizeof snap)) {
         int n = 0, fx = -1, fy = -1;
         for (int i = 0; i < 1024 * 768; i++) if (snap[i] != scr->px[i]) { if (!n) { fx = i % 1024; fy = i / 1024; } n++; }
@@ -41,9 +41,146 @@ static void same_as_full(surface_t* scr, const char* what) {
 }
 
 
+
+/* Перерисовка только изменившихся полос содержимого (wm_invalidate_diff) даёт ту же картинку, что полная перерисовка:
+   случайные правки строк и столбцов, обычное и уменьшенное окно, сокрытие/показ, изменение размера. */
+static void diff_invalidate(void) {
+    surface_t sc = { calloc(1024 * 768, 4), 1024, 768, 1024 };
+    wm_ops_t ops = { al, nt, inp, lc, rz, tb, 0, rel };
+    wm_init(&sc, &ops);
+    wm_side_set(0, 0);
+    int ids[2];
+    ids[0] = wm_create("diff1", 100, 80, 300, 200, WM_CLOSABLE);
+    ids[1] = wm_create_ex("diff2", 450, 100, 700, 560, WM_RESIZABLE | WM_ZOOMABLE, 900, 700);   /* не помещается: уменьшается */
+    unsigned seed = 12345;
+    for (int n = 0; n < 2; n++) {
+        surface_t* c = wm_content(ids[n]);
+        for (int j = 0; j < c->h; j++) for (int i = 0; i < c->w; i++) c->px[j * c->pitch + i] = (uint32_t)((i * 3 + j * 5) & 0xFFFFFF);
+        wm_invalidate_diff(ids[n]);
+    }
+    same_as_full(&sc, "diff: первая отрисовка");
+    for (int it = 0; it < 150; it++) {
+        int n = it & 1;
+        surface_t* c = wm_content(ids[n]);
+        int edits = 1 + (int)(seed = seed * 1103515245u + 12345u) % 4;
+        for (int e = 0; e < edits; e++) {
+            seed = seed * 1103515245u + 12345u; int y0 = (int)(seed >> 8) % c->h;
+            seed = seed * 1103515245u + 12345u; int x0 = (int)(seed >> 8) % c->w;
+            seed = seed * 1103515245u + 12345u; int h = 1 + (int)(seed >> 8) % 12;
+            seed = seed * 1103515245u + 12345u; int w = 1 + (int)(seed >> 8) % 40;
+            seed = seed * 1103515245u + 12345u; uint32_t col = (seed >> 4) & 0xFFFFFF;
+            for (int j = y0; j < y0 + h && j < c->h; j++) for (int i = x0; i < x0 + w && i < c->w; i++) c->px[j * c->pitch + i] = col;
+        }
+        if (it % 37 == 36) { wm_set_visible(ids[n], 0); c->px[5 * c->pitch + 7] ^= 0x123456; wm_invalidate_diff(ids[n]); wm_set_visible(ids[n], 1); }
+        wm_invalidate_diff(ids[n]);
+        same_as_full(&sc, "diff: правки");
+    }
+    /* Смена окна в фокусе (создание, сокрытие, закрытие) не оставляет свечения и стекла прежнего вида. */
+    int extra = wm_create("focus", 20, 600, 200, 100, WM_CLOSABLE);
+    same_as_full(&sc, "фокус: новое окно");
+    wm_set_visible(extra, 0);
+    same_as_full(&sc, "фокус: окно скрыто");
+    wm_set_visible(extra, 1);
+    wm_destroy(extra);
+    same_as_full(&sc, "фокус: окно закрыто");
+    wm_destroy(ids[0]); wm_destroy(ids[1]);
+    free(sc.px);
+}
+
+/* Перетаскивание: после каждого шага (в том числе больших скачков мыши - быстрое перетаскивание) кадр, собранный по повреждённым частям,
+   совпадает с кадром, перерисованным с нуля. Окна перекрываются, одно уменьшено (масштаб), одно живое (содержимое меняется каждый шаг). */
+static void drag_random(void) {
+    surface_t sc = { calloc(1024 * 768, 4), 1024, 768, 1024 };
+    wm_ops_t ops = { al, nt, inp, lc, rz, tb, 0, rel };
+    wm_init(&sc, &ops);
+    wm_side_set(0, 0);
+    int ids[4];
+    ids[0] = wm_create("d0", 120, 100, 300, 200, WM_CLOSABLE);
+    ids[1] = wm_create("d1", 260, 160, 360, 240, WM_CLOSABLE);
+    ids[2] = wm_create_ex("d2", 420, 220, 700, 500, WM_RESIZABLE | WM_ZOOMABLE, 900, 700);
+    ids[3] = wm_create("d3", 600, 120, 280, 180, WM_CLOSABLE);
+    for (int n = 0; n < 4; n++) {
+        surface_t* c = wm_content(ids[n]);
+        for (int j = 0; j < c->h; j++) for (int i = 0; i < c->w; i++) c->px[j * c->pitch + i] = (uint32_t)((i * 7 + j * 3 + n * 50) & 0xFFFFFF);
+        wm_invalidate_diff(ids[n]);
+    }
+    same_as_full(&sc, "drag: начало");
+    unsigned seed = 777;
+    #define RND() (seed = seed * 1103515245u + 12345u, (int)(seed >> 8))
+    for (int it = 0; it < 120; it++) {
+        int n = RND() % 4, wx, wy, ww, wh; const char* t;
+        CHECK(wm_window_info(ids[n], &wx, &wy, &ww, &wh, &t) >= 0);
+        move_to(wx + ww / 2, wy + 15, 0);                       /* середина заголовка */
+        frame();
+        int steps = 3 + RND() % 6;
+        wm_mouse(0, 0, 1);                                       /* нажали: окно берётся (и поднимается, если не закрыто другим) */
+        for (int s = 0; s < steps; s++) {
+            int big = (RND() % 3 == 0);
+            int dx = (RND() % (big ? 400 : 60)) - (big ? 200 : 30), dy = (RND() % (big ? 300 : 40)) - (big ? 150 : 20);
+            wm_mouse(dx, dy, 1);
+            if (it % 3 == 0) {                                   /* живое окно меняется в тот же кадр */
+                surface_t* c = wm_content(ids[(n + 1) & 3]);
+                for (int j = 0; j < 10; j++) for (int i = 0; i < c->w && i < 90; i++) c->px[(RND() % c->h) * c->pitch + i] ^= 0x2468AC;
+                wm_invalidate_diff(ids[(n + 1) & 3]);
+            }
+            same_as_full(&sc, "drag: шаг");
+        }
+        wm_mouse(0, 0, 0);
+        same_as_full(&sc, "drag: отпустили");
+    }
+    #undef RND
+    for (int n = 0; n < 4; n++) wm_destroy(ids[n]);
+    free(sc.px);
+}
+
+/* Кэш уменьшенного содержимого: окно больше свободного места уменьшается; правки (полосы, строки, окно целиком), сокрытие, смена масштаба и перетаскивание
+   дают ту же картинку, что сборка без кэша (same_as_full отключает кэш для эталона). */
+static void scale_cache(void) {
+    surface_t sc = { calloc(1024 * 768, 4), 1024, 768, 1024 };
+    wm_ops_t ops = { al, nt, inp, lc, rz, tb, 0, rel };
+    wm_init(&sc, &ops);
+    wm_side_set(0, 0);
+    int a = wm_create_ex("big", 100, 80, 900, 700, WM_RESIZABLE | WM_ZOOMABLE, 900, 700);    /* не помещается: уменьшается */
+    int b = wm_create("small", 300, 200, 200, 150, WM_CLOSABLE);
+    CHECK(wm_zoom_percent(a) < 100);
+    surface_t* c = wm_content(a);
+    for (int j = 0; j < c->h; j++) for (int i = 0; i < c->w; i++) c->px[j * c->pitch + i] = (uint32_t)((i * 5 + j * 11 + ((i / 7 + j / 9) & 1) * 0x808080) & 0xFFFFFF);
+    wm_invalidate(a);
+    same_as_full(&sc, "кэш: первая сборка");
+    unsigned seed = 99;
+    #define RND() (seed = seed * 1103515245u + 12345u, (int)(seed >> 8))
+    for (int it = 0; it < 200; it++) {
+        int kind = RND() % 6;
+        if (kind <= 2) {                                         /* правка прямоугольника и сообщение о ней тремя способами */
+            int y0 = RND() % c->h, x0 = RND() % c->w, h = 1 + RND() % 20, w = 1 + RND() % 60; uint32_t col = (uint32_t)RND() & 0xFFFFFF;
+            for (int j = y0; j < y0 + h && j < c->h; j++) for (int i = x0; i < x0 + w && i < c->w; i++) c->px[j * c->pitch + i] = col;
+            if (kind == 0) wm_invalidate_diff(a);
+            else if (kind == 1) wm_invalidate_rows(a, y0, y0 + h);
+            else wm_invalidate(a);
+        } else if (kind == 3) {                                  /* скрыли, поправили, показали: пока окно было скрыто, содержимое менялось без сообщений */
+            wm_set_visible(a, 0);
+            for (int i = 0; i < 400; i++) c->px[(RND() % c->h) * c->pitch + RND() % c->w] ^= 0x00FF00;
+            wm_set_visible(a, 1);
+        } else if (kind == 4) {                                  /* перетащили */
+            int wx, wy, ww, wh; const char* t; wm_window_info(a, &wx, &wy, &ww, &wh, &t);
+            move_to(wx + ww / 2, wy + 15, 0); wm_mouse(0, 0, 1);
+            for (int k = 0; k < 2; k++) { int mx = RND() % 120 - 60; int my = RND() % 80 - 40; wm_mouse(mx, my, 1); }
+            wm_mouse(0, 0, 0);
+        } else {                                                 /* другое окно поверх / сменили масштаб за уголок */
+            if (RND() % 2) wm_raise(b); else wm_raise(a);
+            int wx, wy, ww, wh; const char* t; wm_window_info(a, &wx, &wy, &ww, &wh, &t);
+            if (RND() % 3 == 0) { int mx = RND() % 160 - 120; int my = RND() % 120 - 90; move_to(wx + ww - 4, wy + wh - 4, 0); wm_mouse(0, 0, 1); wm_mouse(mx, my, 1); wm_mouse(0, 0, 0); }
+        }
+        same_as_full(&sc, "кэш: шаг");
+    }
+    #undef RND
+    wm_destroy(a); wm_destroy(b);
+    free(sc.px);
+}
+
 /* Док: состояния значка (нет окна / свёрнуто / открыто / в фокусе), щелчки, несколько окон одной программы,
-   сжатие плиток, когда значков много. Полоса слева от плитки: высокая цветная - открыто, короткая тусклая - свёрнуто. */
-static uint32_t ind(surface_t* sc, int i) { int sx, sy; wm_side_center(i, &sx, &sy); frame(); return px(sc, 11, sy); }
+   сжатие плиток, когда значков много. Полоса под плиткой: длинная цветная - открыто, короткая тусклая точка - свёрнуто. */
+static uint32_t ind(surface_t* sc, int i) { int sx, sy; wm_side_center(i, &sx, &sy); frame(); return px(sc, sx, sy + wm_side_tile() / 2 + 4); }
 static void dock_states(void) {
     static char tags[24][8], labels[24][8];
     surface_t sc = { calloc(1024 * 768, 4), 1024, 768, 1024 };
@@ -54,7 +191,7 @@ static void dock_states(void) {
     it[5] = (wm_side_item_t){ "+", "", TH_TEXT_DIM, ICON_FOLDER, 1, 0, 0, 0, 0 };
     wm_side_set(it, 6);                                              /* p0..p4 и «+» внизу */
     frame();
-    uint32_t col = TH_PINK, faint = TH_TEXT_FAINT;
+    uint32_t col = TH_ACCENT, faint = TH_FG_FAINT;                   /* единый стиль: полоса открытого - акцент, свёрнутого - тусклая */
     CHECK(ind(&sc, 1) != col && ind(&sc, 1) != faint);               /* окна нет - полосы нет */
     int w1 = wm_create("Рисование", 300, 100, 200, 100, WM_CLOSABLE); wm_set_tag(w1, "p1");
     int w2 = wm_create("Другое", 340, 140, 200, 100, WM_CLOSABLE); wm_set_tag(w2, "p2");
@@ -87,13 +224,13 @@ static void dock_states(void) {
         all[n - 1] = it[5];
         wm_side_set(all, n);
         int ts = wm_side_tile(), py = -1;
-        CHECK(ts >= 26 && ts <= 44);
-        if (n * 54 - 10 > 670) CHECK(ts < 44);
+        CHECK(ts >= 30 && ts <= 48);
+        if (n * 60 - 12 > 940) CHECK(ts < 48);
         for (int i = 0; i < n; i++) {
             int sx, sy; CHECK(wm_side_center(i, &sx, &sy) == 0);
-            CHECK(sy - ts / 2 >= WM_TOP_H + 10 && sy + ts / 2 <= 768 - 10);
-            if (i && !all[i].bottom) CHECK(sy - py >= ts);
-            if (!all[i].bottom) py = sy;
+            CHECK(sx - ts / 2 >= 0 && sx + ts / 2 <= 1024 && sy - ts / 2 > 768 - WM_DOCK_H && sy + ts / 2 <= 768 - 10);
+            if (i) CHECK(sx - py >= ts);
+            py = sx;
         }
         launches = 0; click_side(n / 2);
         CHECK(launches == 1 && last_launch == n / 2);                /* щелчок попадает в сжатую плитку */
@@ -172,14 +309,14 @@ int main(void) {
     CHECK(px(&scr, 320, 140) == 0x00AA0000);
     int ox, oy, sc;
     CHECK(wm_content_origin(a, &ox, &oy, &sc) == 0 && ox == 300 + WM_PAD && oy == 100 + WM_HEAD && sc == 1);
-    /* фон нарисован (градиент, сетка, мозг), а не пустой чёрный; верхняя панель и боковая есть */
-    int lit = 0; for (int i = 1024 * 100; i < 1024 * 700; i++) if (scr.px[i] != 0) lit++;
-    CHECK(lit > 1024 * 590);
-    CHECK(px(&scr, 512, 20) != px(&scr, 512, 300));
+    /* фон по умолчанию - гладкий нейтральный (docs/UI_DESIGN.md), а не пустой чёрный; панели отличаются от него */
+    int lit = 0; for (int i = 1024 * 100; i < 1024 * 700; i++) if (scr.px[i] == TH_SURF_DESK) lit++;
+    CHECK(lit > 1024 * 500);
+    CHECK(px(&scr, 512, 300) == TH_SURF_DESK);
     int sx0, sy0; wm_side_center(0, &sx0, &sy0);
-    CHECK(sx0 < WM_SIDE_W && sy0 > WM_TOP_H);
+    CHECK(sx0 > 200 && sx0 < 824 && sy0 > 768 - WM_DOCK_H);              /* Dock - снизу по центру */
     int sx2, sy2; wm_side_center(2, &sx2, &sy2);
-    CHECK(sy2 > 600);                                                                 /* «внизу» - прижат к низу панели */
+    CHECK(sx2 > sx0 && sy2 == sy0);                                                    /* значки в одну строку */
 
     /* перемещение курсора даёт маленький damage */
     move_to(600, 600, 0); frame();
@@ -253,7 +390,8 @@ int main(void) {
     }
     /* подсказка под курсором над значком рисуется */
     move_to(sx0, sy0, 0);
-    CHECK(wm_compose(&x, &y, &w, &h) && x == 0 && w > WM_SIDE_W);
+    /* перерисовывается значок и его подпись (не вся полоса Dock шириной в экран): область шире значка и выше него */
+    CHECK(wm_compose(&x, &y, &w, &h) && w > 100 && w < 600 && h > 40);
     /* красная у окна ядра без WM_CLOSABLE-приложения сворачивает (вернуть можно значком) */
     wm_raise(b); notes = 0; click_btn(b, 1);
     CHECK(!wm_visible(b) && notes == 1 && last_vis == 0);
@@ -272,14 +410,14 @@ int main(void) {
         wm_set_clock("ПЯТНИЦА, 30 ОКТЯБРЯ 2026", "13:05");
         wm_set_meters(home_busy, 4, 37, 91);
         frame();
-        CHECK(px(&scr, 800, 620) != TH_BAR0);                  /* чистый рабочий стол: обзора нет (инвариант 1) */
         extern int wm_home_open(void);
-        click(1024 - 60, 16);                                  /* клик по системной зоне открывает обзор */
-        frame();
-        CHECK(wm_home_open() && px(&scr, 800, 620) == TH_BAR0);
-        click(1024 - 60, 16);
+        CHECK(wm_home_open() && px(&scr, 800, 620) == TH_BAR0);        /* карточка состояния справа снизу видна по умолчанию */
+        click(1024 - 60, 16);                                  /* клик по капсуле справа сверху скрывает её */
         frame();
         CHECK(!wm_home_open() && px(&scr, 800, 620) != TH_BAR0);
+        click(1024 - 60, 16);
+        frame();
+        CHECK(wm_home_open() && px(&scr, 800, 620) == TH_BAR0);
     }
     wm_set_visible(b, 1); wm_set_visible(a, 1);
     CHECK(wm_top() == a);
@@ -394,6 +532,21 @@ int main(void) {
     wm_set_subtitle(a, "ядро");
     CHECK(wm_compose(&x, &y, &w, &h));
 
+    /* батарея: нет батареи - панель не перерисовывается; появилась - перерисовка один раз; заряд изменился - ещё раз; снова нет - и индикатор исчезает */
+    wm_set_battery(0, -1, 0);
+    CHECK(!wm_compose(&x, &y, &w, &h));
+    wm_set_battery(1, 56, 0);
+    CHECK(wm_compose(&x, &y, &w, &h));
+    wm_set_battery(1, 56, 0);
+    CHECK(!wm_compose(&x, &y, &w, &h));
+    wm_set_battery(1, 55, 1);
+    CHECK(wm_compose(&x, &y, &w, &h));
+    CHECK(x > 200 && x + w >= 600 && y == 0 && h <= WM_TOP_H);   /* только правая капсула, бренд и вкладки слева не трогаются */
+    wm_set_battery(0, -1, 0);
+    CHECK(wm_compose(&x, &y, &w, &h));
+    wm_set_battery(0, -1, 0);
+    CHECK(!wm_compose(&x, &y, &w, &h));
+
     /* окно, созданное с WM_AUTO, помещается на экран правее боковой панели */
     int au = wm_create("auto", WM_AUTO, WM_AUTO, 680, 432, 0);
     int axx, ayy; wm_window_pos(au, &axx, &ayy);
@@ -449,6 +602,10 @@ int main(void) {
     CHECK(cw_ == 200 && ch_ == 100);
     wm_destroy(cid);
 
+    /* заставка «мозг» включается отдельно (по умолчанию фон гладкий): после включения фон перерисован целиком */
+    wm_desk_fancy(1);
+    CHECK(wm_compose(&x, &y, &w, &h) && w == 1024 && h == 768);
+    CHECK(px(&scr, 512, 300) != TH_SURF_DESK || px(&scr, 300, 400) != TH_SURF_DESK);
     /* живой фон: вспышки узлов отмечают свои области; при выключенной анимации - тишина */
     frame();
     wm_set_fx(3);
@@ -522,8 +679,11 @@ int main(void) {
     }
 
     dock_states();
+    diff_invalidate();
+    drag_random();
+    scale_cache();
     responsive_topbar();
     printf("wm: shell top bar (responsive tabs and fitted app windows at 640x480, 800x600, 1024x768, 1280x720, 1920x1080; clock and meters), side launcher, traffic-light buttons, z-order, damage, drag, "
-           "fullscreen, pinned, app and kernel input, zoom, owner resize, live background, culling = full redraw, dock states / cycling / compression passed\n");
+           "fullscreen, pinned, app and kernel input, zoom, owner resize, live background, culling = full redraw, partial content redraw = full, dock states / cycling / compression passed\n");
     return 0;
 }

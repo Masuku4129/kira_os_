@@ -10,6 +10,9 @@ T=$(mktemp -d)
 echo "== уровни архитектуры (docs/architecture/levels.map) =="
 python3 ci/check_layers.py
 
+echo "== лицензии сторонних компонентов (docs/THIRD_PARTY.md) =="
+python3 ci/check_licenses.py
+
 echo "== process PID allocator (no wrap/reuse for private IPC principals) =="
 $CC $FLAGS -o $T/proc-pid tests/proc_pid_test.c
 $T/proc-pid
@@ -37,14 +40,22 @@ echo "== UEFI loader and KBI adapter compile (GNU-EFI ABI) =="
 EFI_INC=${EFI_INCLUDE:-/usr/include/efi}
 if [ -s "$EFI_INC/efi.h" ]; then
 EFI_CFLAGS="-O2 -Wall -Wextra -Werror -fpic -fshort-wchar -mno-red-zone -fno-stack-protector -fno-stack-check -fno-strict-aliasing -DEFI_FUNCTION_WRAPPER -isystem $EFI_INC -isystem $EFI_INC/x86_64"
-$CC $EFI_CFLAGS -c arch/x86_64/uefi/loader.c -o $T/uefi-loader.o
+$CC $EFI_CFLAGS -I. -Iarch/x86_64/uefi -c arch/x86_64/uefi/loader.c -o $T/uefi-loader.o
+# доверенный режим (KIRA_SECURE=1) тоже обязан собираться без предупреждений: ключ для проверки сборки одноразовый
+python3 tools/kirasig.py keygen $T/efikey.pem $T/efikey.pub >/dev/null
+python3 tools/kirasig.py cheader $T/efikey.pub $T/kira_bootkey.h
+$CC $EFI_CFLAGS -I. -Iarch/x86_64/uefi -I$T -DKIRA_SECURE_BOOT=1 -DKIRA_MIN_IMAGE_VERSION=0u -DKIRA_REQUIRE_SB=1 -DKIRA_REQUIRE_TPM=1 -c arch/x86_64/uefi/loader.c -o $T/uefi-loader-secure.o
 $CC $EFI_CFLAGS -I. -Iarch/x86_64/uefi -c arch/x86_64/uefi/uefi_kbi.c -o $T/uefi-kbi.o
 else
 echo "gnu-efi не найден ($EFI_INC/efi.h): сборка загрузчика пропущена (в CI он есть)"
 fi
 echo "UEFI loader sources: compile passed"
 echo "== UEFI: наш загрузчик + GPT/ESP под OVMF (без GRUB) =="
-tests/uefi_boot_test.sh
+if [ "${KIRA_SKIP_UEFI_QEMU:-0}" != 1 ]; then
+    tests/uefi_boot_test.sh
+else
+    echo "UEFI boot under OVMF: запускается отдельно (общий стенд QEMU под блокировкой)"
+fi
 
 echo "== pmm (synthetic Multiboot2 memory map, contiguous blocks) =="
 $CC $FLAGS -o $T/pmm tests/pmm_test.c pmm.c bootinfo_mb2.c bootinfo.c -Wl,--defsym=kernel_start=0x100000 -Wl,--defsym=kernel_end=0x320000
@@ -61,12 +72,23 @@ echo "== W^X ядра (дробление страниц, права секци�
 $CC $FLAGS -fsanitize=address,undefined -o $T/wx tests/wx_test.c wx.c
 ASAN_OPTIONS=detect_leaks=0 $T/wx
 
+echo "== ранний W^X образа ядра (карта страниц с первой инструкции: права по секциям, мост KASLR, нет W+X) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/earlymap tests/earlymap_test.c earlymap.c wx.c
+ASAN_OPTIONS=detect_leaks=0 $T/earlymap
+
+echo "== KASLR (выбор базы: выравнивание, диапазон, занятое, энтропия; таблица перемещений; слова командной строки; политика kptr) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/kaslr tests/kaslr_test.c kaslr.c kptr.c bootinfo.c -Wl,--defsym=kernel_start=0x30000000 -Wl,--defsym=kernel_end=0x30600000
+$T/kaslr
+
+echo "== перемещение образа по таблице tools/mkkreloc.py (эталон - образ, собранный компоновщиком по другому адресу) =="
+tests/kreloc_test.sh
+
 echo "== W^X ядра ARM64 (дробление блоков, права секций, обход таблиц, поиск W+X) =="
 $CC $FLAGS -fsanitize=address,undefined -Iarch/aarch64 -o $T/wx_arm tests/wx_arm_test.c arch/aarch64/wx_arm.c
 ASAN_OPTIONS=detect_leaks=0 $T/wx_arm
 
 echo "== scheduler policy (incl. regression: pulsing critical thread) =="
-$CC $FLAGS -o $T/sched tests/sched_test.c sched.c scale.c percpu.c
+$CC $FLAGS -o $T/sched tests/sched_test.c sched.c scale.c percpu.c bbring.c
 $T/sched
 
 echo "== REAL context switch + FXSAVE/FXRSTOR (arch/x86_64/context.s, 3 threads, xmm live across switches) =="
@@ -74,14 +96,15 @@ RF="-O1 -g -Wall -DKIRA_HOST_TEST -I. -Iarch/x86_64 -no-pie -fno-omit-frame-poin
 nasm -f elf64 arch/x86_64/context.s -o $T/context.o
 $CC $RF -DKIRA_HOST_REAL_FPU -mno-sse -c sched.c -o $T/sched_r.o
 $CC $RF -mno-sse -c percpu.c -o $T/percpu.o
+$CC $RF -mno-sse -c bbring.c -o $T/bbring.o
 $CC $RF -mno-sse -c scale.c -o $T/scale.o
 $CC $RF -mno-sse -c tests/tick_hook.c -o $T/hook.o
 $CC $RF -DKIRA_HOST_REAL_FPU -c tests/ctx_fpu_test.c -o $T/ctx.o
-$CC -no-pie -o $T/ctx_fpu $T/ctx.o $T/sched_r.o $T/scale.o $T/percpu.o $T/hook.o $T/context.o
+$CC -no-pie -o $T/ctx_fpu $T/ctx.o $T/sched_r.o $T/bbring.o $T/scale.o $T/percpu.o $T/hook.o $T/context.o
 $T/ctx_fpu
 $CC $RF -mno-sse -c sched.c -o $T/sched_n.o
 $CC $RF -c tests/ctx_fpu_test.c -o $T/ctx_n.o
-$CC -no-pie -o $T/ctx_fpu_n $T/ctx_n.o $T/sched_n.o $T/scale.o $T/percpu.o $T/hook.o $T/context.o
+$CC -no-pie -o $T/ctx_fpu_n $T/ctx_n.o $T/sched_n.o $T/bbring.o $T/scale.o $T/percpu.o $T/hook.o $T/context.o
 $T/ctx_fpu_n --nofpu
 
 echo "== input layer (PS/2 decoder, ring, overflow) =="
@@ -95,6 +118,10 @@ $T/kdrv-catalogue
 echo "== driver package format (kdrv_format.h: header, record, matching, hostile input) =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/kdrv tests/kdrv_test.c kdrv_fmt.c
 $T/kdrv
+
+echo "== Ring 3 block device channel (kdrv_blk.h: registration, request bounds, rings, in-flight tracking, hostile responses) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/kdrv_blk tests/kdrv_blk_test.c kdrv_blk.c
+$T/kdrv_blk
 
 echo "== kdrvpack: mandatory publisher state requires explicit confirmation =="
 $CC $FLAGS -o $T/kdrvpack tools/kdrvpack.c kdrv_fmt.c sha256.c
@@ -123,6 +150,22 @@ echo "== ACPI parser (synthetic XSDT/MADT/HPET/MCFG, corruption cases) =="
 $CC $FLAGS -o $T/acpi tests/acpi_test.c acpi.c
 $T/acpi
 
+echo "== сон S3: реестр хуков устройств (порядок, откат при отказе, журнал) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/devpm tests/devpm_test.c devpm.c
+$T/devpm
+echo "== AML: интерпретатор на настоящих таблицах (iasl) и на DSDT из QEMU, ASAN/UBSan =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/aml tests/aml_test.c aml.c aml_exec.c
+$T/aml
+echo "== ACPI в работе: события SCI/GPE/EC, кнопка питания, батарея, крышка, _PRT (модель железа) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/acpidev tests/acpidev_test.c acpidev.c aml.c aml_exec.c
+$T/acpidev
+echo "== AML на настоящих DSDT из QEMU (pc/PIIX и q35/ICH9): _PRT, связки, \\_S5, порча и обрезка =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/acpi_qemu tests/acpi_qemu_test.c acpidev.c aml.c aml_exec.c acpi.c
+ASAN_OPTIONS=detect_leaks=0 $T/acpi_qemu
+echo "== AML: фаззинг (случайные, обрезанные и испорченные таблицы) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/aml_fuzz tests/aml_fuzz.c aml.c aml_exec.c
+ASAN_OPTIONS=detect_leaks=0 $T/aml_fuzz 3000
+
 echo "== Intel VT-d DMAR topology parser (DRHD, RMRR, hostile input) =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/iommu-vtd tests/iommu_vtd_test.c iommu_vtd.c
 $T/iommu-vtd
@@ -139,6 +182,14 @@ echo "== VT-d domain (hardware model: IOTLB invalidation after map/unmap, stale 
 $CC $FLAGS -fsanitize=address,undefined -o $T/vtd-domain tests/vtd_domain_test.c drivers/iommu/vtd_domain.c drivers/iommu/intel_vtd.c
 $T/vtd-domain
 
+echo "== ARM SMMUv3: STE, CD, stage-1 page tables, commands, events =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/smmudom tests/smmu_dom_test.c drivers/iommu/smmu_dom.c
+$T/smmudom
+
+echo "== AMD-Vi: IVRS (fuzz), DTE, v1 page tables, commands =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/amdvi tests/amdvi_test.c drivers/iommu/amd_vi.c
+$T/amdvi
+
 echo "== IOAPIC (ISO resolution, redirection encoding) =="
 $CC $FLAGS -o $T/ioapic tests/ioapic_test.c arch/x86_64/ioapic.c
 $T/ioapic
@@ -148,26 +199,30 @@ $CC $FLAGS -o $T/store tests/store_test.c store.c
 $T/store
 
 echo "== KiraFS (files, dirs, crash at every write, corruption fuzz) =="
-$CC $FLAGS -fsanitize=address,undefined -Itests -o $T/kfs tests/kfs_test.c tests/kfs_v1_ref.c kfs.c store.c
+$CC $FLAGS -fsanitize=address,undefined -Itests -o $T/kfs tests/kfs_test.c tests/kfs_v1_ref.c kfs.c sha256.c zstd.c store.c
 $T/kfs
 
+echo "== KiraFS COW (kfs_clone: общие блоки, ссылки, обрыв питания) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/kfscow tests/kfs_cow_test.c kfs.c sha256.c zstd.c store.c
+$T/kfscow
+
 echo "== PCI + virtio-blk (bus model, device model, init order, rings, KiraFS over virtio) =="
-$CC $FLAGS -fsanitize=undefined -DSPIN_LIMIT=200000 -o $T/virtio tests/virtio_test.c virtio.c virtio_blk.c pci.c kfs.c store.c
+$CC $FLAGS -fsanitize=undefined -DSPIN_LIMIT=200000 -o $T/virtio tests/virtio_test.c virtio.c virtio_blk.c pci.c kfs.c sha256.c zstd.c store.c
 $T/virtio
 
 echo "== programs: ELF validation, trust manifest, life log in KiraFS =="
-$CC $FLAGS -O1 -o $T/kfstool tools/kfstool.c kfs.c store.c sha256.c
+$CC $FLAGS -O1 -o $T/kfstool tools/kfstool.c kfs.c zstd.c store.c sha256.c sysseal.c cbor.c cas.c
 if ls userland/*.elf >/dev/null 2>&1; then $T/kfstool manifest userland/*.elf | sed 's/PROG_MANIFEST/TEST_MANIFEST/g' > tests/manifest_test.h
 else printf '#include "trust.h"\nstatic const trust_entry_t TEST_MANIFEST[] = { { "none", {0} } };\n#define TEST_MANIFEST_COUNT 0\n' > tests/manifest_test.h; fi
-$CC $FLAGS -fsanitize=undefined -Itests -o $T/prog tests/prog_test.c elf.c trust.c life.c kfs.c store.c sha256.c
+$CC $FLAGS -fsanitize=undefined -Itests -o $T/prog tests/prog_test.c elf.c trust.c life.c kfs.c zstd.c store.c sha256.c
 $T/prog
 rm -f tests/manifest_test.h
 
 echo "== program file service (sandbox /data/<name>) =="
-$CC $FLAGS -fsanitize=undefined -o $T/fsrv tests/fsrv_test.c fsrv.c caps.c kfs.c store.c kdrv_fmt.c sha256.c
+$CC $FLAGS -fsanitize=undefined -o $T/fsrv tests/fsrv_test.c fsrv.c caps.c kfs.c zstd.c store.c kdrv_fmt.c sha256.c
 $T/fsrv
 TS=tests/s""tub   # каталог подмен заголовков для теста окон (имя каталога, не признак недоделки)
-$CC $FLAGS -fsanitize=undefined -I$TS -o $T/paint tests/paint_test.c fsrv.c kfs.c store.c kdrv_fmt.c sha256.c caps.c
+$CC $FLAGS -fsanitize=undefined -I$TS -o $T/paint tests/paint_test.c fsrv.c kfs.c zstd.c store.c kdrv_fmt.c sha256.c caps.c
 $T/paint
 
 echo "== Mind request mailboxes (atomic exchange/store under concurrent producer/consumer; ThreadSanitizer) =="
@@ -180,19 +235,23 @@ $CC ${FLAGS//-I./-iquote .} -O2 -fsanitize=thread -o $T/spin tests/spinlock_test
 $T/spin
 
 echo "== SMP (AP selection, ICR commands, percpu table) =="
-$CC $FLAGS -o $T/kmutex tests/kmutex_test.c kmutex.c sched.c scale.c percpu.c
+$CC $FLAGS -o $T/kmutex tests/kmutex_test.c kmutex.c sched.c scale.c percpu.c bbring.c
 $T/kmutex
 
 echo "== kernel objects: ports, shared memory, handles, futex =="
-$CC $FLAGS -fsanitize=address,undefined -o $T/kobj tests/kobj_test.c kobj.c futex.c percpu.c
+$CC $FLAGS -fsanitize=address,undefined -o $T/kobj tests/kobj_test.c kobj.c caps.c futex.c percpu.c
 $T/kobj
+
+echo "== application domains: ceilings, reach, quotas =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/domain tests/domain_test.c caps.c
+$T/domain
 
 echo "== core fault isolation decision + per-core log line buffer =="
 $CC $FLAGS -o $T/corefault tests/corefault_test.c corefault.c linebuf.c
 $T/corefault
 
 echo "== scaling: size policy and scheduler on 1, 2, 3, 4, 8, 16, 64 cores =="
-$CC $FLAGS -o $T/scale tests/scale_test.c scale.c sched.c percpu.c
+$CC $FLAGS -o $T/scale tests/scale_test.c scale.c sched.c percpu.c bbring.c
 for n in 1 2 3 4 8 16 64 65 128 256; do $T/scale $n; done
 $CC $FLAGS -o $T/smp tests/smp_test.c arch/x86_64/smp.c percpu.c
 $T/smp
@@ -233,9 +292,13 @@ echo "== hardware profile (CPUID decoding on synthetic CPUs, scaling limits) =="
 $CC $FLAGS -fsanitize=undefined -o $T/hw tests/hwprofile_test.c hwprofile.c uheap.c
 $T/hw
 
-echo "== user programs: cube3d (3D renderer, z-buffer in heap), fpu, burn =="
-$CC $FLAGS $SSE -Itests -fsanitize=undefined -o $T/cube3d tests/cube3d_test.c
-$T/cube3d
+echo "== 3D engine k3d (tiles, z-buffer, perspective, clipping, light, textures, alpha, threads) =="
+$CC $FLAGS $SSE -fsanitize=address,undefined -o $T/k3d tests/k3d_test.c userland/k3d.c -lm -lpthread
+$T/k3d
+
+echo "== user programs: cube3d (scene on k3d), fpu, burn =="
+$CC $FLAGS $SSE -Itests -fsanitize=address,undefined -o $T/cube3d tests/cube3d_test.c userland/k3d.c -lpthread -lm
+ASAN_OPTIONS=detect_leaks=0 $T/cube3d
 $CC $FLAGS $SSE -Itests -o $T/fpuburn tests/fpu_burn_test.c
 $T/fpuburn
 
@@ -255,9 +318,65 @@ else
     echo "UI primitives: covered by gui-regression job"
 fi
 
+echo "== cbor (RFC 8949: векторы, детерминированность, строгий режим, фаззинг) =="
+$CC $FLAGS -Werror -Wextra -fsanitize=address,undefined -o $T/cbor tests/cbor_test.c cbor.c
+$T/cbor
+
+echo "== json (RFC 8259: строгий разбор, путь, глубина, фаззинг) =="
+$CC $FLAGS -Werror -Wextra -fsanitize=address,undefined -o $T/json tests/json_test.c json.c
+$T/json
+
+echo "== cas (RFC 6962 дерево Меркла, пути включения, CAS, файлы кусками) =="
+$CC $FLAGS -Werror -Wextra -fsanitize=address,undefined -o $T/cas tests/cas_test.c cas.c sha256.c
+$T/cas
+echo "== zstd (RFC 8878: эталонные кадры уровней 1-19, контрольные суммы, порча, усечение) =="
+$CC $FLAGS -Werror -Wextra -fsanitize=address,undefined -o $T/zstdt tests/zstd_test.c zstd.c sha256.c
+$T/zstdt
+echo "== kmsg (сообщения портов: CBOR, строгий разбор, мусор) =="
+$CC $FLAGS -Werror -Wextra -fsanitize=address,undefined -Iuserland -o $T/kmsg tests/kmsg_test.c cbor.c
+$T/kmsg
+echo "== kframe (каркас сообщений служб v1: запрос/ответ, строгие ключи, мусор) =="
+$CC $FLAGS -Werror -Wextra -fsanitize=address,undefined -Iuserland -o $T/kframe tests/kframe_test.c cbor.c
+$T/kframe
+
+echo "== sysseal (печать системы: CBOR-манифест, корень Меркла, подмена и пропажа файлов) =="
+$CC $FLAGS -Werror -Wextra -fsanitize=address,undefined -o $T/sysseal tests/sysseal_test.c sysseal.c cbor.c cas.c sha256.c
+$T/sysseal
+
+echo "== wallpaper (picture wallpaper: KWP1 parse, fill-crop scaling) =="
+$CC $FLAGS -Werror -fsanitize=address,undefined -o $T/wallpaper tests/wallpaper_test.c wallpaper.c
+$T/wallpaper
+
+echo "== bbring (чёрный ящик: кольцо, переполнение, ограничитель частоты, файл, разбор, текст; потоки + ThreadSanitizer) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/bbring tests/bbring_test.c bbring.c
+ASAN_OPTIONS=detect_leaks=0 $T/bbring
+$CC $FLAGS -O2 -fsanitize=thread -o $T/bbring_tsan tests/bbring_test.c bbring.c -lpthread
+$T/bbring_tsan --threads
+
+echo "== latency (время реакции: корзины, границы, квантили, пороги, сброс по эпохе, слияние по ядрам, места, перевод тактов; потоки + ThreadSanitizer) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/latency tests/latency_test.c latency.c
+$T/latency
+$CC $FLAGS -O2 -fsanitize=thread -o $T/latency_tsan tests/latency_test.c latency.c -lpthread
+$T/latency_tsan --threads
+
 echo "== framegov (frame pacing: decided by the compositor, not by Mind) =="
 $CC $FLAGS -Werror -o $T/framegov tests/framegov_test.c framegov.c
 $T/framegov
+
+echo "== drawing into a clipped part of the frame = drawing the whole frame (primitives, text, icons) =="
+$CC $FLAGS -Werror -o $T/clip tests/clip_test.c gfx2d.c gfxui.c icons.c font8x16.c -lm
+$T/clip
+
+echo "== rgn (rectangle regions: subtracting covered parts) =="
+$CC $FLAGS -Werror -o $T/rgn tests/rgn_test.c rgn.c
+$T/rgn
+
+echo "== wmperf_check (drag smoothness gate: before-fix measurements must fail it, after-fix must pass) =="
+python3 ci/wmperf_check.py --selftest
+
+echo "== ftstat (frame time: average, p99, maximum)"
+$CC $FLAGS -Werror -o $T/ftstat tests/ftstat_test.c ftstat.c
+$T/ftstat
 
 echo "== Mind archive policy (preserve current and last-good snapshots, score eviction, fail closed) =="
 $CC $FLAGS -Werror -o $T/mind-archive-policy tests/mind_archive_policy_test.c
@@ -283,6 +402,30 @@ echo "== KDRV signed-package verification =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/kdrv_sig tests/kdrv_sig_test.c kdrv_sig.c pk.c crypto.c sha256.c
 $T/kdrv_sig
 python3 -m unittest ci.test_kdrvsign
+python3 -m unittest ci.test_latency_check
+
+echo "== доверенная загрузка (А2): подписанный манифест KIRA.SIG - проверка, подмена любого байта, откат версии, формат совместим с tools/kirasig.py =="
+CC=$CC bash tests/bootsig_test.sh
+
+echo "== доверенная загрузка (А2): состояние Secure Boot и подписи в ядре (boottrust) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/boottrust tests/boottrust_test.c boottrust.c
+$T/boottrust
+
+echo "== защита от отката и подмены (А3): команды NV TPM 2.0 (tpm2.c) на модели TPM =="
+$CC $FLAGS -fsanitize=address,undefined -Itests -o $T/tpm2 tests/tpm2_test.c tpm2.c
+$T/tpm2
+echo "== А3: политика отката образа (счётчик в TPM, вшитый порог) и диска (якорь эпохи), «загрузки» подряд на модели TPM =="
+$CC $FLAGS -fsanitize=address,undefined -Itests -o $T/rollback tests/rollback_test.c rollback.c tpm2.c
+$T/rollback
+echo "== А3: команды tpm2.c на настоящем эмуляторе swtpm (если установлен) =="
+CC=$CC bash tests/tpm2_swtpm_test.sh
+echo "== А3: эпоха тома KiraFS, подмена диска старой копией, безопасный режим только чтения =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/kfsepoch tests/kfs_epoch_test.c kfs.c rollback.c tpm2.c sha256.c zstd.c store.c
+$T/kfsepoch
+echo "== А3: подписанный манифест приложений: подпись, подмена, отзыв и ротация ключей, домены, режим допуска =="
+CC=$CC bash tests/appman_test.sh
+echo "== А3: мутации (убрана проверка - соответствующий тест обязан упасть) =="
+CC=$CC bash tests/a3_mutation_test.sh
 
 echo "== KDRV anti-rollback (version floor, corrupt state, revoked key, clock rollback, key rotation) =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/kdrv_state tests/kdrv_state_test.c kdrv_state.c kdrv_sig.c kdrv_fmt.c pk.c crypto.c sha256.c
@@ -306,12 +449,20 @@ echo "== real-time clock (calendar, CMOS decode, epoch, Russian date) =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/rtc tests/rtc_test.c rtc.c
 $T/rtc
 
+echo "== theme (contrast >= 4.5:1, three states, target sizes) =="
+$CC $FLAGS -o $T/theme tests/theme_contrast_test.c -lm
+$T/theme
+
 echo "== file manager (two panels: sort, hidden, navigation, copy/move/mkdir/rename/delete, cancel, chunks, mouse) =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/fm tests/fm_test.c fm.c
 ASAN_OPTIONS=detect_leaks=0 $T/fm
 
+echo "== file manager navigation (sort columns, path crumbs, history, Ctrl+A/C/X/V, context menu, toolbar commands) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/fmnav tests/fm_nav_test.c fm.c
+ASAN_OPTIONS=detect_leaks=0 $T/fmnav
+
 echo "== USB: HID, hubs, flash drives (Bulk-Only/SCSI -> FAT -> /usbN), stack core, UHCI and xHCI drivers against controller models =="
-USB_STACK="usb.c usbhid.c usbhub.c usbmsc.c input.c fat.c part.c vfs.c kfs.c store.c devhealth.c"
+USB_STACK="usb.c usbhid.c usbhub.c usbmsc.c usbmsc_fs.c input.c fat.c part.c vfs.c kfs.c sha256.c zstd.c store.c devhealth.c"
 $CC $FLAGS -fsanitize=address,undefined -o $T/usbhid tests/usbhid_test.c usbhid.c input.c
 $T/usbhid
 $CC $FLAGS -Itests -fsanitize=address,undefined -o $T/usb tests/usb_test.c $USB_STACK
@@ -326,7 +477,7 @@ MKFS_FAT=${MKFS_FAT:-$(command -v mkfs.fat || command -v mkfs.vfat || true)}
 FSCK_FAT=${FSCK_FAT:-$(command -v fsck.fat || command -v fsck.vfat || true)}
 MTOOLS=${MTOOLS:-$(dirname "$(command -v mcopy 2>/dev/null || echo /nonexistent/mcopy)")}
 if [ -x "$MKFS_FAT" ] && [ -x "$FSCK_FAT" ] && [ -x "$MTOOLS/mcopy" ]; then
-    $CC $FLAGS -Wno-unused-result -fsanitize=address,undefined -o $T/fat tests/fat_test.c fat.c part.c vfs.c kfs.c store.c
+    $CC $FLAGS -Wno-unused-result -fsanitize=address,undefined -o $T/fat tests/fat_test.c fat.c part.c vfs.c kfs.c sha256.c zstd.c store.c
     MKFS_FAT=$MKFS_FAT FSCK_FAT=$FSCK_FAT MTOOLS=$MTOOLS ASAN_OPTIONS=detect_leaks=0 $T/fat
 else
     echo "SKIPPED: нужны mkfs.fat, fsck.fat (пакет dosfstools) и mcopy (пакет mtools) - эталон для проверки FAT"
@@ -338,14 +489,24 @@ $T/dock
 
 if [ "${KIRA_SKIP_GUI:-0}" != 1 ]; then
     echo "== shell (top bar, side launcher, traffic lights, fullscreen, drag, input, live background, culling) =="
-    $CC $FLAGS -o $T/wm tests/wm_test.c wm.c gfxui.c gfx2d.c font8x16.c icons.c brainfx.c
+    $CC $FLAGS -o $T/wm tests/wm_test.c wm.c rgn.c gfxui.c gfx2d.c font8x16.c icons.c brainfx.c wallpaper.c
     $T/wm
+    echo "== уменьшение окна: быстрая версия = прямое усреднение по площади =="
+    $CC $FLAGS -o $T/blit_scaled tests/blit_scaled_test.c rgn.c gfxui.c gfx2d.c font8x16.c icons.c brainfx.c wallpaper.c
+    $T/blit_scaled
+    echo "== линии со сглаживанием: обход полосы = полный обход =="
+    $CC $FLAGS -o $T/seg tests/seg_test.c gfxui.c gfx2d.c font8x16.c
+    $T/seg
 else
     echo "Window manager regressions: covered by gui-regression job"
 fi
 
+echo "== окно Разума: кэш карточек = полная перерисовка для каждого байта снимка =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/mcards tests/mind_cards_test.c apps.c fm.c gfxui.c gfx2d.c font8x16.c icons.c brainfx.c wallpaper.c zstd.c dock.c mind.c mindnet.c -lm
+ASAN_OPTIONS=detect_leaks=0 $T/mcards
+
 echo "== display thread end-to-end with apps (preview: /tmp/kira_gfx/*.ppm) =="
-$CC $FLAGS -fsanitize=address,undefined -o $T/disp tests/display_preview.c display.c framegov.c kpar.c wm.c gfxui.c icons.c brainfx.c apps.c fm.c dock.c mind.c mindnet.c rtc.c input.c gfx2d.c font8x16.c klog.c fbcon.c -lm
+$CC $FLAGS -fsanitize=address,undefined -o $T/disp tests/display_preview.c display.c framegov.c ftstat.c kpar.c wm.c rgn.c gfxui.c icons.c brainfx.c wallpaper.c zstd.c apps.c fm.c dock.c mind.c mindnet.c rtc.c input.c gfx2d.c font8x16.c klog.c fbcon.c bbring.c -lm
 # код возврата превью - не через tail (раньше сбой терялся в конвейере)
 for r in "" "1280 720" "1920 1080"; do
     ASAN_OPTIONS=detect_leaks=0 $T/disp $r > $T/disp.out 2>&1; rc=$?
@@ -377,15 +538,22 @@ UBSAN_OPTIONS=halt_on_error=1 ASAN_OPTIONS=detect_leaks=0 $T/wasmh build-wasm/wt
 grep -v "^wasm: " $T/w_interp.txt > $T/w_body.txt
 cmp -s $T/w_native.txt $T/w_body.txt || { echo "WASM OUTPUT DIFFERS"; cat $T/w_native.txt $T/w_interp.txt; exit 1; }
 echo "wasm: interpreter output equals native ($(cat $T/w_native.txt | cut -c1-60)...)"
-echo "== wasm: WASI 0.1 subset (fd_write, clock, args, errors) in interpreter and JIT, exit code from proc_exit =="
+echo "== wasm: WASI 0.1 subset (fd_write, clock, random_get, args, errors) in interpreter and JIT, exit code from proc_exit =="
 for mode in jit interp; do
     if [ $mode = interp ]; then export WASM_NOJIT=1; else unset WASM_NOJIT; fi
     UBSAN_OPTIONS=halt_on_error=1 ASAN_OPTIONS=detect_leaks=0 $T/wasmh build-wasm/wasitest.wasm > $T/wasi_$mode.txt 2>&1 || true
     grep -q "finished with code 3" $T/wasi_$mode.txt || { echo "WASI ($mode): proc_exit code"; cat $T/wasi_$mode.txt; exit 1; }
     grep -v "^wasm: " $T/wasi_$mode.txt | cmp -s - tests/wasi_expected.txt || { echo "WASI ($mode): output differs"; cat $T/wasi_$mode.txt; exit 1; }
 done
+echo "== wasm: WASI files (flat sandbox: create, read, append, seek, readdir, rename, unlink, limits), stdin, args, poll =="
+for mode in jit interp; do
+    if [ $mode = interp ]; then export WASM_NOJIT=1; else unset WASM_NOJIT; fi
+    WASM_STDIN=$'hello\nworld\n' WASM_ARGS="one two" UBSAN_OPTIONS=halt_on_error=1 ASAN_OPTIONS=detect_leaks=0 $T/wasmh build-wasm/wasifs.wasm > $T/wasifs_$mode.txt 2>&1 || true
+    grep -q "finished with code 0" $T/wasifs_$mode.txt || { echo "WASI files ($mode): exit code"; cat $T/wasifs_$mode.txt; exit 1; }
+    grep -v "^wasm: " $T/wasifs_$mode.txt | cmp -s - tests/wasifs_expected.txt || { echo "WASI files ($mode): output differs"; diff <(grep -v "^wasm: " $T/wasifs_$mode.txt) tests/wasifs_expected.txt; exit 1; }
+done
 unset WASM_NOJIT
-echo "wasm: WASI subset passed (JIT and interpreter)"
+echo "wasm: WASI subset and files passed (JIT and interpreter)"
 clang -O2 -DKW_NATIVE -w -Iuserland/wasm -o $T/ftest_native userland/wasm/ftest.c -lm
 $T/ftest_native > $T/f_native.txt
 UBSAN_OPTIONS=halt_on_error=1 ASAN_OPTIONS=detect_leaks=0 $T/wasmh build-wasm/ftest.wasm | grep -v "^wasm: " > $T/f_body.txt
@@ -431,6 +599,8 @@ best() { local b=999999 t; for i in 1 2 3; do t=$(env $1 $T/wasmfast build-wasm/
 tj=$(best X=1); ti=$(best WASM_NOJIT=1)
 echo "wasm: wgfx 31 frames (unsanitized -O2 build): JIT $tj ms, interpreter $ti ms, speedup x$(( ti / (tj ? tj : 1) )).$(( ti * 10 / (tj ? tj : 1) % 10 ))"
 [ $(( ti )) -ge $(( 2 * tj )) ] || { echo "WASM JIT SPEEDUP BELOW 2x"; exit 1; }
+echo "== ksh: оболочка (userland/wasm/ksh.c): сценарии tests/ksh, хост-сборка и build-wasm/ksh.wasm (интерпретатор и JIT) дают один и тот же вывод =="
+WASMH=$T/wasmh tests/ksh_test.sh $T
 
 $CC $FLAGS -fsanitize=address,undefined -o $T/audio tests/audio_test.c audio.c -lm
 $T/audio
@@ -438,6 +608,62 @@ $CC $FLAGS -fsanitize=address,undefined -o $T/sb16 tests/sb16_test.c sb16.c
 $T/sb16
 $CC $FLAGS -fsanitize=address,undefined -o $T/net tests/net_test.c net.c
 $T/net
+# фаззинг приёма кадров (А6): настоящий стек (net.c включён в тест, ядерные вызовы подменены), ip6.c, ipfrag.c; ARP, IPv4/IPv6, ICMP, UDP, TCP, DHCP, DNS, ND/RA, фрагменты;
+# проверка всего, что стек отправил (длина, суммы, адреса). Зерно 1 и число сценариев задаёт KIRA_NET_FUZZ_SCEN (по умолчанию 20000, около 10 с); глубокий прогон: KIRA_NET_FUZZ_SCEN=2000000
+$CC $FLAGS -fsanitize=address,undefined -o $T/net_fuzz tests/net_fuzz.c ip6.c ipfrag.c
+ASAN_OPTIONS=detect_leaks=0:abort_on_error=1 UBSAN_OPTIONS=halt_on_error=1:abort_on_error=1 $T/net_fuzz ${KIRA_NET_FUZZ_SCEN:-20000} 1
+echo "== fuzz: загрузчик ELF (инварианты elf.h на искажённых программах) и разборщик CBOR =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/elf_fuzz tests/elf_fuzz.c elf.c
+if ls userland/*.elf >/dev/null 2>&1; then ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=halt_on_error=1 $T/elf_fuzz ${KIRA_FUZZ_ITERS:-20000} 1 userland/*.elf; fi
+$CC $FLAGS -fsanitize=address,undefined -o $T/cbor_fuzz tests/cbor_fuzz.c cbor.c
+ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=halt_on_error=1 $T/cbor_fuzz ${KIRA_FUZZ_ITERS:-50000} 1
+$CC $FLAGS -fsanitize=address,undefined -o $T/kdrv_fuzz tests/kdrv_fuzz.c kdrv_fmt.c
+ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=halt_on_error=1 $T/kdrv_fuzz ${KIRA_FUZZ_ITERS:-50000} 1
+echo "== KiraFS: потеря питания при диске с кэшем записи (случайный набор секторов, обрыв на записи и на flush) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/kfs_crash tests/kfs_crash_test.c kfs.c sha256.c zstd.c store.c
+ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=halt_on_error=1 $T/kfs_crash 1 ${KIRA_KFS_CRASH_SEQ:-60}
+
+echo "== журнал аудита (цепочка, подписи Ed25519, сегменты на KiraFS, все виды подмены, обрыв питания, полный диск) =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/audit tests/audit_test.c auditstore.c auditcore.c kfs.c sha256.c zstd.c store.c pk.c crypto.c
+mkdir -p $T/auditdump
+ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=halt_on_error=1 $T/audit ${KIRA_AUDIT_CRASH_SEQ:-6} $T/auditdump
+echo "== журнал аудита: независимая проверка tools/auditverify.py на файлах из теста (и подмена - обязана ловиться) =="
+AD=$T/auditdump
+python3 -I tools/auditverify.py --pub $AD/pub.hex --ckpt $AD/audit.ckpt $AD/audit.0*.log $AD/audit.log
+python3 - $AD <<'PYEOF'
+import sys
+d = sys.argv[1]
+b = bytearray(open(d + "/audit.0000000001.log", "rb").read()); b[256 + 160 * 5 + 70] ^= 1      # изменена одна запись
+open(d + "/mut_modify.log", "wb").write(b)
+b = bytearray(open(d + "/audit.0000000001.log", "rb").read()); del b[256 + 160 * 9: 256 + 160 * 10]      # удалена запись
+open(d + "/mut_delete.log", "wb").write(b)
+import struct
+b = open(d + "/audit.log", "rb").read()
+first = struct.unpack_from("<Q", b, 16)[0]; last = first + (len(b) - 256) // 160 - 1                  # номера записей активного файла
+wit = struct.unpack_from("<Q", open(d + "/audit.ckpt", "rb").read(), 0)[0]                           # номер записи в файле-свидетеле
+open(d + "/mut_trunc.log", "wb").write(b[:len(b) - (last - wit + 1) * 160])                         # отрезан хвост вместе с записью свидетеля (подписанный хвост пропал)
+PYEOF
+if python3 -I tools/auditverify.py --pub $AD/pub.hex $AD/mut_modify.log $AD/audit.0000000257.log $AD/audit.log >/dev/null; then echo "FAIL: auditverify.py пропустил изменённую запись"; exit 1; fi
+if python3 -I tools/auditverify.py --pub $AD/pub.hex $AD/mut_delete.log $AD/audit.0000000257.log $AD/audit.log >/dev/null; then echo "FAIL: auditverify.py пропустил удалённую запись"; exit 1; fi
+if python3 -I tools/auditverify.py --pub $AD/pub.hex --ckpt $AD/audit.ckpt $AD/audit.0000000001.log $AD/audit.0000000257.log $AD/mut_trunc.log >/dev/null; then echo "FAIL: auditverify.py пропустил обрезанный хвост"; exit 1; fi
+echo "tools/auditverify.py: чистый журнал проходит, три вида подмены ловятся"
+echo "== журнал аудита: мутации (убрали хэш, проверку цепочки или подписи - тест обязан упасть) =="
+mkdir -p $T/mut
+mut() {   # имя  образец  замена : копия auditcore.c с одним изменением, тест против неё должен упасть
+    sed "s|$2|$3|" auditcore.c > $T/mut/auditcore.c
+    if cmp -s auditcore.c $T/mut/auditcore.c; then echo "FAIL: мутация $1 не применилась (образец не найден)"; exit 1; fi
+    $CC -O1 -Wall -DKIRA_HOST_TEST -I. -Iarch/x86_64 -no-pie -o $T/mut/audit_$1 tests/audit_test.c auditstore.c $T/mut/auditcore.c kfs.c sha256.c zstd.c store.c pk.c crypto.c
+    if $T/mut/audit_$1 1 >/dev/null 2>&1; then echo "FAIL: мутант «$1» выжил: тест журнала не заметил, что защиты нет"; exit 1; fi
+    echo "   мутант «$1» убит"
+}
+mut no-prev      'mcpy(r->prev, c->head, 32);' ''
+mut no-hash      'sha256(r, sizeof \*r, out);' 'mzero(out, 32);'
+mut no-chain     'else if (!meq(r.prev, v->head, 32)) fail(v, AUD_V_CHAIN, r.seq, off);' ';'
+mut no-sig       'return ed25519_verify(pub, m, sizeof m, ((const aud_ckpt_t\*)r)->sig);' 'return 0;'
+mut no-seq       'if (r.seq != v->next_seq) { fail(v, AUD_V_SEQ, v->next_seq, off); v->next_seq = r.seq; }' 'if (0) {}'
+echo "== remote console (rcon): key derivation, password check, AUTH parsing =="
+$CC $FLAGS -fsanitize=address,undefined -o $T/rcon tests/rcon_test.c rcon.c sha256.c
+$T/rcon
 echo "== IPv4/IPv6 fragment reassembly (all orders, overlaps, duplicates, oversize, TTL, memory limits) =="
 $CC $FLAGS -fsanitize=address,undefined -o $T/ipfrag tests/ipfrag_test.c ipfrag.c
 $T/ipfrag

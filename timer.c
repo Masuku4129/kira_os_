@@ -6,6 +6,7 @@
 #include "clock.h"
 #include "percpu.h"
 #include "spinlock.h"
+#include "latency.h"
 
 #define PIT_CHANNEL0_PORT 0x40
 #define PIT_COMMAND_PORT  0x43
@@ -19,6 +20,15 @@ static spinlock_t tick_lock = SPINLOCK_INIT;     /* только для одно
 static inline void outb(uint16_t port, uint8_t val) {
     __asm__ volatile ("outb %0, %1" : : "a"(val), "Nd"(port));
 }
+
+static uint32_t pit_divisor;      /* 0 - PIT не программировался */
+static void pit_program(uint32_t divisor) {
+    outb(PIT_COMMAND_PORT, 0x36); // Channel 0, lobyte/hibyte, rate generator
+    outb(PIT_CHANNEL0_PORT, (uint8_t)(divisor & 0xFF));
+    outb(PIT_CHANNEL0_PORT, (uint8_t)((divisor >> 8) & 0xFF));
+}
+/* Сон S3: после пробуждения PIT сброшен - частота возвращается. */
+void timer_resume(void) { if (pit_divisor) pit_program(pit_divisor); }
 
 int timer_init(uint32_t frequency) {
     // PIT: базовая частота 1193182 Гц, делитель 16-битный (0 означает 65536)
@@ -47,6 +57,8 @@ void timer_handler(void) {
     /* Ядра равнозначны: каждое получает тик своего таймера LAPIC и обновляет общее время (оно выводится из TSC и
        только растёт, поэтому порядок ядер не важен). Падение любого ядра не оставляет систему без часов. */
     __atomic_fetch_add(&irqs, 1, __ATOMIC_RELAXED);
+    lat_inject();                                  // А8: только по команде latency inject (проверка границ мутацией)
+    uint64_t lt = rdtsc();
     /* Часы TSC точнее счёта прерываний: если эмулятор или нагрузка потеряли часть прерываний таймера,
        тики догоняют реальное время, и сон, кванты по времени и «жизнь» не отстают.
        Общий счётчик двигают все ядра без замка (сравнение-обмен, только вперёд): тик не должен стоять в очереди
@@ -68,9 +80,15 @@ void timer_handler(void) {
     } else {
         __atomic_fetch_add(&ticks, 1, __ATOMIC_RELEASE);
     }
+    lat_part(LAT_PART_CLOCK, lt); lt = rdtsc();
     uart_tick_flush();
+    lat_part(LAT_PART_UART, lt); lt = rdtsc();
+    lat_flush();                                   // А8: превышения порогов задержки - в чёрный ящик (вне горячего пути)
+    lat_part(LAT_PART_FLUSH, lt); lt = rdtsc();
     watchdog_check();
+    lat_part(LAT_PART_WATCHDOG, lt); lt = rdtsc();
     sched_tick(); // пробуждение спящих, учёт кванта; само вытеснение - после EOI
+    lat_part(LAT_PART_SCHED, lt);
 }
 
 uint64_t timer_get_irqs(void) { return irqs; }

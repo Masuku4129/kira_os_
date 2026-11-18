@@ -138,7 +138,7 @@ void dg_set_end(dg_hash_t* h, uint8_t out[32]) { sha256_final((sha256_ctx_t*)h, 
 
 /* ---- рецепт ---- */
 static int parse_cap(const char* w, size_t n, uint32_t* out) {
-    static const struct { const char* n; uint32_t c; } t[] = { { "mmio", CAP_MMIO }, { "irq", CAP_IRQ }, { "dma", CAP_DMA }, { "pcidev", CAP_PCIDEV }, { "netdev", CAP_NETDEV } };
+    static const struct { const char* n; uint32_t c; } t[] = { { "mmio", CAP_MMIO }, { "irq", CAP_IRQ }, { "dma", CAP_DMA }, { "pcidev", CAP_PCIDEV }, { "netdev", CAP_NETDEV }, { "blkdev", CAP_BLKDEV } };
     for (unsigned i = 0; i < sizeof t / sizeof *t; i++) if (sl(t[i].n) == n && starts(w, t[i].n)) { *out |= t[i].c; return 1; }
     return 0;
 }

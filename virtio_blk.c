@@ -3,6 +3,9 @@
 #include "uart.h"
 #ifndef KIRA_HOST_TEST
 #include "iommu.h"
+#ifndef KIRA_HOST_TEST
+#include "pmm.h"
+#endif
 #endif
 
 /* virtio-blk (спецификация virtio 1.0, раздел 5.2). Данные идут через собственный DMA-буфер: драйвер не делает
@@ -25,6 +28,7 @@ static virtio_dev_t vdev;
 static virtq_t vq;
 static blk_dev_t disk;
 static int present, dead;
+static const pci_dev_t* claimed;           /* устройство, которое ядро пыталось взять (первое найденное); остальные virtio-blk ядру не нужны и уступаются драйверам Ring 3 */
 static uint32_t chunk_sectors;
 static req_hdr_t* hdr; static uint64_t hdr_phys;
 static volatile uint8_t* status_byte; static uint64_t status_phys;
@@ -78,17 +82,55 @@ static int vblk_flush(blk_dev_t* d) {
 
 #ifndef KIRA_HOST_TEST
 #include "msi.h"
+#include "devpm.h"
+/* Сон S3: перед сном устройство сбрасывается (обращений к нему в это время нет: слой blk держит мьютексы всех дисков), после - те же шаги запуска
+   на прежней памяти очереди и буферов. Не вернулось - диск помечается мёртвым (операции отказывают, а не пишут в пустоту). */
+static int vblk_suspend(void* ctx) { (void)ctx; if (present && !dead) virtio_stop(&vdev); return 0; }
+static int vblk_resume(void* ctx) {
+    (void)ctx;
+    if (!present || dead) return 0;
+    if (virtio_resume_begin(&vdev) != 0 || virtio_queue_resume(&vdev, &vq) != 0) { dead = 1; virtio_fail(&vdev); return -1; }
+    virtio_driver_ok(&vdev);
+    return 0;
+}
 static irqwait_t vblk_iw = IRQWAIT_INIT;
 static void vblk_irq(void* ctx) { (void)ctx; irqwait_fire(&vblk_iw); }
 uint64_t virtio_blk_irq_wakeups(void) { return vblk_iw.wakeups; }
 #endif
 
+#ifndef KIRA_HOST_TEST
+/* Проверка принуждения без записи нарушений: чтение сектора 0 с приёмным буфером в странице, которую устройству НЕ выдавали (в ней метка 0xA5).
+   Заголовок и байт состояния выданы, поэтому запрос проходит до конца. 1 - IOMMU не пустила запись (метка цела при завершённом запросе),
+   0 - запись дошла (метка изменена), -1 - устройство не ответило (байт состояния не тронут). Вызывается после virtio_driver_ok, до объявления диска. */
+static int canary_check(const pci_dev_t* pd) {
+    (void)pd;
+    uint64_t cpa;
+    volatile uint8_t* c = (volatile uint8_t*)virtio_dma_alloc(4096, &cpa);        /* без virtio_dma_grant */
+    if (!c) return -1;
+    for (unsigned i = 0; i < BLK_SECTOR; i++) c[i] = 0xA5;
+    hdr->type = T_IN; hdr->reserved = 0; hdr->sector = 0;
+    *status_byte = 0xFF;
+    virtq_buf_t b[3] = { { hdr_phys, sizeof(req_hdr_t), 0 }, { cpa, BLK_SECTOR, 1 }, { status_phys, 1, 1 } };
+    int done = virtq_run(&vq, b, 3) == 0;
+    int intact = 1;
+    for (unsigned i = 0; i < BLK_SECTOR; i++) if (c[i] != 0xA5) intact = 0;
+    pmm_free_contiguous(cpa, 1);
+    if (!done || *status_byte == 0xFF) return -1;      /* устройство не ответило: вывода нет */
+    return intact ? 1 : 0;                             /* состояние ответа не важно: эмулятор отвечает «успех» и при отказе IOMMU, главное - метка цела */
+}
+#endif
+const pci_dev_t* virtio_blk_pci(void) { return claimed; }
+
 blk_dev_t* virtio_blk_probe(void) {
-    present = 0; dead = 0;
+    present = 0; dead = 0; claimed = 0;
     const pci_dev_t* pd = pci_find(VIRTIO_VENDOR, 0x1042);     /* virtio-blk, современный */
     if (!pd) pd = pci_find(VIRTIO_VENDOR, 0x1001);              /* «переходный»: тот же прибор, но с capabilities 1.0 */
     if (!pd) return 0;
+    claimed = pd;
     int isolated = 0;
+#ifndef KIRA_HOST_TEST
+    int canary_pending = 0;
+#endif
 #ifndef KIRA_HOST_TEST
     /* До включения bus mastering (virtio_attach): устройство получает свой домен VT-d без единого отображения. */
     isolated = iommu_isolate_device(pd) == 0;
@@ -100,6 +142,7 @@ blk_dev_t* virtio_blk_probe(void) {
         /* Изоляцию не объявляем, пока IOMMU не остановила обращение устройства к невыданной памяти на этой машине. */
         int chk = virtio_iommu_check(&vdev);
         if (chk == 1) uart_print("[KIRA IOMMU] virtio-blk: enforcement check passed - DMA to memory that was not granted is blocked.\n");
+        else if (chk == 0) canary_pending = 1;      /* блок не записал нарушение (эмуляторы AMD-Vi его не пишут): проверим по записи в чужую память после запуска */
         else {
             uart_print(chk < 0 ? "[KIRA IOMMU] virtio-blk: device does not negotiate ACCESS_PLATFORM (its DMA bypasses the IOMMU): NOT isolated.\n"
                                : "[KIRA IOMMU] virtio-blk: no DMA fault seen in the enforcement check: isolation NOT confirmed, device stays passthrough.\n");
@@ -136,6 +179,17 @@ blk_dev_t* virtio_blk_probe(void) {
         if (smax && smax < BLK_SECTOR) { virtio_fail(&vdev); uart_print("[KIRA VIRTIO] blk: size_max below one sector.\n"); return 0; }
     }
     virtio_driver_ok(&vdev);
+#ifndef KIRA_HOST_TEST
+    if (canary_pending) {
+        int cr = canary_check(pd);
+        if (cr == 1) uart_print("[KIRA IOMMU] virtio-blk: enforcement check passed - no fault record on this platform, but the device's write to memory not granted to it was blocked (memory untouched).\n");
+        else if (cr == 0) {
+            uart_print("[KIRA IOMMU] virtio-blk: the device wrote into memory that was not granted to it: isolation NOT in effect, device back to passthrough.\n");
+            iommu_release_device(pd);
+            isolated = 0;
+        } else { virtio_fail(&vdev); uart_print("[KIRA IOMMU] virtio-blk: enforcement probe did not complete: device disabled.\n"); return 0; }
+    }
+#endif
 
     uint64_t cap = MMIO_R32(vdev.devcfg + 0) | ((uint64_t)MMIO_R32(vdev.devcfg + 4) << 32);
     if (cap < 16) { virtio_fail(&vdev); uart_print("[KIRA VIRTIO] blk: disk too small.\n"); return 0; }
@@ -145,10 +199,13 @@ blk_dev_t* virtio_blk_probe(void) {
     while (nm[i] && i + 1 < sizeof disk.name) { disk.name[i] = nm[i]; i++; }
     disk.name[i] = 0;
     present = 1;
+#ifndef KIRA_HOST_TEST
+    (void)devpm_register("virtio-blk", vblk_suspend, vblk_resume, 0);
+#endif
     uart_print("[KIRA VIRTIO] Disk virtio-blk, "); uart_print_dec(cap / 2048); uart_print(" MB (PCI ");
     uart_print_dec(pd->bus); uart_print(":"); uart_print_dec(pd->dev); uart_print(".");  uart_print_dec(pd->fn);
     uart_print(irq ? ", virtio 1.0, completion by MSI-X interrupt" : ", virtio 1.0, polling");
-    uart_print(isolated ? ", DMA isolated by VT-d (only its own queue and buffers are mapped)" : ", DMA not isolated");
+    uart_print(isolated ? ", DMA isolated by IOMMU (only its own queue and buffers are mapped)" : ", DMA not isolated");
     if (vdev.features & BLK_F_RO) uart_print(", READ-ONLY");
     uart_print(").\n");
     return &disk;

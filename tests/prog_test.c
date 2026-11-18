@@ -117,7 +117,7 @@ int main(void) {
         char p[64]; snprintf(p, sizeof p, "userland/%s.elf", apps[i]);
         size_t n; uint8_t* b = slurp(p, &n);
         if (!b) continue;
-        CHECK(elf_parse(b, n, LO, HI, 48, &inf) == ELF_OK && inf.entry >= LO);   /* предел страниц тот же, что у ядра (proc.c) */
+        CHECK(elf_parse(b, n, LO, HI, 128, &inf) == ELF_OK && inf.entry >= LO);   /* ядро берёт до четверти ОЗУ/4 КБ страниц (proc.c); cube3d с движком k3d - 91 страница (буферы текстур, самопроверка) */
         uint8_t d[32]; sha256(b, n, d);
         CHECK(trust_check(TEST_MANIFEST, TEST_MANIFEST_COUNT, apps[i], d) == TRUST_OK);          /* манифест соответствует файлам */
         b[n / 2] ^= 1; sha256(b, n, d);

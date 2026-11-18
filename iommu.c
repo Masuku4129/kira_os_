@@ -7,6 +7,7 @@
    Nothing is printed under G.lock. */
 #include "iommu.h"
 #include "iommu_vtd.h"
+#include "iommu_amd.h"
 #include "drivers/iommu/intel_vtd.h"
 #include "drivers/iommu/vtd_domain.h"
 #include "acpi.h"
@@ -16,6 +17,7 @@
 #include "pmm.h"
 #include "vmm.h"
 #include "ramext.h"
+#include "devpm.h"
 #endif
 
 #define IOMMU_MAX_DOMAINS 16
@@ -32,6 +34,7 @@ typedef struct {
     imap_t maps[IOMMU_MAX_MAPS];
     uint32_t nmaps;
     uint32_t faults, logged;
+    uint8_t quiet;                       /* ожидаемые отказы (проверка принуждения): считаются, в журнал не идут */
 } idom_t;
 
 static struct {
@@ -139,6 +142,7 @@ static idom_t* dom_find(uint8_t bus, uint8_t dev, uint8_t fn) {
 /* ---- Initialisation ---- */
 
 int iommu_enabled(void) {
+    if (amd_iommu_active()) return 1;
     int n = 0;
     for (int i = 0; i < VTD_MAX_UNITS; i++) n += G.on[i];
     return n;
@@ -146,9 +150,43 @@ int iommu_enabled(void) {
 
 static void zero_bytes(void* p, size_t n) { uint8_t* b = (uint8_t*)p; while (n--) *b++ = 0; }
 
+#ifndef KIRA_HOST_TEST
+/* Сон S3. Блок VT-d после сна теряет регистры (адрес корневой таблицы, включение трансляции), а таблицы - корневая, контекстов и страниц - лежат в памяти и
+   целы. Хук возвращает их: адрес корневой таблицы, SRTP, сброс кэша контекстов и IOTLB, включение трансляции - тот же порядок, что при первом включении. Хук стоит
+   в реестре сразу после PCI: ко сну выполняется предпоследним (устройства уже молчат), при пробуждении - вторым, раньше всех драйверов (их DMA идёт уже
+   через вернувшуюся трансляцию). Не вернувшийся блок - громкая запись: устройства его домена остались без изоляции. */
+static int iommu_sleep_suspend(void* ctx) { (void)ctx; (void)iommu_fault_poll(); return 0; }
+static int iommu_sleep_resume(void* ctx) {
+    (void)ctx;
+    if (amd_iommu_active()) return amd_iommu_resume();
+    int bad = 0;
+    for (int i = 0; i < VTD_MAX_UNITS; i++) {
+        if (!G.on[i]) continue;
+        G.unit[i].translation_enabled = 0;
+        int rc = kira_vtd_unit_enable_translation(&G.unit[i], &G.plat);
+        if (rc != KIRA_VTD_OK) {
+            bad++;
+            uart_print("[KIRA SLEEP] VT-d unit "); uart_print_dec((uint64_t)i); uart_print(" did not start after sleep ("); print_err(rc);
+            uart_print("): its devices are NOT isolated now.\n");
+        }
+    }
+    return bad ? -1 : 0;
+}
+#endif
+
+static int iommu_init_units(void);
 int iommu_init(void) {
-    if (G.active) return iommu_enabled();
+    int r = iommu_init_units();
+#ifndef KIRA_HOST_TEST
+    if (r > 0) (void)devpm_register("iommu", iommu_sleep_suspend, iommu_sleep_resume, 0);
+#endif
+    return r;
+}
+
+static int iommu_init_units(void) {
+    if (G.active || amd_iommu_active()) return iommu_enabled();
     const acpi_info_t* ai = acpi_get();
+    if (ai && !ai->dmar_phys && ai->ivrs_phys) return amd_iommu_init();      /* платформа AMD: таблица IVRS вместо DMAR */
     if (!ai || !ai->dmar_phys) {
         uart_print("[KIRA IOMMU] No DMAR table: DMA isolation is not available, devices keep unrestricted DMA.\n");
         return 0;
@@ -255,6 +293,7 @@ int iommu_init(void) {
 /* ---- Domains ---- */
 
 int iommu_device_isolated(const pci_dev_t* d) {
+    if (amd_iommu_active()) return amd_iommu_isolated(d);
     if (!d || !G.active) return 0;
     uint64_t f = spin_lock_irqsave(&G.lock);
     idom_t* x = dom_find(d->bus, d->dev, d->fn);
@@ -264,6 +303,7 @@ int iommu_device_isolated(const pci_dev_t* d) {
 }
 
 int iommu_isolate_device(const pci_dev_t* d) {
+    if (amd_iommu_active()) return amd_iommu_isolate(d);
     if (!d) return IOMMU_E_ARG;
     if (!G.active) return IOMMU_E_NONE;
     int ui = unit_of(d->bus, d->dev, d->fn);
@@ -295,6 +335,7 @@ int iommu_isolate_device(const pci_dev_t* d) {
 }
 
 int iommu_release_device(const pci_dev_t* d) {
+    if (amd_iommu_active()) return amd_iommu_release(d);
     if (!d) return IOMMU_E_ARG;
     uint64_t f = spin_lock_irqsave(&G.lock);
     idom_t* x = dom_find(d->bus, d->dev, d->fn);
@@ -333,6 +374,7 @@ static void undo_pages(idom_t* x, uint64_t first, uint32_t done) {
 }
 
 int iommu_map(const pci_dev_t* d, uint64_t iova, uint64_t phys, uint64_t len, unsigned rw) {
+    if (amd_iommu_active()) return amd_iommu_map(d, iova, phys, len, rw);
     uint64_t first; uint32_t pages;
     if (!d) return IOMMU_E_ARG;
     if (!G.active) return IOMMU_E_NONE;
@@ -360,6 +402,7 @@ int iommu_map(const pci_dev_t* d, uint64_t iova, uint64_t phys, uint64_t len, un
 }
 
 int iommu_unmap(const pci_dev_t* d, uint64_t iova, uint64_t len) {
+    if (amd_iommu_active()) return amd_iommu_unmap(d, iova, len);
     uint64_t first; uint32_t pages;
     if (!d) return IOMMU_E_ARG;
     if (!G.active) return IOMMU_E_NONE;
@@ -380,6 +423,7 @@ int iommu_unmap(const pci_dev_t* d, uint64_t iova, uint64_t len) {
 }
 
 void iommu_unmap_all(const pci_dev_t* d) {
+    if (amd_iommu_active()) { amd_iommu_unmap_all(d); return; }
     if (!d || !G.active) return;
     uint64_t f = spin_lock_irqsave(&G.lock);
     idom_t* x = dom_find(d->bus, d->dev, d->fn);
@@ -402,6 +446,7 @@ static void collect_fault(void* ctx, const struct kira_vtd_fault* ft) {
 }
 
 int iommu_fault_poll(void) {
+    if (amd_iommu_active()) return amd_iommu_fault_poll();
     if (!G.active) return 0;
     if (__atomic_exchange_n(&G.polling, 1, __ATOMIC_ACQUIRE)) return 0;      /* another CPU is draining */
     int total = 0;
@@ -421,7 +466,7 @@ int iommu_fault_poll(void) {
         uint8_t bus = (uint8_t)(out[i].source_id >> 8), dev = (uint8_t)((out[i].source_id >> 3) & 31), fn = (uint8_t)(out[i].source_id & 7);
         f = spin_lock_irqsave(&G.lock);
         idom_t* x = dom_find(bus, dev, fn);
-        int skip = x && x->logged >= IOMMU_FAULT_LOG_PER_DEVICE;
+        int skip = x && (x->quiet || x->logged >= IOMMU_FAULT_LOG_PER_DEVICE);
         if (x && !skip) x->logged++;
         spin_unlock_irqrestore(&G.lock, f);
         if (skip) continue;                                          /* counted, not logged */
@@ -435,7 +480,16 @@ int iommu_fault_poll(void) {
     return total;
 }
 
+void iommu_expect_fault(const pci_dev_t* d, int on) {
+    if (!d || !G.active) return;
+    uint64_t f = spin_lock_irqsave(&G.lock);
+    idom_t* x = dom_find(d->bus, d->dev, d->fn);
+    if (x) x->quiet = on ? 1 : 0;
+    spin_unlock_irqrestore(&G.lock, f);
+}
+
 uint32_t iommu_fault_count(const pci_dev_t* d) {
+    if (amd_iommu_active()) return amd_iommu_fault_count(d);
     if (!d || !G.active) return 0;
     uint64_t f = spin_lock_irqsave(&G.lock);
     idom_t* x = dom_find(d->bus, d->dev, d->fn);

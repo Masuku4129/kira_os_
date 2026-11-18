@@ -1,3 +1,4 @@
+#include "auditev.h"
 #include "watchdog.h"
 #include "cpu.h"
 #include "uart.h"
@@ -6,7 +7,8 @@
 #include "spinlock.h"
 #include "sched.h"
 #include "percpu.h"
-#include "display.h"
+#include "klog.h"
+#include "bbring.h"
 
 // Тики таймера (TIMER_HZ): 5 секунд без watchdog_feed() => паника.
 // Это программный watchdog, а не аппаратный (iTCO/WDT). Срок считается по общему времени (тики выводятся из TSC),
@@ -15,6 +17,8 @@
 #define WATCHDOG_TIMEOUT_LIMIT (5 * TIMER_HZ)
 
 static volatile uint64_t last_feed_tick;
+#define WATCHDOG_WARN_LIMIT (WATCHDOG_TIMEOUT_LIMIT / 2)   /* половина срока: чёрный ящик записывает предупреждение и просит сброс на диск, пока паника не наступила */
+static volatile uint64_t warned_feed;                      /* для какого кормления предупреждение уже записано */
 
 void watchdog_init(void) {
     __atomic_store_n(&last_feed_tick, timer_get_ticks(), __ATOMIC_RELEASE);
@@ -43,6 +47,8 @@ void watchdog_check(void) {
     if (prev && now > prev && now - prev > WATCHDOG_STALL) {
         __atomic_fetch_add(&last_feed_tick, now - prev, __ATOMIC_ACQ_REL);
         __atomic_fetch_add(&watchdog_stalls, 1, __ATOMIC_RELAXED);
+        bb_event(BB_GAP, (now - prev) * 1000 / TIMER_HZ >= 1000 ? BB_SEV_SEVERE : BB_SEV_WARN, (uint32_t)((now - prev) * 1000 / TIMER_HZ), BB_GAP_MACHINE, 0, 0, 0, "machine");
+        bb_event(BB_WATCHDOG, BB_SEV_INFO, (uint32_t)((now - prev) * 1000 / TIMER_HZ), BB_WD_STALL, 0, 0, 0, "stall not counted");
         if (now - prev > watchdog_stall_max) {
             /* Прерывание таймера приходит сразу, как только ядро снова включило прерывания: место, где оно застало
                ядро, - конец участка с выключенными прерываниями (если машину не останавливал хозяин). */
@@ -55,6 +61,9 @@ void watchdog_check(void) {
         }
     }
     uint64_t last = __atomic_load_n(&last_feed_tick, __ATOMIC_ACQUIRE);
+    if (timer_get_ticks() - last > WATCHDOG_WARN_LIMIT && __atomic_exchange_n(&warned_feed, last, __ATOMIC_ACQ_REL) != last)
+        { bb_event(BB_WATCHDOG, BB_SEV_SEVERE, (uint32_t)((timer_get_ticks() - last) * 1000 / TIMER_HZ), BB_WD_WARN, 0, 0, 0, "no feed");
+          audit_event(AUD_K_WATCHDOG, AUD_SRC_KERNEL, AUD_R_FAIL, 0, 0, (uint32_t)((timer_get_ticks() - last) * 1000 / TIMER_HZ), "watchdog", "warning: main loop not fed for half the timeout"); }
     if (timer_get_ticks() - last > WATCHDOG_TIMEOUT_LIMIT) {
         watchdog_trigger_panic("Watchdog timeout: System thread hang detected!");
     }
@@ -62,6 +71,8 @@ void watchdog_check(void) {
 
 void watchdog_trigger_panic(const char* reason) {
     cpu_irq_off();
+    audit_event(AUD_K_WATCHDOG, AUD_SRC_KERNEL, AUD_R_FAIL, 0, 0, 3, "watchdog", reason);      /* в кольце: диск в панике не трогаем; следующая загрузка отметит запуск без записи shutdown */
+    bb_event(BB_WATCHDOG, BB_SEV_SEVERE, (uint32_t)((timer_get_ticks() - __atomic_load_n(&last_feed_tick, __ATOMIC_ACQUIRE)) * 1000 / TIMER_HZ), BB_WD_PANIC, 0, 0, 0, reason);
     smp_halt_others();                // остановить остальные ядра: иначе «система остановлена» было бы неправдой
     spin_bust_locks();                // замок мог держать зависший код: отчёт не должен на нём встать
     sched_crash_wait_halted();        // ядра записывают, где стояли: отчёт покажет место зависания
@@ -73,8 +84,9 @@ void watchdog_trigger_panic(const char* reason) {
     { uint32_t n, o; timer_lock_state(&n, &o);
       uart_print("[KIRA WATCHDOG] tick_lock next "); uart_print_dec(n); uart_print(" owner "); uart_print_dec(o); uart_print("\n"); }
     sched_crash_report(uart_print);
+    bb_dump_tail(24, uart_print);     /* на диск в панике не пишем (прерывания выключены, диск ждёт прерывание): тут же - последние события; диск получил предупреждение за половину срока */
     uart_print("[KIRA WATCHDOG] Halting execution immediately.\n");
     uart_flush_all();
-    display_panic_flush();
+    klog_panic_flush();
     for (;;) cpu_halt();
 }

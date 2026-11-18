@@ -9,6 +9,7 @@
 #include "keyboard.h"
 #include "cpu.h"
 #include "uart.h"
+#include "latency.h"
 
 #define CMOS_IDX  0x70
 #define CMOS_DATA 0x71
@@ -41,6 +42,21 @@ int irqmode_pci_line(unsigned irq, int on) {
     irq_set_eoi_apic(irq, 1);
     return ioapic_route_pci(a, irq, irq_target) == 0 ? 0 : -3;
 }
+/* Линии INTx с GSI 16 и выше: вектор берётся из пула MSI, запись IOAPIC помнится, чтобы при отказе ядра перенести её. */
+#define HI_MAX 8
+static struct { uint32_t gsi; uint8_t vec; int on; } hi_route[HI_MAX];
+int irqmode_pci_gsi(uint32_t gsi, uint8_t vector, int on) {
+    if (!apic_mode || gsi < 16) return -1;
+    const acpi_info_t* a = acpi_get();
+    if (!a) return -2;
+    int slot = -1;
+    for (int i = 0; i < HI_MAX; i++) { if (hi_route[i].gsi == gsi && hi_route[i].vec) { slot = i; break; } if (slot < 0 && !hi_route[i].vec) slot = i; }
+    if (slot < 0) return -4;
+    if (!on) { ioapic_mask_gsi(a, gsi, 1); hi_route[slot].on = 0; return 0; }
+    if (ioapic_route_gsi(a, gsi, vector, irq_target) != 0) return -3;
+    hi_route[slot].gsi = gsi; hi_route[slot].vec = vector; hi_route[slot].on = 1;
+    return 0;
+}
 uint32_t irqmode_target(void) { return irq_target; }
 
 int irqmode_core_failed(uint32_t failed_apic_id, uint32_t new_apic_id) {
@@ -53,6 +69,8 @@ int irqmode_core_failed(uint32_t failed_apic_id, uint32_t new_apic_id) {
         if (irq == 2 || !irq_has_handler(irq)) continue;
         if (ioapic_route_isa(a, irq, new_apic_id) == 0) moved++;
     }
+    for (int i = 0; i < HI_MAX; i++)
+        if (hi_route[i].vec && hi_route[i].on && ioapic_route_gsi(a, hi_route[i].gsi, hi_route[i].vec, new_apic_id) == 0) moved++;
     irq_target = new_apic_id;
     keyboard_handler();            /* байт, застрявший в 8042 вместе с потерянным на этом ядре прерыванием, забираем сами */
     return moved;
@@ -152,9 +170,27 @@ unsigned platform_cpus(void) { return hw_get()->cpus; }
 
 /* ---- консоль (platform.h) ---- */
 #include "apic.h"
-#include "console.h"
 static uint64_t apic_timer_rate;       /* калибровка таймера LAPIC (0 - нет) */
-void console_set_apic_rate(uint64_t rate) { apic_timer_rate = rate; }
+void irqmode_set_apic_rate(uint64_t rate) { apic_timer_rate = rate; }
+
+/* А8: сколько прошло с последнего срока срабатывания таймера LAPIC. Таймер периодический: сроки лежат на сетке с шагом «начальный счёт»,
+   поэтому (начальный - текущий) счёт - это время от срока до чтения, независимо от дрейфа и от того, что делали другие ядра. Если вход
+   в обработчик опоздал больше чем на период, остаётся остаток по модулю периода (такую задержку видит счётчик потерянных тиков, а не мы). */
+int lat_arch_timer_elapsed_ns(uint64_t* ns, uint64_t* period_ns) {
+    static uint64_t mul, for_rate;
+    if (!apic_mode || !apic_timer_rate) return 0;
+    uint32_t ticr = apic_timer_initial_count();
+    if (!ticr) return 0;
+    if (for_rate != apic_timer_rate) {      /* 1e9 * 2^32 / частота счёта: без деления в горячем пути */
+        mul = (1000000000ULL << 32) / apic_timer_rate;      /* 4,3e18 < 2^64 */
+        for_rate = apic_timer_rate;
+    }
+    uint32_t cur = apic_timer_current_count();
+    if (cur > ticr) return 0;               /* счёт не от этого начального значения (таймер перезапускали) */
+    *ns = (uint64_t)(((unsigned __int128)(ticr - cur) * mul) >> 32);
+    *period_ns = (uint64_t)(((unsigned __int128)ticr * mul) >> 32);
+    return 1;
+}
 
 void platform_status(void (*out)(const char*)) {
     char b[24]; int i;

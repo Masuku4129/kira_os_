@@ -33,8 +33,13 @@ int kbi_validate(const void* blob, uint32_t available) {
         (h->boot_mode == KBI_BOOT_BIOS && h->arch != KBI_ARCH_X86_64) ||
         (h->boot_mode == KBI_BOOT_MULTIBOOT2 && h->arch != KBI_ARCH_X86_64) ||
         (h->boot_mode == KBI_BOOT_DEVICE_TREE && h->arch != KBI_ARCH_AARCH64)) return -3;
-    if (h->reserved0 || h->reserved1 || h->fb_reserved ||
-        (h->flags & ~KBI_ALLOWED_FLAGS)) return -4;
+    if (h->fb_reserved || (h->flags & ~KBI_ALLOWED_FLAGS) ||
+        (h->trust_flags & ~KBI_TRUST_ALL)) return -4;
+    /* Сведения о доверенной загрузке даёт только загрузчик UEFI; номер выпуска имеет смысл лишь при проверенной подписи. */
+    if (h->boot_mode != KBI_BOOT_UEFI && (h->trust_flags || h->image_version)) return -4;
+    if (h->image_version && !(h->trust_flags & KBI_TRUST_SIG_VERIFIED)) return -4;
+    if ((h->trust_flags & KBI_TRUST_SIG_VERIFIED) && !(h->trust_flags & KBI_TRUST_ENFORCING)) return -4;
+    if ((h->trust_flags & KBI_TRUST_ROLLBACK_TPM) && !(h->trust_flags & KBI_TRUST_SIG_VERIFIED)) return -4;   /* счётчик сверяют только с проверенным номером выпуска */
 
     if (h->mmap_count > KIRA_BOOTINFO_MAX_MMAP ||
         (h->mmap_count && h->mmap_entry_size != sizeof(kbi_mmap_entry_t)) ||

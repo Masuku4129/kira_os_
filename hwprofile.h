@@ -39,5 +39,7 @@ const hw_profile_t* hw_get(void);
 
 /* Человекочитаемое описание построчно через out (в ядре - uart_print). */
 void hw_describe(const hw_profile_t* p, void (*out)(const char*));
+/* Дополнительные строки описания (пределы машины по политике ядра): fn вызывается в конце hw_describe. Подключает wire_init до hw_init. */
+void hw_set_describe_extra(void (*fn)(const hw_profile_t* p, void (*out)(const char*)));
 
 #endif

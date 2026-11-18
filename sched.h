@@ -53,6 +53,7 @@ typedef struct thread {
     uint32_t pid;                  // процесс-владелец (0 - поток ядра); для ps
     uint32_t weight;               // доля кванта в четвертях (4 = обычный квант, 1..8): её меняет Разум
     uint64_t ready_since;          // тик, с которого поток готов, но не исполняется (поиск голодающих)
+    uint64_t ready_tsc;            // такт TSC пробуждения (0 - не меряется): от него до запуска считается задержка планировщика (А8, latency.c)
     uint32_t limit;                // доля одного ядра, % (0 или 100 - без ограничения): её задаёт Разум
     uint32_t lim_used;             // тиков исполнения в текущем окне ограничения
     uint64_t lim_start;            // начало окна
@@ -97,6 +98,14 @@ thread_t* sched_create_on(const char* name, void (*entry)(void*), void* arg, thr
 // Вызывается самим ядром после полной инициализации; возвращает 0 при успехе.
 int sched_attach_cpu(void);
 // Учёт времени ядра: такты в холостом потоке и всего с момента подключения; число переключений.
+// Привязка вызывающего потока к ядрам маски (возвращает прежнюю); sched_set_affinity_self просто ставит маску.
+cpumask_t sched_pin_self(cpumask_t m);
+void sched_set_affinity_self(cpumask_t m);
+// Заморозка потоков на время сна: уровень 1 - потоки процессов, 2 - все, кроме owner и холостых. Поток с мьютексом не замораживается.
+void sched_freeze(unsigned level, thread_t* owner);
+int  sched_freeze_settled(void);     // 1 - ни одно ядро не исполняет замороженный поток
+void sched_thaw(void);
+unsigned sched_freeze_level(void);
 int sched_cpu_stats(unsigned cpu, uint64_t* idle_cycles, uint64_t* total_cycles, uint64_t* switches);
 
 // То же, но поток принадлежит процессу: у него своё адресное пространство (cr3).
@@ -142,8 +151,15 @@ void sched_wake_proc(void* proc);
 void sched_set_wake_tick(thread_t* t, uint64_t tick);
 void sched_wake(thread_t* t);
 unsigned sched_cpu_count(void);
-/* Общий замок планировщика на ядре cpu: такты ожидания, взятий с ожиданием, всего взятий (с запуска). */
-void sched_lock_stats(unsigned cpu, uint64_t* wait_cycles, uint64_t* contended, uint64_t* taken);          // ядер, участвующих в планировании
+/* Замки планировщика (очереди ядер и таблица потоков), взятые ядром cpu: такты ожидания, взятий с ожиданием, всего
+   взятий (с запуска). */
+void sched_lock_stats(unsigned cpu, uint64_t* wait_cycles, uint64_t* contended, uint64_t* taken);
+/* Затяжные ожидания замков планировщика ядром cpu (дольше 10 мс: обычно держателя вытеснил хозяин виртуальной машины)
+   и самое долгое ожидание в микросекундах. */
+void sched_lock_stalls(unsigned cpu, uint64_t* stalls, uint64_t* max_wait_us);
+/* Сколько потоков ядро cpu взяло из чужих очередей (кража работы) с запуска. */
+uint64_t sched_cpu_steals(unsigned cpu);
+// ядер, участвующих в планировании
 int sched_thread_alive(uint32_t id);     // поток с таким id существует и не завершён
 // Можно ли сейчас уснуть: планировщик работает, прерывания включены, не обработчик прерывания, спин-замков нет.
 int sched_can_sleep(void);
@@ -178,6 +194,7 @@ void sched_set_tsc_khz(uint64_t khz);
 uint64_t sched_idle_cycles(void);        // такты, проведённые в idle-потоке
 uint64_t sched_total_switches(void);
 unsigned sched_snapshot(thread_info_t* out, unsigned max); // копия таблицы потоков
+void sched_snapshot_stats(uint64_t* n, uint64_t* hold_us, uint64_t* max_us);   // сколько раз и сколько замок таблицы держался ради снимков
 const thread_t* sched_current(void);
 
 void sched_dump(void);                   // печать таблицы потоков в UART

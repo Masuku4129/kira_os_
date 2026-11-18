@@ -34,10 +34,14 @@
 
 enum { KOBJ_PORT = 1, KOBJ_SHM = 2 };
 
+// Запрос приёма с вложением (SYS_PORT_RECVA): программа заполняет buf/cap/timeout (срок в 10 мс, 0xFFFFFFFF - без срока), ядро возвращает from и att.
+typedef struct { uint64_t buf; uint32_t cap, timeout; uint32_t from; int32_t att; } kport_recv_t;
+
 typedef struct kobj {
     uint32_t type;
     volatile uint32_t refs;
     char name[KNAME_MAX + 1];
+    uint32_t owner_dom;          // домен создателя (caps.h): общий объект другого домена открывается, только если домены связаны
     uint32_t owner_pid;          // создавший процесс; приватный объект доступен только ему
     uint32_t flags;              // KOBJ_F_PUBLIC: явное межпроцессное открытие
 } kobj_t;
@@ -56,14 +60,28 @@ void kobj_release(kobj_t* o);                             // последняя 
 
 // Порты
 int     port_open_as(const char* name, int flags, uint32_t owner_pid, kobj_t** out);
+int     port_open_in(const char* name, int flags, uint32_t owner_pid, uint32_t dom, kobj_t** out);   // то же с доменом процесса (DOM_*)
+int     port_open_service(const char* name, kobj_t** out);                    // служба ядра: общий порт, открывается из любого домена (владелец - ядро, домен system)
 int     port_open(const char* name, int flags, kobj_t** out);                 // совместимость host callers (PID 0); +1 ссылка
 int     port_send(kobj_t* port, uint32_t from_pid, const void* data, uint32_t len);   // 0, KE_FULL, KE_ARG, KE_NOMEM
 // Приём: длина сообщения (копируется не больше cap) и отправитель. timeout_ticks: 0 - не ждать, ~0 - без срока.
 // stop() != 0 - ожидание прерывается (процесс завершается). Сообщение копируется в kbuf (ядерный буфер cap байт).
 int64_t port_recv(kobj_t* port, void* kbuf, uint32_t cap, uint64_t timeout_ticks, uint32_t* from_pid, int (*stop)(void));
+// Вложение: объект (порт или разделяемая память) едет вместе с сообщением и появляется у получателя дескриптором.
+// att - с ВЗЯТОЙ ссылкой: при успехе она переходит очереди, при ошибке остаётся у вызывающего. Порт с вложениями сам не вкладывается,
+// порт-вложение вложений не принимает; домен порта-получателя должен дотягиваться до домена владельца вложения (KE_PERM).
+int     port_send_att(kobj_t* port, uint32_t from_pid, const void* data, uint32_t len, kobj_t* att);
+// att_out получает вложение (ссылка у вызывающего) или 0; с att_out == 0 вложение отбрасывается.
+int64_t port_recv_att(kobj_t* port, void* kbuf, uint32_t cap, uint64_t timeout_ticks, uint32_t* from_pid, int (*stop)(void), kobj_t** att_out);
 unsigned port_queued(kobj_t* port);
+// Ждать сразу несколько портов (ввод-вывод без опроса): индекс первого порта с сообщением (сообщение остаётся в очереди - забирать port_recv),
+// KE_AGAIN (срок 0, пусто), KE_TIMEOUT, KE_INTR, KE_ARG (нет портов, больше PORT_WAIT_MAX, не порт, повтор).
+#define PORT_WAIT_MAX 8
+unsigned port_waiters(kobj_t* port);     // число ждущих на порту (проверки и диагностика)
+int64_t port_wait(kobj_t** ports, unsigned n, uint64_t timeout_ticks, int (*stop)(void));
 
 // Разделяемая память (страницы обнулены при создании)
+int      shm_open_in(const char* name, uint32_t pages, int flags, uint32_t owner_pid, uint32_t dom, kobj_t** out);
 int      shm_open_as(const char* name, uint32_t pages, int flags, uint32_t owner_pid, kobj_t** out); // KE_AGAIN: same-name creation is in progress
 int      shm_open(const char* name, uint32_t pages, int flags, kobj_t** out);  // совместимость host callers (PID 0); +1 ссылка
 uint32_t shm_pages(kobj_t* shm);

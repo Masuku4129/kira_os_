@@ -1,0 +1,11 @@
+{
+  "_about": "Пороги плавности перетаскивания окон (docs/WM_PERF.md). Берутся по каждому периоду, где мышь двигалась (>= drag_min_mouse событий). Опора - относительные метрики, они не зависят от скорости эмуляции (QEMU TCG - не телефон): px_per_frame - точек собрано за кадр, content_over_px_x100 - точек содержимого окон на 100 собранных (повторные проходы), scaled_px - точек, пересчитанных с изменением масштаба, copy_us_per_frame - копирование в экран, full_frames - почти полные перерисовки. Времена (comp_avg_us, comp_p99_us) - только грубая страховка от провала: стенд шумный. До исправлений (А14) на этом стенде: content_over 133-135, copy 2700 мкс, scaled_px 208000 (малый экран), comp_avg 12000-25000 мкс.",
+  "virtio1412": {
+    "drag_min_mouse": 800, "min_samples": 2,
+    "max": {"px_per_frame": 560000, "flush_px_per_frame": 600000, "content_over_px_x100": 100, "copy_us_per_frame": 500, "scaled_px": 20000, "full_frames": 3, "late_pct": 40, "comp_avg_us": 30000}
+  },
+  "vga1280": {
+    "drag_min_mouse": 800, "min_samples": 2,
+    "max": {"px_per_frame": 440000, "content_over_px_x100": 100, "scaled_px": 20000, "full_frames": 3, "late_pct": 40, "comp_avg_us": 30000}
+  }
+}
