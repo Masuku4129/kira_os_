@@ -368,6 +368,9 @@ echo "== rgn (rectangle regions: subtracting covered parts) =="
 $CC $FLAGS -Werror -o $T/rgn tests/rgn_test.c rgn.c
 $T/rgn
 
+echo "== wmperf_check (drag smoothness gate: before-fix measurements must fail it, after-fix must pass) =="
+python3 ci/wmperf_check.py --selftest
+
 echo "== ftstat (frame time: average, p99, maximum)"
 $CC $FLAGS -Werror -o $T/ftstat tests/ftstat_test.c ftstat.c
 $T/ftstat
