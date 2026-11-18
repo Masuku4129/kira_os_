@@ -63,7 +63,7 @@ static fb_info_t finfo = { 0xFD000000ULL, 1024, 768, 4096, 32, 1, 0x1000000, 314
 const fb_info_t* fb_get_info(void) { return &finfo; }
 void fb_present(void) { presents_full++; }
 void fb_present_rect(int x, int y, int w, int h) { (void)x; (void)y; (void)w; (void)h; presents_rect++; }
-void fb_frame_done(void) {}
+uint64_t fb_frame_done(void) { return 0; }
 int virtio_gpu_probe(void) { return -1; }
 int platform_fb_probe(void) { return -1; }
 int platform_battery(platform_battery_t* b) { (void)b; return -1; }
