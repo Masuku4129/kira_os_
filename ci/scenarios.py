@@ -562,7 +562,7 @@ ALL = [
     ], smp=4, mem="512M", limbo=True),
     sc("wm-drag", "перетаскивание окон (А14): быстрое перетаскивание «Разума» и терминала по экрану при работающем кубе, экран 1412x1060 на virtio-gpu и один поток TCG, как Limbo на телефоне; замер времени кадра, пересчитанных точек, полных перерисовок и сверка с полной перерисовкой (остатков старого положения быть не должно)", [
         {"log": BOOT_LOG}, {"send": "3d"}, {"sleep": 8},
-        {"combo": ["f9"]}, {"keys": "mind", "then": ["ret"]}, {"sleep": 4}, {"shot": "start"},
+        {"combo": ["f9"]}, {"sleep": 2}, {"keys": "mind"}, {"sleep": 1}, {"keys": "", "then": ["ret"]}, {"sleep": 5}, {"shot": "start"},
         {"cmd": "fb", "must": [r"\[WMWIN\] id \d+ .*\"Разум"]},
         {"drag": {"window": "Разум", "seconds": 8, "hz": 125, "step": 24}},
         {"cmd": "fb", "must": [r"\[WMPERF\] drawn \d+", r"\[PERIOD\] ms \d+ frames \d+"]},

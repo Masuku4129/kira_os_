@@ -3,6 +3,7 @@
 #include "icons.h"
 #include "brainfx.h"
 #include "wallpaper.h"
+#include "rgn.h"
 #include "theme.h"
 #include "input.h"
 
@@ -1842,55 +1843,83 @@ static void draw_launcher(surface_t* c, int ox, int oy) {
     }
 }
 
+/* Нарисовать слои в прямоугольнике [x0,x1)x[y0,y1) сверху вниз по видимости: у каждого окна берётся только та часть области, которую
+   не закрыло окно выше (рамка окна непрозрачна, кроме скруглённых углов), остаток - фон. Рисуется потом снизу вверх.
+   Результат тот же, что у полной перерисовки с нуля (см. same_as_full в tests/wm_test.c), но без повторных проходов по одним и тем же точкам. */
+static void layers_visible(surface_t* clip, int x0, int y0, int x1, int y1, const int* seq, int ns) {
+    rgn_rect_t rem[RGN_MAX] = { { x0, y0, x1, y1 } };
+    int nrem = 1;
+    struct { int k; rgn_rect_t r; } pc[4 * RGN_MAX]; int npc = 0;
+    for (int k = ns - 1; k >= 0 && nrem; k--) {
+        const win_t* wn = &win[seq[k]];
+        if (wn->full) { npc = 0; nrem = 0; break; }          /* на весь экран (не должно быть при fs < 0) - не оптимизируем */
+        rgn_rect_t outer = { wn->x, wn->y, wn->x + outer_w(wn), wn->y + outer_h(wn) };
+        int touched = 0;
+        for (int i = 0; i < nrem && npc < 4 * RGN_MAX; i++) {
+            rgn_rect_t p;
+            if (rgn_intersect(&rem[i], &outer, &p)) { pc[npc].k = k; pc[npc].r = p; npc++; touched = 1; }
+        }
+        if (!touched) continue;
+        /* закрыто окном: всё, кроме скруглённых углов и крайнего ряда точек (его края сглажены - под ним нужен нижний слой) */
+        rgn_rect_t ca = { outer.x0 + PANEL_R, outer.y0 + 1, outer.x1 - PANEL_R, outer.y1 - 1 };
+        rgn_rect_t cb = { outer.x0 + 1, outer.y0 + PANEL_R, outer.x1 - 1, outer.y1 - PANEL_R };
+        nrem = rgn_subtract(rem, nrem, RGN_MAX, &ca);
+        nrem = rgn_subtract(rem, nrem, RGN_MAX, &cb);
+    }
+    if (npc >= 4 * RGN_MAX) { nrem = 1; rem[0] = (rgn_rect_t){ x0, y0, x1, y1 }; npc = 0; }   /* слишком раздроблено: слои целиком, как без отсечения */
+    uint64_t tb0 = pnow();
+    for (int i = 0; i < nrem; i++) {                                 /* фон там, где он виден (и где по границе набора лишнее оставлено) */
+        surface_t sub = { clip->px + (long)(rem[i].y0 - y0) * clip->pitch + (rem[i].x0 - x0), rem[i].x1 - rem[i].x0, rem[i].y1 - rem[i].y0, clip->pitch };
+        int ox = -rem[i].x0, oy = -rem[i].y0;
+        if (bg) gfx_blit(&sub, 0, 0, &bgs, rem[i].x0, rem[i].y0, sub.w, sub.h);
+        else gfx_rect(&sub, 0, 0, sub.w, sub.h, TH_BG0);
+        if (!wp_rgb && bg_fancy) brainfx_draw(&sub, ox, oy, anim_ms);
+        if (home_open) draw_home(&sub, ox, oy);
+    }
+    padd(&prof.bg_ns, pnow() - tb0);
+    if (npc == 0 && ns > 0) {                                        /* запасной путь: все слои целиком */
+        for (int k = 0; k < ns; k++) { uint64_t tp = pnow(); const win_t* wn = &win[seq[k]];
+            if (wn->full) draw_fullscreen(clip, -x0, -y0, seq[k]); else draw_panel(clip, -x0, -y0, seq[k]);
+            padd(&prof.panel_ns, pnow() - tp); }
+        return;
+    }
+    for (int j = npc - 1; j >= 0; j--) {                             /* снизу вверх */
+        int k = pc[j].k; const win_t* wn = &win[seq[k]];
+        const rgn_rect_t* r = &pc[j].r;
+        surface_t sub = { clip->px + (long)(r->y0 - y0) * clip->pitch + (r->x0 - x0), r->x1 - r->x0, r->y1 - r->y0, clip->pitch };
+        uint64_t tp = pnow();
+        int ccx = wn->x + WM_PAD, ccy = wn->y + WM_HEAD;
+        if (r->x0 >= ccx && r->y0 >= ccy && r->x1 <= ccx + disp_w(wn) && r->y1 <= ccy + disp_h(wn))   /* кусок целиком в содержимом: рамка не нужна */
+            blit_content(&sub, ccx - r->x0, ccy - r->y0, disp_w(wn), disp_h(wn), wn);
+        else draw_panel(&sub, -r->x0, -r->y0, seq[k]);
+        padd(&prof.panel_ns, pnow() - tp);
+    }
+}
+
 static void compose_rect(int fs, int x0, int y0, int x1, int y1) {
     int rw = x1 - x0, rh = y1 - y0;
     int pill = last_pill;
     surface_t clip = { scr->px + (long)y0 * scr->pitch + x0, rw, rh, scr->pitch };
     int ox = -x0, oy = -y0;
 
-    /* Ищем самое верхнее окно, которое целиком закрывает изменённую область: всё, что под ним, рисовать незачем.
-       Окно сверху «задевает» область вместе со своим свечением. */
     int seq[WM_MAX_WIN], ns = 0;
     for (int pass = 0; pass < 2; pass++)
         for (int i = 0; i < zcount; i++) {
             const win_t* wn = &win[zorder[i]];
             if (wn->visible && wn->pinned == (pass == 0)) seq[ns++] = zorder[i];
         }
-    int start = -1, content_only = 0;
-    if (fs < 0 && cull_enabled) {
-        for (int k = ns - 1; k >= 0 && start < 0; k--) {
-            const win_t* wn = &win[seq[k]];
-            int ccx = wn->x + WM_PAD, ccy = wn->y + WM_HEAD, cw = disp_w(wn), ch = disp_h(wn);
-            int above_hits = 0;
-            for (int m = k + 1; m < ns && !above_hits; m++) {
-                const win_t* up = &win[seq[m]];
-                if (x0 < up->x + outer_w(up) + WM_GLOW && x1 > up->x - WM_GLOW &&
-                    y0 < up->y + outer_h(up) + WM_GLOW && y1 > up->y - WM_GLOW) above_hits = 1;
-            }
-            if (above_hits) continue;
-            if (x0 >= ccx && y0 >= ccy && x1 <= ccx + cw && y1 <= ccy + ch) { start = k; content_only = 1; }
-            else if ((wn->full || !wp_rgb) &&                       /* рамка окна полупрозрачна (стекло над живым фоном): под ней нужно рисовать нижние слои */
-                     x0 >= wn->x + PANEL_R && y0 >= wn->y + PANEL_R &&
-                     x1 <= wn->x + outer_w(wn) - PANEL_R && y1 <= wn->y + outer_h(wn) - PANEL_R) start = k;
-            else if (x0 < wn->x + outer_w(wn) + WM_GLOW && x1 > wn->x - WM_GLOW && y0 < wn->y + outer_h(wn) + WM_GLOW && y1 > wn->y - WM_GLOW) break;
+    if (fs < 0 && cull_enabled) {                         /* обычный кадр: каждая точка собирается один раз, под верхним окном нижние слои не рисуются */
+        layers_visible(&clip, x0, y0, x1, y1, seq, ns);
+    } else {                                              /* без отсечения (проверки) и под полноэкранным окном: все слои с нуля */
+        uint64_t tb0 = pnow();
+        if (bg) gfx_blit(&clip, 0, 0, &bgs, x0, y0, rw, rh);
+        else gfx_rect(&clip, 0, 0, rw, rh, TH_BG0);
+        padd(&prof.bg_ns, pnow() - tb0);
+        if (fs < 0) {
+            if (!wp_rgb && bg_fancy) brainfx_draw(&clip, ox, oy, anim_ms);
+            if (home_open) draw_home(&clip, ox, oy);
         }
-    }
-    uint64_t tb0 = pnow();
-    if (content_only) {
-        const win_t* wn = &win[seq[start]];
-        blit_content(&clip, wn->x + WM_PAD + ox, wn->y + WM_HEAD + oy, disp_w(wn), disp_h(wn), wn);
-    } else {
-        if (start < 0) {
-            if (bg) gfx_blit(&clip, 0, 0, &bgs, x0, y0, rw, rh);
-            else gfx_rect(&clip, 0, 0, rw, rh, TH_BG0);
-            padd(&prof.bg_ns, pnow() - tb0);
-            if (fs < 0) {
-                if (!wp_rgb && bg_fancy) brainfx_draw(&clip, ox, oy, anim_ms);
-                if (home_open) draw_home(&clip, ox, oy);
-            }
-            start = 0;
-        }
-        for (int k = start; k < ns; k++) {
+        for (int k = 0; k < ns; k++) {
             const win_t* wn = &win[seq[k]];
             uint64_t tp = pnow();
             if (wn->full) draw_fullscreen(&clip, ox, oy, seq[k]);

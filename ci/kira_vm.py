@@ -819,6 +819,7 @@ def run(sc, args):
                 masks.append((0, 0, 100000, 44))                                  # верхняя панель: часы и метры
                 masks.append((cur[0] - 24, cur[1] - 24, cur[0] + 40, cur[1] + 40))   # курсор
                 a = vm.screenshot_image(f"{i:02d}-{rc['name']}-partial")
+                masks.append((a.size[0] - 320, a.size[1] - 178, a.size[0] - 16, a.size[1] - 16))     # панель «Состояние системы» (живые метрики), геометрия как у damage_home в wm.c
                 vm.command("fb redraw", 30)
                 vm.pump(1.0)
                 b = vm.screenshot_image(f"{i:02d}-{rc['name']}-full")

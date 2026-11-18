@@ -87,6 +87,52 @@ static void diff_invalidate(void) {
     free(sc.px);
 }
 
+/* Перетаскивание: после каждого шага (в том числе больших скачков мыши - быстрое перетаскивание) кадр, собранный по повреждённым частям,
+   совпадает с кадром, перерисованным с нуля. Окна перекрываются, одно уменьшено (масштаб), одно живое (содержимое меняется каждый шаг). */
+static void drag_random(void) {
+    surface_t sc = { calloc(1024 * 768, 4), 1024, 768, 1024 };
+    wm_ops_t ops = { al, nt, inp, lc, rz, tb, 0, rel };
+    wm_init(&sc, &ops);
+    wm_side_set(0, 0);
+    int ids[4];
+    ids[0] = wm_create("d0", 120, 100, 300, 200, WM_CLOSABLE);
+    ids[1] = wm_create("d1", 260, 160, 360, 240, WM_CLOSABLE);
+    ids[2] = wm_create_ex("d2", 420, 220, 700, 500, WM_RESIZABLE | WM_ZOOMABLE, 900, 700);
+    ids[3] = wm_create("d3", 600, 120, 280, 180, WM_CLOSABLE);
+    for (int n = 0; n < 4; n++) {
+        surface_t* c = wm_content(ids[n]);
+        for (int j = 0; j < c->h; j++) for (int i = 0; i < c->w; i++) c->px[j * c->pitch + i] = (uint32_t)((i * 7 + j * 3 + n * 50) & 0xFFFFFF);
+        wm_invalidate_diff(ids[n]);
+    }
+    same_as_full(&sc, "drag: начало");
+    unsigned seed = 777;
+    #define RND() (seed = seed * 1103515245u + 12345u, (int)(seed >> 8))
+    for (int it = 0; it < 120; it++) {
+        int n = RND() % 4, wx, wy, ww, wh; const char* t;
+        CHECK(wm_window_info(ids[n], &wx, &wy, &ww, &wh, &t) >= 0);
+        move_to(wx + ww / 2, wy + 15, 0);                       /* середина заголовка */
+        frame();
+        int steps = 3 + RND() % 6;
+        wm_mouse(0, 0, 1);                                       /* нажали: окно берётся (и поднимается, если не закрыто другим) */
+        for (int s = 0; s < steps; s++) {
+            int big = (RND() % 3 == 0);
+            int dx = (RND() % (big ? 400 : 60)) - (big ? 200 : 30), dy = (RND() % (big ? 300 : 40)) - (big ? 150 : 20);
+            wm_mouse(dx, dy, 1);
+            if (it % 3 == 0) {                                   /* живое окно меняется в тот же кадр */
+                surface_t* c = wm_content(ids[(n + 1) & 3]);
+                for (int j = 0; j < 10; j++) for (int i = 0; i < c->w && i < 90; i++) c->px[(RND() % c->h) * c->pitch + i] ^= 0x2468AC;
+                wm_invalidate_diff(ids[(n + 1) & 3]);
+            }
+            same_as_full(&sc, "drag: шаг");
+        }
+        wm_mouse(0, 0, 0);
+        same_as_full(&sc, "drag: отпустили");
+    }
+    #undef RND
+    for (int n = 0; n < 4; n++) wm_destroy(ids[n]);
+    free(sc.px);
+}
+
 /* Док: состояния значка (нет окна / свёрнуто / открыто / в фокусе), щелчки, несколько окон одной программы,
    сжатие плиток, когда значков много. Полоса под плиткой: длинная цветная - открыто, короткая тусклая точка - свёрнуто. */
 static uint32_t ind(surface_t* sc, int i) { int sx, sy; wm_side_center(i, &sx, &sy); frame(); return px(sc, sx, sy + wm_side_tile() / 2 + 4); }
@@ -589,6 +635,7 @@ int main(void) {
 
     dock_states();
     diff_invalidate();
+    drag_random();
     responsive_topbar();
     printf("wm: shell top bar (responsive tabs and fitted app windows at 640x480, 800x600, 1024x768, 1280x720, 1920x1080; clock and meters), side launcher, traffic-light buttons, z-order, damage, drag, "
            "fullscreen, pinned, app and kernel input, zoom, owner resize, live background, culling = full redraw, partial content redraw = full, dock states / cycling / compression passed\n");
